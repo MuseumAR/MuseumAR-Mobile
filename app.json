@@ -1,15 +1,23 @@
 {
   "expo": {
-    "name": "MuseumAR-Frontend-Mobile",
+    "name": "MuseumAR",
     "slug": "MuseumAR-Frontend-Mobile",
     "version": "1.0.0",
+    "scheme": "museumar",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "plugins": [
+      "expo-router"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
     "ios": {
       "supportsTablet": true
     },
     "android": {
+      "package": "com.museumar.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
