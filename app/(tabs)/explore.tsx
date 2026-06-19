@@ -1,5 +1,6 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { C } from '../../src/theme/colors';
 import {
   FlatList,
   ScrollView,
@@ -10,22 +11,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const CATEGORIES = ['Tất cả', 'Đồ đồng', 'Gốm sứ', 'Điêu khắc', 'Vũ khí', 'Trang sức'];
-
-const EXHIBITS = [
-  { id: '1', title: 'Trống đồng Đông Sơn', era: 'Thế kỷ VII-I TCN', category: 'Đồ đồng' },
-  { id: '2', title: 'Tượng Phật Đồng Dương', era: 'Thế kỷ IX', category: 'Điêu khắc' },
-  { id: '3', title: 'Gốm Chu Đậu', era: 'Thế kỷ XIV-XV', category: 'Gốm sứ' },
-  { id: '4', title: 'Kiếm thời Trần', era: 'Thế kỷ XIII-XIV', category: 'Vũ khí' },
-  { id: '5', title: 'Vòng đeo tay vàng Óc Eo', era: 'Thế kỷ I-VII', category: 'Trang sức' },
-  { id: '6', title: 'Bình gốm Lý', era: 'Thế kỷ XI-XIII', category: 'Gốm sứ' },
-];
+import { EXHIBITS, EXHIBIT_CATEGORIES } from '../../src/data/exhibits';
 
 export default function ExploreScreen() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
+  const CATEGORIES = EXHIBIT_CATEGORIES;
 
   const filtered = EXHIBITS.filter((e) => {
     const matchCategory =
@@ -99,18 +91,18 @@ export default function ExploreScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F8FAFF' },
+  safe: { flex: 1, backgroundColor: C.bgPrimary },
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
-  title: { fontSize: 28, fontWeight: '700', color: '#111827', marginBottom: 12 },
+  title: { fontSize: 28, fontWeight: '700', color: C.textPrimary, marginBottom: 12 },
   search: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.bgElevated,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
     fontSize: 15,
-    color: '#111827',
+    color: C.textPrimary,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: C.border,
   },
   categoriesScroll: { flexGrow: 0 },
   categories: { paddingHorizontal: 20, paddingVertical: 12, gap: 8, alignItems: 'center' },
@@ -118,32 +110,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.bgSurface,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: C.border,
     marginRight: 8,
   },
-  categoryChipActive: { backgroundColor: '#1A6FA8', borderColor: '#1A6FA8' },
-  categoryText: { fontSize: 13, color: '#6B7280', fontWeight: '600' },
+  categoryChipActive: { backgroundColor: C.accent, borderColor: C.accent },
+  categoryText: { fontSize: 13, color: C.textSecondary, fontWeight: '600' },
   categoryTextActive: { color: '#FFFFFF' },
   list: { paddingHorizontal: 12, paddingBottom: 24 },
   row: { gap: 12, marginBottom: 12 },
   gridCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.bgSurface,
     borderRadius: 14,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  gridThumb: { width: '100%', height: 120, backgroundColor: '#E6F4FE' },
+  gridThumb: { width: '100%', height: 120, backgroundColor: C.bgElevated },
   gridContent: { padding: 12 },
-  gridCategory: { fontSize: 10, color: '#1A6FA8', fontWeight: '700', textTransform: 'uppercase' },
-  gridTitle: { fontSize: 14, fontWeight: '700', color: '#111827', marginTop: 4 },
-  gridEra: { fontSize: 11, color: '#9CA3AF', marginTop: 4 },
+  gridCategory: { fontSize: 10, color: C.accent, fontWeight: '700', textTransform: 'uppercase' },
+  gridTitle: { fontSize: 14, fontWeight: '700', color: C.textPrimary, marginTop: 4 },
+  gridEra: { fontSize: 11, color: C.textMuted, marginTop: 4 },
   empty: { alignItems: 'center', paddingTop: 40 },
-  emptyText: { color: '#9CA3AF', fontSize: 15 },
+  emptyText: { color: C.textMuted, fontSize: 15 },
 });

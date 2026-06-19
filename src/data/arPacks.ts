@@ -20,7 +20,7 @@ export const AR_PACKS: ARPack[] = [
     sizeMB: 128,
     artifactCount: 12,
     category: 'Đồ đồng',
-    color: '#1A6FA8',
+    color: '#D4A94D',
     artifacts: ['Trống đồng Ngọc Lũ', 'Thạp đồng Đào Thịnh', 'Rìu đồng Đông Sơn', 'Vòng tay đồng'],
   },
   {
@@ -31,7 +31,7 @@ export const AR_PACKS: ARPack[] = [
     sizeMB: 85,
     artifactCount: 8,
     category: 'Sơ sử',
-    color: '#059669',
+    color: '#A97142',
     artifacts: ['Mũi tên đồng', 'Rìu đá', 'Gốm Phùng Nguyên', 'Hạt cườm đá'],
   },
   {
@@ -42,7 +42,7 @@ export const AR_PACKS: ARPack[] = [
     sizeMB: 210,
     artifactCount: 18,
     category: 'Gốm sứ',
-    color: '#D97706',
+    color: '#D4A94D',
     artifacts: ['Bát hoa lam thời Lê', 'Ấn vàng triều Nguyễn', 'Gốm men ngọc thời Lý', 'Tiền đồng cổ'],
   },
 
@@ -66,7 +66,7 @@ export const AR_PACKS: ARPack[] = [
     sizeMB: 95,
     artifactCount: 15,
     category: 'Tư liệu',
-    color: '#7C3AED',
+    color: '#A97142',
     artifacts: ['Bản đồ chiến dịch Hồ Chí Minh', 'Máy bộ đàm PRC-25', 'Mũ sắt M1', 'Bi đông nước'],
   },
 
@@ -90,7 +90,7 @@ export const AR_PACKS: ARPack[] = [
     sizeMB: 180,
     artifactCount: 54,
     category: 'Trang phục',
-    color: '#D97706',
+    color: '#D4A94D',
     artifacts: ['Áo dài Kinh', 'Váy thêu H\'Mông', 'Khăn Piêu Thái', 'Trang phục Chăm'],
   },
 
@@ -114,7 +114,7 @@ export const AR_PACKS: ARPack[] = [
     sizeMB: 390,
     artifactCount: 9,
     category: 'Kiến trúc',
-    color: '#1A6FA8',
+    color: '#A97142',
     artifacts: ['Đài thờ Trà Kiệu', 'Tháp Chăm nhóm B', 'Linga - Yoni', 'Bệ thờ Mỹ Sơn E1'],
   },
 
@@ -138,7 +138,7 @@ export const AR_PACKS: ARPack[] = [
     sizeMB: 220,
     artifactCount: 16,
     category: 'Điêu khắc',
-    color: '#DC2626',
+    color: '#D4A94D',
     artifacts: ['Tượng Quan Âm nghìn tay', 'Phù điêu đình Tây Đằng', 'Tượng hổ gỗ', 'Đầu rồng gỗ'],
   },
 ];

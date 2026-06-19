@@ -1,4 +1,5 @@
 import { Link, useRouter } from 'expo-router';
+import { C } from '../../src/theme/colors';
 import { useState } from 'react';
 import {
   KeyboardAvoidingView,
@@ -125,55 +126,43 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F8FAFF' },
+  safe: { flex: 1, backgroundColor: C.bgPrimary },
   flex: { flex: 1 },
   container: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 40 },
   backBtn: { marginBottom: 20 },
-  backText: { color: '#1A6FA8', fontSize: 16, fontWeight: '600' },
-  title: { fontSize: 28, fontWeight: '800', color: '#111827' },
-  subtitle: { fontSize: 14, color: '#9CA3AF', marginTop: 6, marginBottom: 28 },
+  backText: { color: C.accent, fontSize: 16, fontWeight: '600' },
+  title: { fontSize: 28, fontWeight: '800', color: C.textPrimary },
+  subtitle: { fontSize: 14, color: C.textMuted, marginTop: 6, marginBottom: 28 },
   form: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.bgSurface,
     borderRadius: 20,
     padding: 24,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 4 },
-    shadowRadius: 12,
-    elevation: 4,
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6 },
+  label: { fontSize: 13, fontWeight: '600', color: C.textSecondary, marginBottom: 6 },
   input: {
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: C.border,
     borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 14,
     fontSize: 15,
-    color: '#111827',
+    color: C.textPrimary,
     marginBottom: 16,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: C.bgElevated,
   },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 13,
-    marginBottom: 12,
-    textAlign: 'center',
-  },
+  errorText: { color: C.danger, fontSize: 13, marginBottom: 12, textAlign: 'center' },
   registerBtn: {
-    backgroundColor: '#1A6FA8',
+    backgroundColor: C.accent,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
     marginTop: 4,
   },
-  registerBtnDisabled: { opacity: 0.6 },
+  registerBtnDisabled: { opacity: 0.5 },
   registerBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  loginRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 20,
-  },
-  loginText: { color: '#6B7280', fontSize: 14 },
-  loginLink: { color: '#1A6FA8', fontSize: 14, fontWeight: '700' },
+  loginRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 20 },
+  loginText: { color: C.textSecondary, fontSize: 14 },
+  loginLink: { color: C.accent, fontSize: 14, fontWeight: '700' },
 });
