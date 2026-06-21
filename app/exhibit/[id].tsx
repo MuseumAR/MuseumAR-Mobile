@@ -3,50 +3,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const EXHIBIT_DATA: Record<
-  string,
-  {
-    title: string;
-    era: string;
-    category: string;
-    origin: string;
-    material: string;
-    description: string;
-    arAvailable: boolean;
-  }
-> = {
-  '1': {
-    title: 'Trống đồng Đông Sơn',
-    era: 'Thế kỷ VII - I TCN',
-    category: 'Đồ đồng',
-    origin: 'Miền Bắc Việt Nam',
-    material: 'Đồng thau',
-    description:
-      'Trống đồng Đông Sơn là biểu tượng văn hóa nổi bật của nền văn minh Đông Sơn. Những chiếc trống này được đúc bằng kỹ thuật tinh xảo, trang trí các hoa văn hình học và cảnh sinh hoạt của người Việt cổ. Trống đồng không chỉ là nhạc cụ mà còn là vật thiêng trong các nghi lễ tâm linh.',
-    arAvailable: true,
-  },
-  '2': {
-    title: 'Tượng Phật Đồng Dương',
-    era: 'Thế kỷ IX',
-    category: 'Điêu khắc',
-    origin: 'Quảng Nam',
-    material: 'Đá sa thạch',
-    description:
-      'Tượng Phật Đồng Dương là kiệt tác điêu khắc Champa, được khai quật tại khu phế tích Đồng Dương, Quảng Nam. Tượng thể hiện phong cách nghệ thuật đặc trưng của vương quốc Champa thế kỷ IX với những đường nét tinh tế và biểu cảm sâu sắc.',
-    arAvailable: false,
-  },
-  '3': {
-    title: 'Gốm Chu Đậu',
-    era: 'Thế kỷ XIV - XV',
-    category: 'Gốm sứ',
-    origin: 'Hải Dương',
-    material: 'Gốm men',
-    description:
-      'Gốm Chu Đậu là dòng gốm cao cấp được sản xuất tại làng Chu Đậu, Hải Dương. Nổi tiếng với nước men trắng ngà và họa tiết hoa lam tinh tế, gốm Chu Đậu từng được xuất khẩu sang nhiều nước châu Á và châu Âu trong thời Trung đại.',
-    arAvailable: true,
-  },
-};
+import { getExhibitById } from '../../src/data/exhibits';
+import { C } from '../../src/theme/colors';
 
 type ActionItem = {
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -59,7 +17,7 @@ type ActionItem = {
 export default function ExhibitDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const exhibit = EXHIBIT_DATA[id ?? '1'];
+  const exhibit = getExhibitById(id ?? '1');
   const [favorited, setFavorited] = useState(false);
 
   if (!exhibit) {
@@ -165,29 +123,29 @@ export default function ExhibitDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F8FAFF' },
+  safe: { flex: 1, backgroundColor: C.bgPrimary },
   scrollContent: { paddingBottom: 32 },
   notFound: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  notFoundText: { fontSize: 16, color: '#9CA3AF' },
+  notFoundText: { fontSize: 16, color: C.textMuted },
   hero: {
     width: '100%',
     height: 260,
-    backgroundColor: '#E6F4FE',
+    backgroundColor: C.bgSurface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroCategory: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#1A6FA8',
+    color: C.accent,
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginBottom: 8,
   },
-  heroHint: { color: '#9CA3AF', fontSize: 14 },
+  heroHint: { color: C.textMuted, fontSize: 14 },
   content: { padding: 24 },
-  title: { fontSize: 26, fontWeight: '800', color: '#111827' },
-  era: { fontSize: 15, color: '#6B7280', marginTop: 6, marginBottom: 20 },
+  title: { fontSize: 26, fontWeight: '800', color: C.textPrimary },
+  era: { fontSize: 15, color: C.textSecondary, marginTop: 6, marginBottom: 20 },
 
   /* 4 action cards */
   actionGrid: {
@@ -197,29 +155,24 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.bgSurface,
     borderRadius: 14,
     paddingVertical: 14,
     alignItems: 'center',
     gap: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 6,
-    elevation: 2,
     borderWidth: 1,
-    borderColor: '#F3F4F6',
+    borderColor: C.border,
   },
   actionLabel: {
     fontSize: 11,
     fontWeight: '700',
-    color: '#374151',
+    color: C.textSecondary,
   },
 
   arBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A6FA8',
+    backgroundColor: C.accent,
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 20,
@@ -230,18 +183,15 @@ const styles = StyleSheet.create({
   infoGrid: { flexDirection: 'row', gap: 12, marginBottom: 20 },
   infoItem: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.bgSurface,
     borderRadius: 12,
     padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 4,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: C.border,
   },
-  infoLabel: { fontSize: 11, color: '#9CA3AF', fontWeight: '600', textTransform: 'uppercase' },
-  infoValue: { fontSize: 15, fontWeight: '700', color: '#111827', marginTop: 6 },
+  infoLabel: { fontSize: 11, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase' },
+  infoValue: { fontSize: 15, fontWeight: '700', color: C.textPrimary, marginTop: 6 },
   descSection: { marginTop: 4 },
-  descTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 12 },
-  descText: { fontSize: 15, color: '#374151', lineHeight: 26 },
+  descTitle: { fontSize: 18, fontWeight: '700', color: C.textPrimary, marginBottom: 12 },
+  descText: { fontSize: 15, color: C.textSecondary, lineHeight: 26 },
 });

@@ -1,18 +1,23 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
-import { StyleSheet } from 'react-native';
-
-const ACTIVE_COLOR = '#1A6FA8';
-const INACTIVE_COLOR = '#9CA3AF';
+import { StyleSheet, View } from 'react-native';
+import { C } from '../../src/theme/colors';
 
 type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
 
-function TabIcon({ name, focused }: { name: IconName; focused: boolean }) {
+function TabIcon({ name, focused, highlight }: { name: IconName; focused: boolean; highlight?: boolean }) {
+  if (highlight) {
+    return (
+      <View style={styles.scanTab}>
+        <MaterialCommunityIcons name={name} size={22} color={focused ? C.bgPrimary : '#FFFFFF'} />
+      </View>
+    );
+  }
   return (
     <MaterialCommunityIcons
       name={name}
       size={24}
-      color={focused ? ACTIVE_COLOR : INACTIVE_COLOR}
+      color={focused ? C.tabActive : C.tabInactive}
     />
   );
 }
@@ -22,8 +27,8 @@ export default function TabsLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: ACTIVE_COLOR,
-        tabBarInactiveTintColor: INACTIVE_COLOR,
+        tabBarActiveTintColor: C.tabActive,
+        tabBarInactiveTintColor: C.tabInactive,
         tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.tabLabel,
       }}
@@ -31,14 +36,14 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Trang chủ',
+          title: 'Home',
           tabBarIcon: ({ focused }) => <TabIcon name="home-outline" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="explore"
         options={{
-          title: 'Khám phá',
+          title: 'Explore',
           tabBarIcon: ({ focused }) => <TabIcon name="compass-outline" focused={focused} />,
         }}
       />
@@ -46,45 +51,56 @@ export default function TabsLayout() {
         name="scan"
         options={{
           title: 'AR Scan',
-          tabBarIcon: ({ focused }) => <TabIcon name="line-scan" focused={focused} />,
-        }}
-      />
-      <Tabs.Screen
-        name="ticket"
-        options={{
-          title: 'Mua vé',
-          tabBarIcon: ({ focused }) => <TabIcon name="ticket-outline" focused={focused} />,
+          tabBarIcon: ({ focused }) => <TabIcon name="line-scan" focused={focused} highlight />,
+          tabBarLabel: () => null,
         }}
       />
       <Tabs.Screen
         name="map"
         options={{
-          title: 'Bản đồ',
-          tabBarIcon: ({ focused }) => <TabIcon name="map-outline" focused={focused} />,
+          title: 'Museums',
+          tabBarIcon: ({ focused }) => <TabIcon name="bank-outline" focused={focused} />,
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Hồ sơ',
+          title: 'Profile',
           tabBarIcon: ({ focused }) => <TabIcon name="account-outline" focused={focused} />,
         }}
       />
+      {/* Hidden tabs */}
+      <Tabs.Screen name="ticket" options={{ href: null }} />
     </Tabs>
   );
 }
 
 const styles = StyleSheet.create({
   tabBar: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.tabBg,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-    height: 62,
-    paddingBottom: 8,
+    borderTopColor: C.tabBorder,
+    height: 66,
+    paddingBottom: 10,
     paddingTop: 6,
   },
   tabLabel: {
     fontSize: 10,
     fontWeight: '600',
+    letterSpacing: 0.2,
+  },
+  scanTab: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: C.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+    shadowColor: C.accent,
+    shadowOpacity: 0.5,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
   },
 });

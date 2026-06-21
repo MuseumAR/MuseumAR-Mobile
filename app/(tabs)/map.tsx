@@ -1,119 +1,270 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import { useState } from 'react';
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { MUSEUMS, type MuseumRecord } from '../../src/data/museums';
+import { C } from '../../src/theme/colors';
 
-const ZONES = [
-  { id: '1', name: 'Khu Tiền sử', floor: 'Tầng 1', color: '#F59E0B', items: 24 },
-  { id: '2', name: 'Khu Đông Sơn', floor: 'Tầng 1', color: '#10B981', items: 36 },
-  { id: '3', name: 'Khu Champa', floor: 'Tầng 2', color: '#8B5CF6', items: 18 },
-  { id: '4', name: 'Khu Óc Eo', floor: 'Tầng 2', color: '#EF4444', items: 21 },
-  { id: '5', name: 'Khu Phong kiến', floor: 'Tầng 3', color: '#1A6FA8', items: 45 },
-];
+// ─── Data ─────────────────────────────────────────────────────────────────────
 
-export default function MapScreen() {
+const CITIES = ['All', 'Hà Nội', 'TP. Hồ Chí Minh', 'Đà Nẵng'];
+
+const MUSEUM_EMOJI: Record<string, string> = {
+  m1: '🏛', m2: '⚔️', m3: '🎭', m4: '🗿', m5: '🎨',
+};
+
+// ─── Museum card ──────────────────────────────────────────────────────────────
+
+function MuseumCard({ museum }: { museum: MuseumRecord }) {
+  const router = useRouter();
+
+  return (
+    <TouchableOpacity
+      style={styles.card}
+      activeOpacity={0.88}
+      onPress={() => router.push(`/museum/${museum.id}`)}
+    >
+      {/* Visual header */}
+      <View style={[styles.cardHeader, { backgroundColor: museum.color + '18' }]}>
+        <Text style={styles.cardEmoji}>{MUSEUM_EMOJI[museum.id] ?? '🏛'}</Text>
+
+        <LinearGradient
+          colors={['transparent', 'rgba(19,23,38,0.92)']}
+          style={styles.cardHeaderGradient}
+        />
+
+        {/* Tag badge */}
+        <View style={[styles.tagBadge, { borderColor: museum.color + '60' }]}>
+          <Text style={[styles.tagText, { color: museum.color }]}>{museum.tag}</Text>
+        </View>
+      </View>
+
+      {/* Info body */}
+      <View style={styles.cardBody}>
+        <Text style={styles.cardName} numberOfLines={2}>{museum.name}</Text>
+
+        <View style={styles.cardLocation}>
+          <MaterialCommunityIcons name="map-marker-outline" size={13} color={C.textSecondary} />
+          <Text style={styles.cardCity}>{museum.city}</Text>
+        </View>
+
+        {/* Stats row */}
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <MaterialCommunityIcons name="cube-outline" size={12} color={C.accent} />
+            <Text style={styles.statText}>{museum.exhibits.toLocaleString('vi-VN')}</Text>
+          </View>
+          <View style={styles.statDot} />
+          <View style={styles.statItem}>
+            <MaterialCommunityIcons name="layers-outline" size={12} color={C.accent} />
+            <Text style={styles.statText}>{museum.zones.length} zones</Text>
+          </View>
+          <View style={styles.statDot} />
+          <View style={styles.statItem}>
+            <MaterialCommunityIcons name="augmented-reality" size={12} color={C.accent} />
+            <Text style={styles.statText}>AR</Text>
+          </View>
+        </View>
+
+        {/* Hours + CTA */}
+        <View style={styles.cardFooter}>
+          <View style={styles.hoursWrap}>
+            <MaterialCommunityIcons name="clock-outline" size={12} color={C.success} />
+            <Text style={styles.hoursText}>{museum.openHours}</Text>
+          </View>
+
+          <LinearGradient
+            colors={[C.accent, C.bronze]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.exploreBtn}
+          >
+            <Text style={styles.exploreBtnText}>Explore</Text>
+            <MaterialCommunityIcons name="arrow-right" size={12} color={C.bgPrimary} />
+          </LinearGradient>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Main screen ──────────────────────────────────────────────────────────────
+
+export default function MuseumsScreen() {
+  const [search, setSearch] = useState('');
+  const [activeCity, setActiveCity] = useState('All');
+
+  const filtered = MUSEUMS.filter((m) => {
+    const matchCity = activeCity === 'All' || m.city === activeCity;
+    const matchSearch =
+      search.trim() === '' ||
+      m.name.toLowerCase().includes(search.toLowerCase()) ||
+      m.city.toLowerCase().includes(search.toLowerCase());
+    return matchCity && matchSearch;
+  });
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Bản đồ bảo tàng</Text>
-        <Text style={styles.subtitle}>Chọn khu vực để xem danh sách hiện vật</Text>
-      </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
 
-      {/* Map placeholder - sẽ tích hợp expo-location / bản đồ SVG sau */}
-      <View style={styles.mapPlaceholder}>
-        <View style={styles.mapGrid}>
-          {ZONES.slice(0, 2).map((zone) => (
-            <View key={zone.id} style={[styles.mapZone, { backgroundColor: zone.color + '33' }]}>
-              <View style={[styles.mapZoneDot, { backgroundColor: zone.color }]} />
-              <Text style={[styles.mapZoneLabel, { color: zone.color }]}>{zone.name}</Text>
-            </View>
-          ))}
+        {/* ── Header ───────────────────────────────────────────────────── */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerLabel}>EXPLORE</Text>
+            <Text style={styles.title}>Museums</Text>
+            <Text style={styles.subtitle}>{filtered.length} museums available</Text>
+          </View>
+          <View style={[styles.headerIcon, { backgroundColor: C.accentDark, borderColor: C.accent + '40' }]}>
+            <MaterialCommunityIcons name="bank-outline" size={22} color={C.accent} />
+          </View>
         </View>
-        <View style={styles.mapGrid}>
-          {ZONES.slice(2, 4).map((zone) => (
-            <View key={zone.id} style={[styles.mapZone, { backgroundColor: zone.color + '33' }]}>
-              <View style={[styles.mapZoneDot, { backgroundColor: zone.color }]} />
-              <Text style={[styles.mapZoneLabel, { color: zone.color }]}>{zone.name}</Text>
-            </View>
-          ))}
-        </View>
-        <View style={styles.mapGrid}>
-          {ZONES.slice(4).map((zone) => (
-            <View
-              key={zone.id}
-              style={[styles.mapZone, styles.mapZoneFull, { backgroundColor: zone.color + '33' }]}
-            >
-              <View style={[styles.mapZoneDot, { backgroundColor: zone.color }]} />
-              <Text style={[styles.mapZoneLabel, { color: zone.color }]}>{zone.name}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
 
-      {/* Zone list */}
-      <View style={styles.zoneList}>
-        <Text style={styles.zoneListTitle}>Các khu trưng bày</Text>
-        {ZONES.map((zone) => (
-          <TouchableOpacity key={zone.id} style={styles.zoneCard}>
-            <View style={[styles.zoneColorBar, { backgroundColor: zone.color }]} />
-            <View style={styles.zoneInfo}>
-              <Text style={styles.zoneName}>{zone.name}</Text>
-              <Text style={styles.zoneMeta}>
-                {zone.floor} · {zone.items} hiện vật
-              </Text>
-            </View>
-            <Text style={styles.zoneArrow}>›</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+        {/* ── Search bar ───────────────────────────────────────────────── */}
+        <View style={styles.searchWrap}>
+          <MaterialCommunityIcons name="magnify" size={18} color={C.textMuted} style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search museums..."
+            placeholderTextColor={C.textMuted}
+            value={search}
+            onChangeText={setSearch}
+            selectionColor={C.accent}
+          />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')}>
+              <MaterialCommunityIcons name="close-circle" size={16} color={C.textMuted} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* ── City filter ──────────────────────────────────────────────── */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.filterList}
+        >
+          {CITIES.map((city) => {
+            const active = activeCity === city;
+            return (
+              <TouchableOpacity
+                key={city}
+                style={[styles.filterChip, active && styles.filterChipActive]}
+                onPress={() => setActiveCity(city)}
+              >
+                {active && (
+                  <LinearGradient
+                    colors={[C.accent + '30', C.accent + '10']}
+                    style={StyleSheet.absoluteFill}
+                  />
+                )}
+                <Text style={[styles.filterText, active && styles.filterTextActive]}>{city}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* ── Museum list ──────────────────────────────────────────────── */}
+        {filtered.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyEmoji}>🏛</Text>
+            <Text style={styles.emptyText}>No museums found</Text>
+          </View>
+        ) : (
+          <View style={styles.museumList}>
+            {filtered.map((museum) => (
+              <MuseumCard key={museum.id} museum={museum} />
+            ))}
+          </View>
+        )}
+
+        <View style={{ height: 24 }} />
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F8FAFF' },
-  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12 },
-  title: { fontSize: 28, fontWeight: '700', color: '#111827' },
-  subtitle: { fontSize: 14, color: '#6B7280', marginTop: 4 },
-  mapPlaceholder: {
-    marginHorizontal: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    gap: 10,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
+  safe:          { flex: 1, backgroundColor: C.bgPrimary },
+  scrollContent: { paddingBottom: 8 },
+
+  header: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 18,
   },
-  mapGrid: { flexDirection: 'row', gap: 10 },
-  mapZone: {
-    flex: 1,
-    borderRadius: 10,
-    padding: 12,
-    height: 70,
-    justifyContent: 'flex-end',
+  headerLabel: { fontSize: 10, fontWeight: '700', color: C.accent, letterSpacing: 2, marginBottom: 3 },
+  title:    { fontSize: 26, fontWeight: '800', color: C.textPrimary, letterSpacing: -0.4 },
+  subtitle: { fontSize: 13, color: C.textSecondary, marginTop: 4 },
+  headerIcon: {
+    width: 46, height: 46, borderRadius: 23,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, marginTop: 4,
   },
-  mapZoneFull: { flex: 1 },
-  mapZoneDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 6 },
-  mapZoneLabel: { fontSize: 11, fontWeight: '700' },
-  zoneList: { paddingHorizontal: 20, paddingTop: 16 },
-  zoneListTitle: { fontSize: 16, fontWeight: '700', color: '#111827', marginBottom: 10 },
-  zoneCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    marginBottom: 8,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 4,
-    elevation: 1,
+
+  searchWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: C.bgSurface, borderRadius: 14,
+    marginHorizontal: 20, marginBottom: 16,
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderWidth: 1, borderColor: C.border, gap: 10,
   },
-  zoneColorBar: { width: 4, height: '100%', minHeight: 56 },
-  zoneInfo: { flex: 1, paddingHorizontal: 14, paddingVertical: 14 },
-  zoneName: { fontSize: 15, fontWeight: '600', color: '#111827' },
-  zoneMeta: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
-  zoneArrow: { fontSize: 22, color: '#9CA3AF', paddingRight: 16 },
+  searchIcon:  {},
+  searchInput: { flex: 1, fontSize: 15, color: C.textPrimary, padding: 0 },
+
+  filterList: { paddingHorizontal: 20, gap: 8, marginBottom: 20 },
+  filterChip: {
+    paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 20, overflow: 'hidden',
+    backgroundColor: C.bgSurface, borderWidth: 1, borderColor: C.border,
+  },
+  filterChipActive: { borderColor: C.accent + '60' },
+  filterText:       { fontSize: 13, color: C.textMuted, fontWeight: '600' },
+  filterTextActive: { color: C.accent, fontWeight: '700' },
+
+  museumList: { paddingHorizontal: 20, gap: 16 },
+
+  // Museum card
+  card: {
+    backgroundColor: C.bgSurface, borderRadius: 20,
+    overflow: 'hidden', borderWidth: 1, borderColor: C.border,
+  },
+  cardHeader: {
+    height: 130, alignItems: 'center', justifyContent: 'center',
+    position: 'relative',
+  },
+  cardEmoji: { fontSize: 56 },
+  cardHeaderGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 70 },
+  tagBadge: {
+    position: 'absolute', top: 12, left: 12,
+    paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 8, borderWidth: 1,
+    backgroundColor: 'rgba(19,23,38,0.75)',
+  },
+  tagText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
+
+  cardBody: { padding: 16 },
+  cardName: { fontSize: 16, fontWeight: '800', color: C.textPrimary, lineHeight: 22, marginBottom: 6 },
+  cardLocation: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 12 },
+  cardCity: { fontSize: 13, color: C.textSecondary },
+
+  statsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 14 },
+  statItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  statText:  { fontSize: 12, color: C.textSecondary },
+  statDot:   { width: 3, height: 3, borderRadius: 2, backgroundColor: C.border },
+
+  cardFooter:   { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  hoursWrap:    { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  hoursText:    { fontSize: 12, color: C.success, fontWeight: '600' },
+  exploreBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10,
+  },
+  exploreBtnText: { fontSize: 12, fontWeight: '700', color: C.bgPrimary },
+
+  empty:      { alignItems: 'center', paddingTop: 60, gap: 12 },
+  emptyEmoji: { fontSize: 48 },
+  emptyText:  { fontSize: 16, color: C.textMuted, fontWeight: '600' },
 });

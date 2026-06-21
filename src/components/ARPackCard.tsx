@@ -1,7 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { ARPack } from '../data/arPacks';
 import { PackState } from '../hooks/useARPacks';
+import { C } from '../theme/colors';
 
 type Props = {
   pack: ARPack;
@@ -11,26 +13,31 @@ type Props = {
 };
 
 export function ARPackCard({ pack, state, onDownload, onDelete }: Props) {
-  const isDownloaded = state.status === 'downloaded';
+  const isDownloaded  = state.status === 'downloaded';
   const isDownloading = state.status === 'downloading';
 
   return (
     <View style={styles.card}>
+      {/* Gold top accent line */}
+      <View style={[styles.accentLine, { backgroundColor: pack.color }]} />
+
       {/* Header */}
       <View style={styles.cardHeader}>
-        <View style={[styles.iconBg, { backgroundColor: pack.color + '20' }]}>
+        <View style={[styles.iconBg, { backgroundColor: pack.color + '20', borderColor: pack.color + '40' }]}>
           <MaterialCommunityIcons name="package-variant" size={22} color={pack.color} />
         </View>
+
         <View style={styles.info}>
           <Text style={styles.name}>{pack.name}</Text>
           <Text style={styles.meta}>
-            {pack.artifactCount} hiện vật · {pack.sizeMB} MB
+            {pack.artifactCount} artifacts · {pack.sizeMB} MB
           </Text>
         </View>
+
         {isDownloaded && (
           <View style={styles.downloadedBadge}>
-            <MaterialCommunityIcons name="check-circle" size={14} color="#059669" />
-            <Text style={styles.downloadedText}>Đã tải</Text>
+            <MaterialCommunityIcons name="check-circle" size={13} color={C.success} />
+            <Text style={styles.downloadedText}>Downloaded</Text>
           </View>
         )}
       </View>
@@ -38,52 +45,60 @@ export function ARPackCard({ pack, state, onDownload, onDelete }: Props) {
       {/* Description */}
       <Text style={styles.desc}>{pack.description}</Text>
 
-      {/* Artifact preview */}
-      <View style={styles.artifactList}>
+      {/* Artifact chips */}
+      <View style={styles.chipRow}>
         {pack.artifacts.slice(0, 3).map((a) => (
-          <View key={a} style={styles.artifactChip}>
-            <Text style={styles.artifactText} numberOfLines={1}>{a}</Text>
+          <View key={a} style={styles.chip}>
+            <Text style={styles.chipText} numberOfLines={1}>{a}</Text>
           </View>
         ))}
         {pack.artifacts.length > 3 && (
-          <View style={styles.artifactChip}>
-            <Text style={styles.artifactText}>+{pack.artifacts.length - 3}</Text>
+          <View style={[styles.chip, styles.chipMore]}>
+            <Text style={[styles.chipText, { color: C.accent }]}>+{pack.artifacts.length - 3}</Text>
           </View>
         )}
       </View>
 
-      {/* Progress bar when downloading */}
+      {/* Progress bar */}
       {isDownloading && (
-        <View style={styles.progressWrapper}>
+        <View style={styles.progressRow}>
           <View style={styles.progressTrack}>
             <View style={[styles.progressFill, { width: `${state.progress}%` as any }]} />
           </View>
-          <Text style={styles.progressText}>{state.progress}%</Text>
+          <Text style={styles.progressLabel}>{state.progress}%</Text>
         </View>
       )}
 
-      {/* Action buttons */}
+      {/* Actions */}
       <View style={styles.actions}>
         {isDownloaded ? (
           <>
-            <TouchableOpacity style={[styles.btn, styles.btnPrimary]}>
-              <MaterialCommunityIcons name="augmented-reality" size={16} color="#FFFFFF" />
-              <Text style={styles.btnPrimaryText}>Mở AR</Text>
+            <TouchableOpacity style={styles.btnPrimary} activeOpacity={0.85}>
+              <LinearGradient
+                colors={[C.accent, C.bronze]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.btnGradient}
+              >
+                <MaterialCommunityIcons name="augmented-reality" size={16} color={C.bgPrimary} />
+                <Text style={styles.btnPrimaryText}>Open AR</Text>
+              </LinearGradient>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.btn, styles.btnDanger]} onPress={onDelete}>
-              <MaterialCommunityIcons name="delete-outline" size={16} color="#EF4444" />
-              <Text style={styles.btnDangerText}>Xoá</Text>
+
+            <TouchableOpacity style={styles.btnDanger} onPress={onDelete} activeOpacity={0.8}>
+              <MaterialCommunityIcons name="delete-outline" size={16} color={C.danger} />
+              <Text style={styles.btnDangerText}>Delete</Text>
             </TouchableOpacity>
           </>
         ) : isDownloading ? (
-          <TouchableOpacity style={[styles.btn, styles.btnDisabled]} disabled>
-            <MaterialCommunityIcons name="download" size={16} color="#9CA3AF" />
-            <Text style={styles.btnDisabledText}>Đang tải... {state.progress}%</Text>
-          </TouchableOpacity>
+          <View style={styles.btnDisabled}>
+            <MaterialCommunityIcons name="download" size={16} color={C.textMuted} />
+            <Text style={styles.btnDisabledText}>Downloading… {state.progress}%</Text>
+          </View>
         ) : (
-          <TouchableOpacity style={[styles.btn, styles.btnDownload]} onPress={onDownload}>
-            <MaterialCommunityIcons name="download" size={16} color="#1A6FA8" />
-            <Text style={styles.btnDownloadText}>Tải xuống · {pack.sizeMB} MB</Text>
+          <TouchableOpacity style={styles.btnDownload} onPress={onDownload} activeOpacity={0.85}>
+            <MaterialCommunityIcons name="download" size={16} color={C.accent} />
+            <Text style={styles.btnDownloadText}>Download · {pack.sizeMB} MB</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -93,66 +108,90 @@ export function ARPackCard({ pack, state, onDownload, onDelete }: Props) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: C.bgSurface,
     borderRadius: 16,
-    padding: 16,
     marginBottom: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowOffset: { width: 0, height: 2 },
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
-  iconBg: { width: 44, height: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  info: { flex: 1 },
-  name: { fontSize: 15, fontWeight: '700', color: '#111827' },
-  meta: { fontSize: 12, color: '#9CA3AF', marginTop: 2 },
-  downloadedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: '#D1FAE5',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  downloadedText: { fontSize: 11, fontWeight: '700', color: '#059669' },
-  desc: { fontSize: 13, color: '#6B7280', lineHeight: 20, marginBottom: 10 },
-  artifactList: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 },
-  artifactChip: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  artifactText: { fontSize: 11, color: '#374151', fontWeight: '500' },
-  progressWrapper: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  progressTrack: {
-    flex: 1,
-    height: 6,
-    backgroundColor: '#E5E7EB',
-    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: C.border,
     overflow: 'hidden',
   },
-  progressFill: { height: '100%', backgroundColor: '#1A6FA8', borderRadius: 3 },
-  progressText: { fontSize: 12, fontWeight: '700', color: '#1A6FA8', minWidth: 36 },
-  actions: { flexDirection: 'row', gap: 10 },
-  btn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: 10,
+
+  accentLine: { height: 2, width: '100%' },
+
+  cardHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 12, padding: 16, paddingBottom: 10,
   },
-  btnPrimary: { backgroundColor: '#1A6FA8' },
-  btnPrimaryText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
-  btnDanger: { backgroundColor: '#FEE2E2', flex: 0, paddingHorizontal: 16 },
-  btnDangerText: { color: '#EF4444', fontWeight: '700', fontSize: 13 },
-  btnDownload: { backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE' },
-  btnDownloadText: { color: '#1A6FA8', fontWeight: '700', fontSize: 13 },
-  btnDisabled: { backgroundColor: '#F9FAFB', borderWidth: 1, borderColor: '#E5E7EB' },
-  btnDisabledText: { color: '#9CA3AF', fontWeight: '600', fontSize: 13 },
+  iconBg: {
+    width: 46, height: 46, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1,
+  },
+  info:  { flex: 1 },
+  name:  { fontSize: 15, fontWeight: '700', color: C.textPrimary },
+  meta:  { fontSize: 12, color: C.textSecondary, marginTop: 2 },
+
+  downloadedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    backgroundColor: '#22C55E18', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderColor: '#22C55E40',
+  },
+  downloadedText: { fontSize: 11, fontWeight: '700', color: C.success },
+
+  desc: {
+    fontSize: 13, color: C.textSecondary, lineHeight: 20,
+    paddingHorizontal: 16, marginBottom: 10,
+  },
+
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16, marginBottom: 14 },
+  chip: {
+    backgroundColor: C.bgElevated, borderRadius: 7,
+    paddingHorizontal: 9, paddingVertical: 4,
+    borderWidth: 1, borderColor: C.border,
+  },
+  chipMore: { borderColor: C.accent + '50', backgroundColor: C.accentDark },
+  chipText: { fontSize: 11, color: C.textSecondary, fontWeight: '500' },
+
+  progressRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 10, paddingHorizontal: 16, marginBottom: 12,
+  },
+  progressTrack: {
+    flex: 1, height: 5, backgroundColor: C.bgElevated,
+    borderRadius: 3, overflow: 'hidden',
+  },
+  progressFill:  { height: '100%', backgroundColor: C.accent, borderRadius: 3 },
+  progressLabel: { fontSize: 12, fontWeight: '700', color: C.accent, minWidth: 36 },
+
+  actions: { flexDirection: 'row', gap: 10, padding: 16, paddingTop: 0 },
+
+  btnPrimary: { flex: 1, borderRadius: 11, overflow: 'hidden' },
+  btnGradient: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 7, paddingVertical: 11,
+  },
+  btnPrimaryText: { color: C.bgPrimary, fontWeight: '700', fontSize: 13 },
+
+  btnDanger: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 5, paddingVertical: 11, paddingHorizontal: 14,
+    borderRadius: 11, backgroundColor: C.dangerMuted,
+    borderWidth: 1, borderColor: C.danger + '40',
+  },
+  btnDangerText: { color: C.danger, fontWeight: '700', fontSize: 13 },
+
+  btnDownload: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 7, paddingVertical: 11, borderRadius: 11,
+    backgroundColor: C.accentDark, borderWidth: 1, borderColor: C.accent + '50',
+  },
+  btnDownloadText: { color: C.accent, fontWeight: '700', fontSize: 13 },
+
+  btnDisabled: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 7, paddingVertical: 11, borderRadius: 11,
+    backgroundColor: C.bgElevated, borderWidth: 1, borderColor: C.border,
+  },
+  btnDisabledText: { color: C.textMuted, fontWeight: '600', fontSize: 13 },
 });
