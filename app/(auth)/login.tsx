@@ -2,6 +2,7 @@ import { Link, useRouter } from 'expo-router';
 import { C } from '../../src/theme/colors';
 import { useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -11,6 +12,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { apiService } from '../../src/services/apiService';
+import { saveToken } from '../../src/services/tokenStorage';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -19,13 +22,24 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!email || !password) return;
+    if (!email || !password) {
+      Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ email và mật khẩu.');
+      return;
+    }
     setLoading(true);
-    // TODO: gọi API đăng nhập
-    setTimeout(() => {
+    try {
+      const response = await apiService.login(email, password);
+      if (response.data && response.data.accessToken) {
+        await saveToken(response.data.accessToken);
+        router.replace('/(tabs)');
+      } else {
+        Alert.alert('Đăng nhập thất bại', response.message || 'Đăng nhập không thành công.');
+      }
+    } catch (error: any) {
+      Alert.alert('Lỗi kết nối', error.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại backend.');
+    } finally {
       setLoading(false);
-      router.replace('/(tabs)');
-    }, 1000);
+    }
   };
 
   return (

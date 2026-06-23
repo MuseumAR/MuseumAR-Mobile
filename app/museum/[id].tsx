@@ -4,10 +4,11 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ARPackCard } from '../../src/components/ARPackCard';
 import { getPacksByMuseum } from '../../src/data/arPacks';
-import { getMuseumById, type MuseumZone } from '../../src/data/museums';
+import { getMuseumById, MUSEUMS, type MuseumRecord, type MuseumZone } from '../../src/data/museums';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import {
   Animated,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -16,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../src/theme/colors';
+import { apiService } from '../../src/services/apiService';
 
 // ─── Pulsing dot (user location in floor plan) ────────────────────────────────
 
@@ -265,11 +267,57 @@ const fpS = StyleSheet.create({
 export default function MuseumDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const museum = getMuseumById(id ?? '');
+  const [museum, setMuseum] = useState<MuseumRecord | null>(null);
   const [favorited, setFavorited] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
   const arPacks = getPacksByMuseum(id ?? '');
+
+  useEffect(() => {
+    // Hiển thị trước mock data nếu có để tránh giật lag màn hình
+    const initial = getMuseumById(id ?? '');
+    if (initial) {
+      setMuseum(initial);
+    }
+
+    async function loadRealDetails() {
+      try {
+        const response = await apiService.getMuseums();
+        if (response.data && response.data.length > 0) {
+          const apiMuseum = response.data.find(
+            (m) => m.id.toString() === id || `m${m.id}` === id || m.name.toLowerCase() === initial?.name.toLowerCase()
+          );
+          if (apiMuseum) {
+            const local = MUSEUMS.find(
+              (m) => m.name.toLowerCase() === apiMuseum.name.toLowerCase() || m.id === `m${apiMuseum.id}`
+            );
+            const merged: MuseumRecord = {
+              id: apiMuseum.id.toString(),
+              name: apiMuseum.name,
+              city: apiMuseum.city || local?.city || 'Việt Nam',
+              tag: local?.tag || 'Lịch sử',
+              color: local?.color || '#1A6FA8',
+              address: apiMuseum.address || local?.address || '',
+              phone: local?.phone || '',
+              openHours: local?.openHours || '8:00 – 17:00',
+              closedDay: local?.closedDay || 'Thứ Hai',
+              ticketPrice: local?.ticketPrice || 'Miễn phí',
+              exhibits: local?.exhibits || 0,
+              founded: local?.founded || 'Chưa rõ',
+              description: apiMuseum.description || local?.description || '',
+              highlights: local?.highlights || [],
+              zones: local?.zones || [],
+              thumbnailUrl: apiMuseum.thumbnailUrl,
+            };
+            setMuseum(merged);
+          }
+        }
+      } catch (error) {
+        console.warn('Không thể tải chi tiết bảo tàng từ backend:', error);
+      }
+    }
+    loadRealDetails();
+  }, [id]);
 
   if (!museum) {
     return (
@@ -289,13 +337,18 @@ export default function MuseumDetailScreen() {
 
         {/* ── Hero ──────────────────────────────────────────────────────── */}
         <View style={[styles.hero, { backgroundColor: museum.color + '20' }]}>
+          {museum.thumbnailUrl && (
+            <Image source={{ uri: museum.thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          )}
           <LinearGradient
             colors={['transparent', C.bgPrimary]}
             style={styles.heroGradient}
           />
-          <View style={[styles.heroEmojiBg, { backgroundColor: museum.color + '25' }]}>
-            <Text style={styles.heroEmoji}>🏛</Text>
-          </View>
+          {!museum.thumbnailUrl && (
+            <View style={[styles.heroEmojiBg, { backgroundColor: museum.color + '25' }]}>
+              <Text style={styles.heroEmoji}>🏛</Text>
+            </View>
+          )}
           <View style={[styles.heroTag, { borderColor: museum.color + '60' }]}>
             <Text style={[styles.heroTagText, { color: museum.color }]}>{museum.tag}</Text>
           </View>

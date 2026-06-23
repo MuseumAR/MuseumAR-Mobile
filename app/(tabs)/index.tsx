@@ -1,11 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MUSEUMS } from '../../src/data/museums';
+import { MUSEUMS, type MuseumRecord } from '../../src/data/museums';
 import { getFeaturedExhibits } from '../../src/data/exhibits';
 import { C } from '../../src/theme/colors';
+import { useEffect, useState } from 'react';
+import { apiService, MuseumDto } from '../../src/services/apiService';
 
 // ─── Era categories ───────────────────────────────────────────────────────────
 const ERAS = [
@@ -28,9 +30,52 @@ const MUSEUM_EMOJI: Record<string, string> = {
   m1: '🏛', m2: '⚔️', m3: '🎭', m4: '🗿', m5: '🎨',
 };
 
+// Hàm gộp dữ liệu từ Backend API và dữ liệu giả lập Local
+function mergeMuseumData(apiMuseums: MuseumDto[]): MuseumRecord[] {
+  return apiMuseums.map((apiMuseum) => {
+    const local = MUSEUMS.find(
+      (m) => m.name.toLowerCase() === apiMuseum.name.toLowerCase() || m.id === `m${apiMuseum.id}`
+    );
+    return {
+      id: apiMuseum.id.toString(),
+      name: apiMuseum.name,
+      city: apiMuseum.city || local?.city || 'Việt Nam',
+      tag: local?.tag || 'Lịch sử',
+      color: local?.color || '#1A6FA8',
+      address: apiMuseum.address || local?.address || '',
+      phone: local?.phone || '',
+      openHours: local?.openHours || '8:00 – 17:00',
+      closedDay: local?.closedDay || 'Thứ Hai',
+      ticketPrice: local?.ticketPrice || 'Miễn phí',
+      exhibits: local?.exhibits || 0,
+      founded: local?.founded || 'Chưa rõ',
+      description: apiMuseum.description || local?.description || '',
+      highlights: local?.highlights || [],
+      zones: local?.zones || [],
+      thumbnailUrl: apiMuseum.thumbnailUrl,
+    } as MuseumRecord;
+  });
+}
+
 export default function HomeScreen() {
   const router = useRouter();
   const featuredExhibits = getFeaturedExhibits();
+  const [museumList, setMuseumList] = useState<MuseumRecord[]>(MUSEUMS);
+
+  useEffect(() => {
+    async function loadRealMuseums() {
+      try {
+        const response = await apiService.getMuseums();
+        if (response.data && response.data.length > 0) {
+          const merged = mergeMuseumData(response.data);
+          setMuseumList(merged);
+        }
+      } catch (error) {
+        console.warn('Không thể tải dữ liệu bảo tàng từ backend, sử dụng mock data:', error);
+      }
+    }
+    loadRealMuseums();
+  }, []);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -116,7 +161,7 @@ export default function HomeScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.museumList}
         >
-          {MUSEUMS.map((museum) => (
+          {museumList.map((museum) => (
             <TouchableOpacity
               key={museum.id}
               style={styles.museumCard}
@@ -125,7 +170,11 @@ export default function HomeScreen() {
             >
               {/* Card visual */}
               <View style={[styles.museumCardImage, { backgroundColor: museum.color + '18' }]}>
-                <Text style={styles.museumEmoji}>{MUSEUM_EMOJI[museum.id] ?? '🏛'}</Text>
+                {museum.thumbnailUrl ? (
+                  <Image source={{ uri: museum.thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                ) : (
+                  <Text style={styles.museumEmoji}>{MUSEUM_EMOJI[museum.id] ?? '🏛'}</Text>
+                )}
                 <LinearGradient
                   colors={['transparent', 'rgba(19,23,38,0.9)']}
                   style={styles.museumCardGradient}
@@ -301,12 +350,12 @@ const styles = StyleSheet.create({
     marginBottom: 28,
   },
   heroBg: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
   heroBgEmoji: { fontSize: 120, opacity: 0.18 },
-  heroGradient: { ...StyleSheet.absoluteFillObject },
+  heroGradient: { ...StyleSheet.absoluteFill },
   heroAccentLine: {
     position: 'absolute',
     top: 0,
