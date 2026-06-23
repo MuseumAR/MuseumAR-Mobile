@@ -2,6 +2,7 @@ import { Link, useRouter } from 'expo-router';
 import { C } from '../../src/theme/colors';
 import { useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -12,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { apiService } from '../../src/services/apiService';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -33,11 +35,20 @@ export default function RegisterScreen() {
       return;
     }
     setLoading(true);
-    // TODO: gọi API đăng ký
-    setTimeout(() => {
+    try {
+      const response = await apiService.register(name, email, password);
+      if (response.statusCode === 200 || response.status === 'Success') {
+        Alert.alert('Thành công', 'Đăng ký tài khoản thành công! Vui lòng đăng nhập.', [
+          { text: 'Đăng nhập', onPress: () => router.replace('/(auth)/login') }
+        ]);
+      } else {
+        setError(response.message || 'Đăng ký không thành công.');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Đăng ký thất bại. Vui lòng thử lại.');
+    } finally {
       setLoading(false);
-      router.replace('/(tabs)');
-    }, 1000);
+    }
   };
 
   return (

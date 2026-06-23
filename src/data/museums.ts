@@ -41,6 +41,7 @@ export type MuseumRecord = {
   description: string;
   highlights: string[];
   zones: MuseumZone[];
+  thumbnailUrl?: string;
 };
 
 // ─────────────────────────────────────────────
