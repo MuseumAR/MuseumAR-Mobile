@@ -13,7 +13,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getExhibitById } from '../../src/data/exhibits';
+import { useTrackAction } from '../../src/hooks/useTrackAction';
+import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
 import { C } from '../../src/theme/colors';
+import { parseNumericId } from '../../src/utils/parseId';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -25,9 +28,15 @@ export default function ARViewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const data = getExhibitById(id ?? '1');
+  const exhibitId = parseNumericId(id);
+  const museumId = parseNumericId(data?.museumId);
 
   const player = useAudioPlayer(data?.audioUrl ?? '');
   const status = useAudioPlayerStatus(player);
+  const { recordVisit } = useVisitedExhibits();
+  const { track } = useTrackAction();
+  const mountTimeRef = useRef(Date.now());
+  const audioTrackedRef = useRef(false);
 
   const [activeTranscript, setActiveTranscript] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -74,6 +83,26 @@ export default function ARViewScreen() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (exhibitId == null) return;
+    mountTimeRef.current = Date.now();
+    return () => {
+      const seconds = Math.round((Date.now() - mountTimeRef.current) / 1000);
+      recordVisit(exhibitId, seconds);
+    };
+  }, [exhibitId, recordVisit]);
+
+  useEffect(() => {
+    if (!status.playing || audioTrackedRef.current || exhibitId == null) return;
+    audioTrackedRef.current = true;
+    track({
+      actionType: 'PlayAudio',
+      exhibitId,
+      museumId,
+      languageUsed: 'vi',
+    });
+  }, [status.playing, exhibitId, museumId, track]);
 
   const skip = (secs: number) => {
     player.seekTo(Math.max(0, (status.currentTime ?? 0) + secs));

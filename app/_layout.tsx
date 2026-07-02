@@ -23,6 +23,8 @@ export default function RootLayout() {
         <Stack.Screen name="ar-packs/index" options={{ headerShown: true, headerTitle: 'Gói AR',             ...HEADER_OPTS }} />
         <Stack.Screen name="exhibit/[id]"  options={{ headerShown: true, headerTitle: 'Chi tiết hiện vật',  ...HEADER_OPTS }} />
         <Stack.Screen name="ar-view/[id]"  options={{ headerShown: true, headerTitle: 'Thuyết minh AR',     ...HEADER_OPTS }} />
+        <Stack.Screen name="visited-exhibits" options={{ headerShown: true, headerTitle: 'Lịch sử tham quan', ...HEADER_OPTS }} />
+        <Stack.Screen name="bookmarks"        options={{ headerShown: true, headerTitle: 'Hiện vật đã lưu',   ...HEADER_OPTS }} />
       </Stack>
     </View>
   );

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { C } from '../../src/theme/colors';
 import {
   FlatList,
@@ -12,12 +12,26 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EXHIBITS, EXHIBIT_CATEGORIES } from '../../src/data/exhibits';
+import { useTrackAction } from '../../src/hooks/useTrackAction';
 
 export default function ExploreScreen() {
   const router = useRouter();
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
+  const { track } = useTrackAction();
+  const searchTrackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const CATEGORIES = EXHIBIT_CATEGORIES;
+
+  useEffect(() => {
+    if (searchTrackTimer.current) clearTimeout(searchTrackTimer.current);
+    if (search.trim().length < 2) return;
+    searchTrackTimer.current = setTimeout(() => {
+      track({ actionType: 'Search', searchQuery: search.trim() });
+    }, 800);
+    return () => {
+      if (searchTrackTimer.current) clearTimeout(searchTrackTimer.current);
+    };
+  }, [search, track]);
 
   const filtered = EXHIBITS.filter((e) => {
     const matchCategory =

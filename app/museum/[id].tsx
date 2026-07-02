@@ -6,6 +6,7 @@ import { ARPackCard } from '../../src/components/ARPackCard';
 import { getPacksByMuseum } from '../../src/data/arPacks';
 import { getMuseumById, MUSEUMS, type MuseumRecord, type MuseumZone } from '../../src/data/museums';
 import { useARPacks } from '../../src/hooks/useARPacks';
+import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
 import {
   Animated,
   Image,
@@ -18,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../src/theme/colors';
 import { apiService } from '../../src/services/apiService';
+import { parseNumericId } from '../../src/utils/parseId';
 
 // ─── Pulsing dot (user location in floor plan) ────────────────────────────────
 
@@ -271,6 +273,7 @@ export default function MuseumDetailScreen() {
   const [favorited, setFavorited] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
+  const { checkSync } = useMuseumSyncCheck();
   const arPacks = getPacksByMuseum(id ?? '');
 
   useEffect(() => {
@@ -317,7 +320,12 @@ export default function MuseumDetailScreen() {
       }
     }
     loadRealDetails();
-  }, [id]);
+
+    const museumId = parseNumericId(id);
+    if (museumId != null) {
+      checkSync(museumId);
+    }
+  }, [id, checkSync]);
 
   if (!museum) {
     return (

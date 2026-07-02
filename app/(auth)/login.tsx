@@ -2,7 +2,6 @@ import { Link, useRouter } from 'expo-router';
 import { C } from '../../src/theme/colors';
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -12,31 +11,40 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { apiService } from '../../src/services/apiService';
+import { apiService, getLoginErrorMessage } from '../../src/services/apiService';
 import { saveToken } from '../../src/services/tokenStorage';
+import { validateLoginForm } from '../../src/utils/authValidation';
 
 export default function LoginScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Lỗi', 'Vui lòng nhập đầy đủ email và mật khẩu.');
+    const validation = validateLoginForm(email, password);
+    setEmailError(validation.emailError);
+    setPasswordError(validation.passwordError);
+    setFormError(null);
+
+    if (validation.emailError || validation.passwordError) {
       return;
     }
+
     setLoading(true);
     try {
-      const response = await apiService.login(email, password);
-      if (response.data && response.data.accessToken) {
+      const response = await apiService.login(email.trim(), password);
+      if (response.data?.accessToken) {
         await saveToken(response.data.accessToken);
         router.replace('/(tabs)');
       } else {
-        Alert.alert('Đăng nhập thất bại', response.message || 'Đăng nhập không thành công.');
+        setFormError('Email hoặc mật khẩu không đúng. Vui lòng kiểm tra và thử lại.');
       }
-    } catch (error: any) {
-      Alert.alert('Lỗi kết nối', error.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại backend.');
+    } catch (error: unknown) {
+      setFormError(getLoginErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -48,7 +56,6 @@ export default function LoginScreen() {
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        {/* Logo / Branding */}
         <View style={styles.brand}>
           <View style={styles.logo}>
             <Text style={styles.logoText}>AR</Text>
@@ -57,29 +64,47 @@ export default function LoginScreen() {
           <Text style={styles.tagline}>Trải nghiệm lịch sử theo cách mới</Text>
         </View>
 
-        {/* Form */}
         <View style={styles.form}>
           <Text style={styles.formTitle}>Đăng nhập</Text>
 
+          <Text style={styles.label}>Email</Text>
           <TextInput
-            style={styles.input}
-            placeholder="Email"
+            style={[styles.input, emailError && styles.inputError]}
+            placeholder="email@example.com"
             placeholderTextColor="#9CA3AF"
             value={email}
-            onChangeText={setEmail}
+            onChangeText={(text) => {
+              setEmail(text);
+              if (emailError) setEmailError(null);
+              if (formError) setFormError(null);
+            }}
             keyboardType="email-address"
             autoCapitalize="none"
+            autoCorrect={false}
           />
+          {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
+
+          <Text style={styles.label}>Mật khẩu</Text>
           <TextInput
-            style={styles.input}
-            placeholder="Mật khẩu"
+            style={[styles.input, passwordError && styles.inputError]}
+            placeholder="Nhập mật khẩu"
             placeholderTextColor="#9CA3AF"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              if (passwordError) setPasswordError(null);
+              if (formError) setFormError(null);
+            }}
             secureTextEntry
           />
+          {passwordError ? <Text style={styles.fieldError}>{passwordError}</Text> : null}
 
-          <TouchableOpacity style={styles.forgotBtn}>
+          {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
+          <TouchableOpacity
+            style={styles.forgotBtn}
+            onPress={() => router.push('/(auth)/forgot-password')}
+          >
             <Text style={styles.forgotText}>Quên mật khẩu?</Text>
           </TouchableOpacity>
 
@@ -107,7 +132,6 @@ export default function LoginScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Register link */}
         <View style={styles.registerRow}>
           <Text style={styles.registerText}>Chưa có tài khoản? </Text>
           <Link href="/(auth)/register">
@@ -143,6 +167,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   formTitle: { fontSize: 22, fontWeight: '700', color: C.textPrimary, marginBottom: 20 },
+  label: { fontSize: 13, fontWeight: '600', color: C.textSecondary, marginBottom: 6 },
   input: {
     borderWidth: 1,
     borderColor: C.border,
@@ -151,10 +176,20 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 15,
     color: C.textPrimary,
-    marginBottom: 12,
+    marginBottom: 4,
     backgroundColor: C.bgElevated,
   },
-  forgotBtn: { alignSelf: 'flex-end', marginBottom: 20 },
+  inputError: { borderColor: C.danger },
+  fieldError: { color: C.danger, fontSize: 12, marginBottom: 10 },
+  formError: {
+    color: C.danger,
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 4,
+    lineHeight: 18,
+  },
+  forgotBtn: { alignSelf: 'flex-end', marginTop: 8, marginBottom: 20 },
   forgotText: { color: C.accent, fontSize: 13, fontWeight: '600' },
   loginBtn: {
     backgroundColor: C.accent,

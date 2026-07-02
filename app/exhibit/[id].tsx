@@ -1,10 +1,22 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getExhibitById } from '../../src/data/exhibits';
+import { useBookmarks } from '../../src/hooks/useBookmarks';
+import { useTrackAction } from '../../src/hooks/useTrackAction';
+import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
 import { C } from '../../src/theme/colors';
+import { parseNumericId } from '../../src/utils/parseId';
 
 type ActionItem = {
   icon: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -12,13 +24,76 @@ type ActionItem = {
   onPress: () => void;
   active?: boolean;
   activeColor?: string;
+  loading?: boolean;
 };
 
 export default function ExhibitDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const exhibit = getExhibitById(id ?? '1');
-  const [favorited, setFavorited] = useState(false);
+  const exhibitId = parseNumericId(id);
+  const museumId = parseNumericId(exhibit?.museumId);
+
+  const {
+    isBookmarked,
+    toggleBookmark,
+    refresh: refreshBookmarks,
+    togglingId,
+    hasLoaded: bookmarksLoaded,
+  } = useBookmarks();
+  const { recordVisit } = useVisitedExhibits();
+  const { track } = useTrackAction();
+  const mountTimeRef = useRef(Date.now());
+
+  const bookmarked = exhibitId != null && isBookmarked(exhibitId);
+  const bookmarkBusy = exhibitId != null && togglingId === exhibitId;
+  const bookmarkChecking = !bookmarksLoaded || bookmarkBusy;
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshBookmarks();
+    }, [refreshBookmarks]),
+  );
+
+  useEffect(() => {
+    if (exhibitId == null) return;
+    mountTimeRef.current = Date.now();
+    track({
+      actionType: 'ViewExhibit',
+      exhibitId,
+      museumId,
+      languageUsed: 'vi',
+    });
+    return () => {
+      const seconds = Math.round((Date.now() - mountTimeRef.current) / 1000);
+      recordVisit(exhibitId, seconds);
+    };
+  }, [exhibitId, museumId, track, recordVisit]);
+
+  const handleToggleBookmark = useCallback(async () => {
+    if (exhibitId == null) return;
+
+    const result = await toggleBookmark(exhibitId);
+
+    if (result === 'auth_required') {
+      Alert.alert('Đăng nhập cần thiết', 'Vui lòng đăng nhập để lưu hiện vật.', [
+        { text: 'Huỷ', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
+      ]);
+      return;
+    }
+
+    if (result === 'failed') {
+      Alert.alert('Lỗi', 'Không thể cập nhật bookmark. Vui lòng thử lại.');
+      return;
+    }
+
+    if (result === 'added') {
+      track({ actionType: 'Bookmark', exhibitId, museumId });
+    } else if (result === 'removed') {
+      track({ actionType: 'Unbookmark', exhibitId, museumId });
+    }
+  }, [exhibitId, museumId, toggleBookmark, track, router]);
 
   if (!exhibit) {
     return (
@@ -42,11 +117,12 @@ export default function ExhibitDetailScreen() {
       onPress: () => router.push('/(tabs)/scan'),
     },
     {
-      icon: favorited ? 'heart' : 'heart-outline',
+      icon: bookmarked ? 'heart' : 'heart-outline',
       label: 'Favorite',
-      onPress: () => setFavorited((v) => !v),
-      active: favorited,
+      onPress: handleToggleBookmark,
+      active: bookmarked,
       activeColor: '#EF4444',
+      loading: bookmarkChecking || bookmarkBusy,
     },
     {
       icon: 'package-variant-closed',
@@ -58,7 +134,6 @@ export default function ExhibitDetailScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Hero image placeholder */}
         <View style={styles.hero}>
           <Text style={styles.heroCategory}>{exhibit.category}</Text>
           <Text style={styles.heroHint}>Hình ảnh hiện vật</Text>
@@ -68,19 +143,23 @@ export default function ExhibitDetailScreen() {
           <Text style={styles.title}>{exhibit.title}</Text>
           <Text style={styles.era}>{exhibit.era}</Text>
 
-          {/* Action grid — 4 nút nằm trong nội dung */}
           <View style={styles.actionGrid}>
             {actions.map((action) => (
               <TouchableOpacity
                 key={action.label}
                 style={styles.actionCard}
                 onPress={action.onPress}
+                disabled={action.loading}
               >
-                <MaterialCommunityIcons
-                  name={action.icon}
-                  size={28}
-                  color={action.active ? action.activeColor : '#1A6FA8'}
-                />
+                {action.loading ? (
+                  <ActivityIndicator size="small" color={C.accent} />
+                ) : (
+                  <MaterialCommunityIcons
+                    name={action.icon}
+                    size={28}
+                    color={action.active ? action.activeColor : '#1A6FA8'}
+                  />
+                )}
                 <Text style={[styles.actionLabel, action.active && { color: action.activeColor }]}>
                   {action.label}
                 </Text>
@@ -88,7 +167,6 @@ export default function ExhibitDetailScreen() {
             ))}
           </View>
 
-          {/* AR Button */}
           {exhibit.arAvailable && (
             <TouchableOpacity
               style={styles.arBtn}
@@ -99,7 +177,6 @@ export default function ExhibitDetailScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Info grid */}
           <View style={styles.infoGrid}>
             <View style={styles.infoItem}>
               <Text style={styles.infoLabel}>Nguồn gốc</Text>
@@ -111,7 +188,6 @@ export default function ExhibitDetailScreen() {
             </View>
           </View>
 
-          {/* Description */}
           <View style={styles.descSection}>
             <Text style={styles.descTitle}>Giới thiệu</Text>
             <Text style={styles.descText}>{exhibit.description}</Text>
@@ -146,8 +222,6 @@ const styles = StyleSheet.create({
   content: { padding: 24 },
   title: { fontSize: 26, fontWeight: '800', color: C.textPrimary },
   era: { fontSize: 15, color: C.textSecondary, marginTop: 6, marginBottom: 20 },
-
-  /* 4 action cards */
   actionGrid: {
     flexDirection: 'row',
     gap: 10,
@@ -168,7 +242,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: C.textSecondary,
   },
-
   arBtn: {
     flexDirection: 'row',
     alignItems: 'center',
