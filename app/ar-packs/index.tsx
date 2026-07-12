@@ -1,23 +1,15 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ARPackCard } from '../../src/components/ARPackCard';
 import { AR_PACKS } from '../../src/data/arPacks';
-import { MUSEUMS } from '../../src/data/museums';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import { C } from '../../src/theme/colors';
 
-const MUSEUM_EMOJI: Record<string, string> = {
-  m1: '🏛', m2: '⚔️', m3: '🎭', m4: '🗿', m5: '🎨',
-};
-
-// Total storage capacity for progress bar (GB)
 const TOTAL_STORAGE_MB = 2048;
 
 export default function ARPacksScreen() {
-  const router = useRouter();
   const { downloadPack, deletePack, getState } = useARPacks();
 
   const downloadedPacks   = AR_PACKS.filter((p) => getState(p.id).status === 'downloaded');
@@ -50,7 +42,6 @@ export default function ARPacksScreen() {
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
-          {/* Top accent line */}
           <LinearGradient
             colors={[C.accent, C.bronze]}
             start={{ x: 0, y: 0 }}
@@ -58,7 +49,6 @@ export default function ARPacksScreen() {
             style={styles.storageAccentLine}
           />
 
-          {/* Stats row */}
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
               <View style={[styles.statIcon, { backgroundColor: C.accentDark, borderColor: C.accent + '40' }]}>
@@ -89,7 +79,6 @@ export default function ARPacksScreen() {
             </View>
           </View>
 
-          {/* Storage bar */}
           <View style={styles.storageBarWrap}>
             <View style={styles.storageBarRow}>
               <Text style={styles.storageBarLabel}>Local storage</Text>
@@ -106,60 +95,19 @@ export default function ARPacksScreen() {
           </View>
         </View>
 
-        {/* ── Packs grouped by museum ───────────────────────────────────── */}
-        {MUSEUMS.map((museum) => {
-          const packs = AR_PACKS.filter((p) => p.museumId === museum.id);
-          if (packs.length === 0) return null;
+        {/* ── Flat pack list ───────────────────────────────────────────── */}
+        <View style={styles.packList}>
+          {AR_PACKS.map((pack) => (
+            <ARPackCard
+              key={pack.id}
+              pack={pack}
+              state={getState(pack.id)}
+              onDownload={() => downloadPack(pack.id)}
+              onDelete={() => deletePack(pack.id)}
+            />
+          ))}
+        </View>
 
-          const museumDownloaded = packs.filter((p) => getState(p.id).status === 'downloaded').length;
-
-          return (
-            <View key={museum.id} style={styles.museumSection}>
-              {/* Museum header */}
-              <TouchableOpacity
-                style={styles.museumHeader}
-                activeOpacity={0.8}
-                onPress={() => router.push(`/museum/${museum.id}`)}
-              >
-                <View style={[styles.museumEmojiBg, { backgroundColor: museum.color + '18', borderColor: museum.color + '40' }]}>
-                  <Text style={styles.museumEmoji}>{MUSEUM_EMOJI[museum.id] ?? '🏛'}</Text>
-                </View>
-
-                <View style={styles.museumInfo}>
-                  <Text style={styles.museumName} numberOfLines={1}>{museum.name}</Text>
-                  <View style={styles.museumMeta}>
-                    <MaterialCommunityIcons name="map-marker-outline" size={11} color={C.textSecondary} />
-                    <Text style={styles.museumCity}>{museum.city}</Text>
-                    <Text style={styles.museumDot}>·</Text>
-                    <Text style={[styles.museumPackCount, { color: museum.color }]}>
-                      {museumDownloaded}/{packs.length} packs
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={[styles.viewBtn, { borderColor: museum.color + '50' }]}>
-                  <Text style={[styles.viewBtnText, { color: museum.color }]}>Visit</Text>
-                  <MaterialCommunityIcons name="arrow-right" size={12} color={museum.color} />
-                </View>
-              </TouchableOpacity>
-
-              {/* Pack cards */}
-              <View style={styles.packList}>
-                {packs.map((pack) => (
-                  <ARPackCard
-                    key={pack.id}
-                    pack={pack}
-                    state={getState(pack.id)}
-                    onDownload={() => downloadPack(pack.id)}
-                    onDelete={() => deletePack(pack.id)}
-                  />
-                ))}
-              </View>
-            </View>
-          );
-        })}
-
-        {/* ── Bottom tip ───────────────────────────────────────────────── */}
         <View style={styles.tip}>
           <MaterialCommunityIcons name="information-outline" size={14} color={C.textMuted} />
           <Text style={styles.tipText}>
@@ -177,7 +125,6 @@ const styles = StyleSheet.create({
   safe:          { flex: 1, backgroundColor: C.bgPrimary },
   scrollContent: { paddingBottom: 8 },
 
-  // Header
   header: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
     paddingHorizontal: 20, paddingTop: 10, paddingBottom: 20,
@@ -190,7 +137,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginTop: 4,
   },
 
-  // Storage card
   storageCard: {
     marginHorizontal: 20, marginBottom: 28,
     borderRadius: 18, overflow: 'hidden',
@@ -222,35 +168,8 @@ const styles = StyleSheet.create({
   },
   storageFill:  { height: 6, borderRadius: 3 },
 
-  // Museum section
-  museumSection: { marginBottom: 8 },
-  museumHeader: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 20, paddingVertical: 12,
-    gap: 12,
-  },
-  museumEmojiBg: {
-    width: 44, height: 44, borderRadius: 12,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
-  },
-  museumEmoji: { fontSize: 22 },
-  museumInfo:  { flex: 1 },
-  museumName:  { fontSize: 14, fontWeight: '700', color: C.textPrimary },
-  museumMeta:  { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  museumCity:  { fontSize: 11, color: C.textSecondary },
-  museumDot:   { fontSize: 11, color: C.textMuted },
-  museumPackCount: { fontSize: 11, fontWeight: '700' },
-  viewBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 8, borderWidth: 1,
-    backgroundColor: 'transparent',
-  },
-  viewBtnText: { fontSize: 11, fontWeight: '700' },
+  packList: { paddingHorizontal: 20 },
 
-  packList: { paddingHorizontal: 20, gap: 0 },
-
-  // Tip
   tip: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start',
     marginHorizontal: 20, marginTop: 8,

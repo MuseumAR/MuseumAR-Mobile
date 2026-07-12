@@ -80,7 +80,7 @@ export function ARPackCard({ pack, state, onDownload, onDelete }: Props) {
                 end={{ x: 1, y: 0 }}
                 style={styles.btnGradient}
               >
-                <MaterialCommunityIcons name="augmented-reality" size={16} color={C.bgPrimary} />
+                <MaterialCommunityIcons name="augmented-reality" size={16} color={C.onAccent} />
                 <Text style={styles.btnPrimaryText}>Open AR</Text>
               </LinearGradient>
             </TouchableOpacity>
@@ -133,9 +133,9 @@ const styles = StyleSheet.create({
 
   downloadedBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#22C55E18', borderRadius: 8,
+    backgroundColor: C.success + '18', borderRadius: 8,
     paddingHorizontal: 8, paddingVertical: 4,
-    borderWidth: 1, borderColor: '#22C55E40',
+    borderWidth: 1, borderColor: C.success + '40',
   },
   downloadedText: { fontSize: 11, fontWeight: '700', color: C.success },
 
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 7, paddingVertical: 11,
   },
-  btnPrimaryText: { color: C.bgPrimary, fontWeight: '700', fontSize: 13 },
+  btnPrimaryText: { color: C.onAccent, fontWeight: '700', fontSize: 13 },
 
   btnDanger: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',

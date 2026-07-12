@@ -85,5 +85,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
-  emptyBtnText: { color: '#080A14', fontWeight: '700', fontSize: 14 },
+  emptyBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 14 },
 });

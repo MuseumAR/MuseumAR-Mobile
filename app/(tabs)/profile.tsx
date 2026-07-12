@@ -77,7 +77,7 @@ export default function ProfileScreen() {
       <View style={styles.userCard}>
         <View style={styles.avatar}>
           {profileLoading ? (
-            <ActivityIndicator color="#FFFFFF" size="small" />
+            <ActivityIndicator color={C.onAccent} size="small" />
           ) : (
             <Text style={styles.avatarText}>{initials}</Text>
           )}
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatarText: { color: '#FFFFFF', fontWeight: '700', fontSize: 20 },
+  avatarText: { color: C.onAccent, fontWeight: '700', fontSize: 20 },
   userInfo: { flex: 1, marginLeft: 14 },
   userName: { fontSize: 17, fontWeight: '700', color: C.textPrimary },
   userEmail: { fontSize: 13, color: C.textMuted, marginTop: 2 },

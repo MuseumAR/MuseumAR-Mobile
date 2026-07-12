@@ -157,7 +157,7 @@ export default function ExhibitDetailScreen() {
                   <MaterialCommunityIcons
                     name={action.icon}
                     size={28}
-                    color={action.active ? action.activeColor : '#1A6FA8'}
+                    color={action.active ? action.activeColor : C.accent}
                   />
                 )}
                 <Text style={[styles.actionLabel, action.active && { color: action.activeColor }]}>
@@ -172,7 +172,7 @@ export default function ExhibitDetailScreen() {
               style={styles.arBtn}
               onPress={() => router.push('/(tabs)/scan')}
             >
-              <MaterialCommunityIcons name="augmented-reality" size={22} color="#FFFFFF" />
+              <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
               <Text style={styles.arBtnText}>Xem mô hình AR 3D</Text>
             </TouchableOpacity>
           )}
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     gap: 10,
   },
-  arBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 16 },
+  arBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 16 },
   infoGrid: { flexDirection: 'row', gap: 12, marginBottom: 20 },
   infoItem: {
     flex: 1,

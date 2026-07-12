@@ -1,48 +1,54 @@
 /**
  * ============================================================
- *  MUSEUM DARK THEME — central color palette for the entire app
+ *  MUSEUM THEME — synced with MuseumAR-Frontend
  * ============================================================
- * To change colors: edit here only. All screens update automatically.
+ * Source of truth (FE):
+ *   lib/dashboard-theme.ts  — app shell / dashboard
+ *   lib/auth-theme.ts       — auth / marketing gold
+ *   app/globals.css         — --background / --foreground
+ *
+ * Edit here only; screens that import `C` update automatically.
  */
 
 export const C = {
   // ── Backgrounds ──────────────────────────────
-  bgPrimary:  '#080A14',   // main screen background
-  bgSurface:  '#131726',   // cards / surfaces
-  bgElevated: '#1C2030',   // inputs, modals, elevated
-  bgOverlay:  'rgba(0,0,0,0.65)',
+  bgPrimary:  '#F7F2E9',   // page bg (dashboard / globals)
+  bgSurface:  '#FFFDF8',   // cards / panels
+  bgElevated: '#FFF8E7',   // inputs, elevated surfaces (auth card)
+  bgOverlay:  'rgba(43,29,14,0.45)',
 
   // ── Borders & dividers ───────────────────────
-  border:     '#252A3D',
-  divider:    '#1A1E2E',
+  border:     '#E6D7B8',
+  divider:    '#E6D7B8',
 
   // ── Text ─────────────────────────────────────
-  textPrimary:     '#FFFFFF',
-  textSecondary:   '#9CA3AF',
-  textMuted:       '#4B5568',
-  textPlaceholder: '#374151',
+  textPrimary:     '#2B1D0E',
+  textSecondary:   '#6D5A45',
+  textMuted:       '#A08060',
+  textPlaceholder: '#A08060',
 
-  // ── Gold accent ──────────────────────────────
-  accent:      '#D4A94D',   // gold — primary buttons, highlights
-  accentLight: '#E8C97A',   // lighter gold for text on dark
-  accentDark:  '#2A2010',   // dark gold background (muted)
-  accentMuted: '#1E1A0E',
+  // ── Gold accent (brand) ──────────────────────
+  accent:      '#C89B3C',   // primary gold (auth / marketing)
+  accentLight: '#D4B06A',
+  accentDark:  '#F5E6C8',   // soft gold wash background
+  accentMuted: '#FDF8EF',   // sidebar-like tint
+  onAccent:    '#FFFDF8',   // text/icons on gold CTAs
 
-  // ── Bronze accent ────────────────────────────
-  bronze:      '#A97142',
-  bronzeDark:  '#1E1208',
+  // ── Bronze / gradient end ────────────────────
+  bronze:      '#A67C2D',   // auth secondary
+  bronzeDark:  '#9A6F1F',   // dashboard primaryDark
 
   // ── Status ───────────────────────────────────
-  success:     '#22C55E',
-  warning:     '#F59E0B',
-  danger:      '#EF4444',
-  dangerMuted: '#3B1515',
+  success:     '#4F7D4A',
+  warning:     '#B45309',
+  danger:      '#8B2E2E',
+  dangerMuted: '#F5E6C8',
 
   // ── Tab bar ──────────────────────────────────
-  tabBg:       '#080A14',
-  tabActive:   '#D4A94D',
-  tabInactive: '#3D4663',
-  tabBorder:   '#1A1E2E',
+  tabBg:       '#FFFDF8',
+  tabActive:   '#C89B3C',
+  tabInactive: '#A08060',
+  tabBorder:   '#E6D7B8',
 } as const;
 
 export type ColorKey = keyof typeof C;

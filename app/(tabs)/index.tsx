@@ -1,21 +1,19 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { MUSEUMS, type MuseumRecord } from '../../src/data/museums';
+import { CURRENT_MUSEUM } from '../../src/data/museums';
 import { getFeaturedExhibits } from '../../src/data/exhibits';
 import { C } from '../../src/theme/colors';
-import { useEffect, useState } from 'react';
-import { apiService, MuseumDto } from '../../src/services/apiService';
 
 // ─── Era categories ───────────────────────────────────────────────────────────
 const ERAS = [
-  { id: '1', name: 'Văn Lang',   icon: 'lightning-bolt',     color: '#D4A94D' },
-  { id: '2', name: 'Nhà Lý',     icon: 'home-city-outline',  color: '#A97142' },
-  { id: '3', name: 'Nhà Trần',   icon: 'shield-outline',     color: '#D4A94D' },
-  { id: '4', name: 'Nhà Lê',     icon: 'sword-cross',        color: '#A97142' },
-  { id: '5', name: 'Nhà Nguyễn', icon: 'crown',              color: '#D4A94D' },
+  { id: '1', name: 'Văn Lang',   icon: 'lightning-bolt',     color: '#C89B3C' },
+  { id: '2', name: 'Nhà Lý',     icon: 'home-city-outline',  color: '#A67C2D' },
+  { id: '3', name: 'Nhà Trần',   icon: 'shield-outline',     color: '#C89B3C' },
+  { id: '4', name: 'Nhà Lê',     icon: 'sword-cross',        color: '#A67C2D' },
+  { id: '5', name: 'Nhà Nguyễn', icon: 'crown',              color: '#9A6F1F' },
 ];
 
 // ─── Quick actions ────────────────────────────────────────────────────────────
@@ -25,57 +23,10 @@ const QUICK_ACTIONS = [
   { label: 'Saved',       icon: 'bookmark-outline',  route: '/(tabs)/profile' },
 ] as const;
 
-// ─── Museum emoji map (visual placeholder before real images) ─────────────────
-const MUSEUM_EMOJI: Record<string, string> = {
-  m1: '🏛', m2: '⚔️', m3: '🎭', m4: '🗿', m5: '🎨',
-};
-
-// Hàm gộp dữ liệu từ Backend API và dữ liệu giả lập Local
-function mergeMuseumData(apiMuseums: MuseumDto[]): MuseumRecord[] {
-  return apiMuseums.map((apiMuseum) => {
-    const local = MUSEUMS.find(
-      (m) => m.name.toLowerCase() === apiMuseum.name.toLowerCase() || m.id === `m${apiMuseum.id}`
-    );
-    return {
-      id: apiMuseum.id.toString(),
-      name: apiMuseum.name,
-      city: apiMuseum.city || local?.city || 'Việt Nam',
-      tag: local?.tag || 'Lịch sử',
-      color: local?.color || '#1A6FA8',
-      address: apiMuseum.address || local?.address || '',
-      phone: local?.phone || '',
-      openHours: local?.openHours || '8:00 – 17:00',
-      closedDay: local?.closedDay || 'Thứ Hai',
-      ticketPrice: local?.ticketPrice || 'Miễn phí',
-      exhibits: local?.exhibits || 0,
-      founded: local?.founded || 'Chưa rõ',
-      description: apiMuseum.description || local?.description || '',
-      highlights: local?.highlights || [],
-      zones: local?.zones || [],
-      thumbnailUrl: apiMuseum.thumbnailUrl,
-    } as MuseumRecord;
-  });
-}
-
 export default function HomeScreen() {
   const router = useRouter();
   const featuredExhibits = getFeaturedExhibits();
-  const [museumList, setMuseumList] = useState<MuseumRecord[]>(MUSEUMS);
-
-  useEffect(() => {
-    async function loadRealMuseums() {
-      try {
-        const response = await apiService.getMuseums();
-        if (response.data && response.data.length > 0) {
-          const merged = mergeMuseumData(response.data);
-          setMuseumList(merged);
-        }
-      } catch (error) {
-        console.warn('Không thể tải dữ liệu bảo tàng từ backend, sử dụng mock data:', error);
-      }
-    }
-    loadRealMuseums();
-  }, []);
+  const museum = CURRENT_MUSEUM;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -105,19 +56,16 @@ export default function HomeScreen() {
           activeOpacity={0.93}
           onPress={() => router.push('/(tabs)/scan')}
         >
-          {/* Simulated artifact background */}
           <View style={styles.heroBg}>
             <Text style={styles.heroBgEmoji}>🥁</Text>
           </View>
 
-          {/* Gradient overlay */}
           <LinearGradient
-            colors={['transparent', 'rgba(8,10,20,0.6)', 'rgba(8,10,20,0.97)']}
+            colors={['transparent', 'rgba(247,242,233,0.55)', 'rgba(247,242,233,0.97)']}
             locations={[0, 0.45, 1]}
             style={styles.heroGradient}
           />
 
-          {/* Gold top accent line */}
           <View style={styles.heroAccentLine} />
 
           <View style={styles.heroContent}>
@@ -136,65 +84,56 @@ export default function HomeScreen() {
                 end={{ x: 1, y: 0 }}
                 style={styles.heroCTAGradient}
               >
-                <MaterialCommunityIcons name="line-scan" size={16} color="#080A14" />
+                <MaterialCommunityIcons name="line-scan" size={16} color={C.onAccent} />
                 <Text style={styles.heroCTAText}>Start AR Scan</Text>
               </LinearGradient>
             </View>
           </View>
         </TouchableOpacity>
 
-        {/* ── Featured Museums ───────────────────────────────────────────── */}
+        {/* ── About the Museum ───────────────────────────────────────────── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>COLLECTIONS</Text>
-              <Text style={styles.sectionTitle}>Featured Museums</Text>
+              <Text style={styles.sectionLabel}>YOUR MUSEUM</Text>
+              <Text style={styles.sectionTitle}>About the Museum</Text>
             </View>
             <TouchableOpacity onPress={() => router.push('/(tabs)/map')}>
-              <Text style={styles.seeAll}>View all →</Text>
+              <Text style={styles.seeAll}>Details →</Text>
             </TouchableOpacity>
           </View>
         </View>
 
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.museumList}
+        <TouchableOpacity
+          style={styles.museumCard}
+          activeOpacity={0.88}
+          onPress={() => router.push(`/museum/${museum.id}`)}
         >
-          {museumList.map((museum) => (
-            <TouchableOpacity
-              key={museum.id}
-              style={styles.museumCard}
-              activeOpacity={0.88}
-              onPress={() => router.push(`/museum/${museum.id}`)}
-            >
-              {/* Card visual */}
-              <View style={[styles.museumCardImage, { backgroundColor: museum.color + '18' }]}>
-                {museum.thumbnailUrl ? (
-                  <Image source={{ uri: museum.thumbnailUrl }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-                ) : (
-                  <Text style={styles.museumEmoji}>{MUSEUM_EMOJI[museum.id] ?? '🏛'}</Text>
-                )}
-                <LinearGradient
-                  colors={['transparent', 'rgba(19,23,38,0.9)']}
-                  style={styles.museumCardGradient}
-                />
-              </View>
+          <View style={[styles.museumCardImage, { backgroundColor: museum.color + '18' }]}>
+            <Text style={styles.museumEmoji}>🏛</Text>
+            <LinearGradient
+              colors={['transparent', 'rgba(247,242,233,0.95)']}
+              style={styles.museumCardGradient}
+            />
+          </View>
 
-              {/* Glass info panel */}
-              <View style={styles.museumCardInfo}>
-                <View style={[styles.museumBadge, { borderColor: museum.color + '60' }]}>
-                  <Text style={[styles.museumBadgeText, { color: museum.color }]}>{museum.tag}</Text>
-                </View>
-                <Text style={styles.museumName} numberOfLines={2}>{museum.name}</Text>
-                <View style={styles.museumLocation}>
-                  <MaterialCommunityIcons name="map-marker-outline" size={11} color={C.textSecondary} />
-                  <Text style={styles.museumCity}>{museum.city}</Text>
-                </View>
-              </View>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+          <View style={styles.museumCardInfo}>
+            <View style={[styles.museumBadge, { borderColor: museum.color + '60' }]}>
+              <Text style={[styles.museumBadgeText, { color: museum.color }]}>{museum.tag}</Text>
+            </View>
+            <Text style={styles.museumName}>{museum.name}</Text>
+            <View style={styles.museumLocation}>
+              <MaterialCommunityIcons name="map-marker-outline" size={11} color={C.textSecondary} />
+              <Text style={styles.museumCity}>{museum.city}</Text>
+            </View>
+            <View style={styles.museumMetaRow}>
+              <MaterialCommunityIcons name="clock-outline" size={12} color={C.success} />
+              <Text style={styles.museumHours}>{museum.openHours}</Text>
+              <Text style={styles.museumDot}>·</Text>
+              <Text style={styles.museumTicket}>{museum.ticketPrice}</Text>
+            </View>
+          </View>
+        </TouchableOpacity>
 
         {/* ── Featured Artifacts ─────────────────────────────────────────── */}
         <View style={styles.section}>
@@ -208,26 +147,23 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {featuredExhibits.map((item, index) => (
+          {featuredExhibits.map((item) => (
             <TouchableOpacity
               key={item.id}
               style={styles.artifactRow}
               activeOpacity={0.85}
               onPress={() => router.push(`/exhibit/${item.id}`)}
             >
-              {/* Thumbnail */}
               <View style={[styles.artifactThumb, { backgroundColor: item.color + '18' }]}>
                 <Text style={styles.artifactEmoji}>{item.emoji}</Text>
               </View>
 
-              {/* Info */}
               <View style={styles.artifactInfo}>
                 <Text style={styles.artifactCategory}>{item.category}</Text>
                 <Text style={styles.artifactTitle} numberOfLines={1}>{item.title}</Text>
                 <Text style={styles.artifactEra}>{item.era}</Text>
               </View>
 
-              {/* AR badge + arrow */}
               <View style={styles.artifactRight}>
                 {item.arAvailable && (
                   <View style={styles.arBadge}>
@@ -290,7 +226,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* bottom padding */}
         <View style={{ height: 24 }} />
       </ScrollView>
     </SafeAreaView>
@@ -302,7 +237,6 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { paddingBottom: 16 },
 
-  // ── Header ──────────────────────────────────────
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -333,12 +267,11 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#22C55E',
+    backgroundColor: C.success,
     borderWidth: 1.5,
     borderColor: C.bgPrimary,
   },
 
-  // ── Hero ─────────────────────────────────────────
   hero: {
     marginHorizontal: 20,
     borderRadius: 20,
@@ -387,7 +320,7 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: C.textPrimary,
     lineHeight: 28,
     letterSpacing: -0.3,
   },
@@ -406,9 +339,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 10,
   },
-  heroCTAText: { fontSize: 13, fontWeight: '700', color: '#080A14', letterSpacing: 0.3 },
+  heroCTAText: { fontSize: 13, fontWeight: '700', color: C.onAccent, letterSpacing: 0.3 },
 
-  // ── Sections ──────────────────────────────────────
   section: { paddingHorizontal: 20, marginBottom: 28 },
   sectionHeader: {
     flexDirection: 'row',
@@ -426,10 +358,9 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 18, fontWeight: '800', color: C.textPrimary, letterSpacing: -0.3 },
   seeAll: { fontSize: 13, color: C.accent, fontWeight: '600' },
 
-  // ── Museum cards ──────────────────────────────────
-  museumList: { paddingHorizontal: 20, gap: 14, paddingBottom: 4, marginBottom: 28 },
   museumCard: {
-    width: 200,
+    marginHorizontal: 20,
+    marginBottom: 28,
     borderRadius: 18,
     overflow: 'hidden',
     backgroundColor: C.bgSurface,
@@ -437,12 +368,12 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   museumCardImage: {
-    height: 110,
+    height: 120,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
   },
-  museumEmoji: { fontSize: 48 },
+  museumEmoji: { fontSize: 56 },
   museumCardGradient: {
     position: 'absolute',
     bottom: 0,
@@ -450,7 +381,7 @@ const styles = StyleSheet.create({
     right: 0,
     height: 60,
   },
-  museumCardInfo: { padding: 14 },
+  museumCardInfo: { padding: 16 },
   museumBadge: {
     alignSelf: 'flex-start',
     paddingHorizontal: 9,
@@ -461,11 +392,14 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   museumBadgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
-  museumName: { fontSize: 13, fontWeight: '700', color: C.textPrimary, lineHeight: 18, marginBottom: 6 },
-  museumLocation: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  museumCity: { fontSize: 11, color: C.textSecondary },
+  museumName: { fontSize: 16, fontWeight: '800', color: C.textPrimary, lineHeight: 22, marginBottom: 6 },
+  museumLocation: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 8 },
+  museumCity: { fontSize: 12, color: C.textSecondary },
+  museumMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  museumHours: { fontSize: 12, color: C.success, fontWeight: '600' },
+  museumDot: { fontSize: 12, color: C.textMuted },
+  museumTicket: { fontSize: 12, color: C.textSecondary },
 
-  // ── Artifact rows ─────────────────────────────────
   artifactRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -507,7 +441,6 @@ const styles = StyleSheet.create({
   },
   arBadgeText: { fontSize: 9, fontWeight: '800', color: C.accent, letterSpacing: 1 },
 
-  // ── Era grid ──────────────────────────────────────
   eraGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   eraCard: {
     width: '30%',
@@ -525,7 +458,6 @@ const styles = StyleSheet.create({
   },
   eraName: { fontSize: 11, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
 
-  // ── Quick actions ─────────────────────────────────
   actionsGrid: { flexDirection: 'row', gap: 12 },
   actionCard: {
     flex: 1,

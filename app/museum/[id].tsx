@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ARPackCard } from '../../src/components/ARPackCard';
 import { getPacksByMuseum } from '../../src/data/arPacks';
-import { getMuseumById, MUSEUMS, type MuseumRecord, type MuseumZone } from '../../src/data/museums';
+import { CURRENT_MUSEUM, type MuseumRecord, type MuseumZone } from '../../src/data/museums';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
 import {
@@ -51,8 +51,8 @@ function PulsingDot() {
 }
 const dotS = StyleSheet.create({
   wrap: { width: 18, height: 18, alignItems: 'center', justifyContent: 'center' },
-  ring: { position: 'absolute', width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#22C55E' },
-  core: { width: 9,  height: 9,  borderRadius: 5, backgroundColor: '#22C55E' },
+  ring: { position: 'absolute', width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: C.success },
+  core: { width: 9,  height: 9,  borderRadius: 5, backgroundColor: C.success },
 });
 
 // ─── Floor plan component (dynamic, driven by museum.zones) ───────────────────
@@ -190,7 +190,7 @@ function FloorPlan({ zones, accentColor, selectedZone, onSelectZone }: FloorPlan
       {/* Legend */}
       <View style={fpS.legend}>
         {[
-          { color: '#22C55E', label: 'You are here' },
+          { color: C.success, label: 'You are here' },
           { color: accentColor, label: 'Exhibit marker' },
           { color: accentColor + '45', label: 'Zone (tap to select)' },
         ].map((item) => (
@@ -248,7 +248,7 @@ const fpS = StyleSheet.create({
   entranceDoor:  { width: 28, height: 7, borderRadius: 3 },
   entranceLabel: { fontSize: 8, fontWeight: '700', color: C.textMuted, letterSpacing: 1.5 },
   userWrap:  { alignItems: 'center', gap: 2 },
-  youLabel:  { fontSize: 7, fontWeight: '800', color: '#22C55E', letterSpacing: 1.5 },
+  youLabel:  { fontSize: 7, fontWeight: '800', color: C.success, letterSpacing: 1.5 },
 
   outdoorZone: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
@@ -269,47 +269,36 @@ const fpS = StyleSheet.create({
 export default function MuseumDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [museum, setMuseum] = useState<MuseumRecord | null>(null);
+  const [museum, setMuseum] = useState<MuseumRecord>(CURRENT_MUSEUM);
   const [favorited, setFavorited] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
   const { checkSync } = useMuseumSyncCheck();
-  const arPacks = getPacksByMuseum(id ?? '');
+  const museumIdParam = id ?? CURRENT_MUSEUM.id;
+  const arPacks = getPacksByMuseum(museumIdParam);
 
   useEffect(() => {
-    // Hiển thị trước mock data nếu có để tránh giật lag màn hình
-    const initial = getMuseumById(id ?? '');
-    if (initial) {
-      setMuseum(initial);
-    }
+    // Base on CURRENT_MUSEUM; enrich from API when available
+    setMuseum(CURRENT_MUSEUM);
 
     async function loadRealDetails() {
       try {
         const response = await apiService.getMuseums();
         if (response.data && response.data.length > 0) {
           const apiMuseum = response.data.find(
-            (m) => m.id.toString() === id || `m${m.id}` === id || m.name.toLowerCase() === initial?.name.toLowerCase()
+            (m) =>
+              m.id.toString() === museumIdParam ||
+              `m${m.id}` === museumIdParam ||
+              m.name.toLowerCase() === CURRENT_MUSEUM.name.toLowerCase()
           );
           if (apiMuseum) {
-            const local = MUSEUMS.find(
-              (m) => m.name.toLowerCase() === apiMuseum.name.toLowerCase() || m.id === `m${apiMuseum.id}`
-            );
             const merged: MuseumRecord = {
+              ...CURRENT_MUSEUM,
               id: apiMuseum.id.toString(),
               name: apiMuseum.name,
-              city: apiMuseum.city || local?.city || 'Việt Nam',
-              tag: local?.tag || 'Lịch sử',
-              color: local?.color || '#1A6FA8',
-              address: apiMuseum.address || local?.address || '',
-              phone: local?.phone || '',
-              openHours: local?.openHours || '8:00 – 17:00',
-              closedDay: local?.closedDay || 'Thứ Hai',
-              ticketPrice: local?.ticketPrice || 'Miễn phí',
-              exhibits: local?.exhibits || 0,
-              founded: local?.founded || 'Chưa rõ',
-              description: apiMuseum.description || local?.description || '',
-              highlights: local?.highlights || [],
-              zones: local?.zones || [],
+              city: apiMuseum.city || CURRENT_MUSEUM.city,
+              address: apiMuseum.address || CURRENT_MUSEUM.address,
+              description: apiMuseum.description || CURRENT_MUSEUM.description,
               thumbnailUrl: apiMuseum.thumbnailUrl,
             };
             setMuseum(merged);
@@ -321,21 +310,11 @@ export default function MuseumDetailScreen() {
     }
     loadRealDetails();
 
-    const museumId = parseNumericId(id);
+    const museumId = parseNumericId(museumIdParam);
     if (museumId != null) {
       checkSync(museumId);
     }
-  }, [id, checkSync]);
-
-  if (!museum) {
-    return (
-      <SafeAreaView style={styles.safe} edges={['bottom']}>
-        <View style={styles.notFound}>
-          <Text style={styles.notFoundText}>Museum not found</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  }, [museumIdParam, checkSync]);
 
   const selectedZoneData = museum.zones.find((z) => z.name === selectedZone);
 
@@ -455,7 +434,7 @@ export default function MuseumDetailScreen() {
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Floor Plan</Text>
-              <View style={[styles.livePill, { borderColor: '#22C55E40' }]}>
+              <View style={[styles.livePill, { borderColor: C.success + '40' }]}>
                 <View style={styles.liveDot} />
                 <Text style={styles.liveText}>Interactive</Text>
               </View>
@@ -527,7 +506,7 @@ export default function MuseumDetailScreen() {
               end={{ x: 1, y: 0 }}
               style={styles.arBtnGradient}
             >
-              <MaterialCommunityIcons name="line-scan" size={20} color="#fff" />
+              <MaterialCommunityIcons name="line-scan" size={20} color={C.onAccent} />
               <Text style={styles.arBtnText}>Start AR Experience</Text>
             </LinearGradient>
           </TouchableOpacity>
@@ -559,7 +538,7 @@ const styles = StyleSheet.create({
   heroTag: {
     paddingHorizontal: 12, paddingVertical: 5,
     borderRadius: 8, borderWidth: 1,
-    backgroundColor: 'rgba(19,23,38,0.6)',
+    backgroundColor: 'rgba(43,29,14,0.08)',
   },
   heroTagText: { fontSize: 13, fontWeight: '700' },
 
@@ -607,10 +586,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 10, paddingVertical: 4,
     borderRadius: 10, borderWidth: 1,
-    backgroundColor: '#22C55E12',
+    backgroundColor: C.success + '12',
   },
-  liveDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E' },
-  liveText: { fontSize: 11, fontWeight: '700', color: '#22C55E' },
+  liveDot:  { width: 6, height: 6, borderRadius: 3, backgroundColor: C.success },
+  liveText: { fontSize: 11, fontWeight: '700', color: C.success },
 
   description:  { fontSize: 15, color: C.textSecondary, lineHeight: 26 },
   highlightRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
@@ -640,5 +619,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
     gap: 10, paddingVertical: 16,
   },
-  arBtnText: { fontSize: 16, fontWeight: '800', color: '#FFFFFF' },
+  arBtnText: { fontSize: 16, fontWeight: '800', color: C.onAccent },
 });

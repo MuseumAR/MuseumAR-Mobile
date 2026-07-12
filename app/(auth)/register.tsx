@@ -75,7 +75,7 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               placeholder="Nguyễn Văn A"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={C.textPlaceholder}
               value={name}
               onChangeText={setName}
             />
@@ -84,7 +84,7 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               placeholder="email@example.com"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={C.textPlaceholder}
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -95,7 +95,7 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               placeholder="Tối thiểu 8 ký tự"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={C.textPlaceholder}
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -105,7 +105,7 @@ export default function RegisterScreen() {
             <TextInput
               style={styles.input}
               placeholder="Nhập lại mật khẩu"
-              placeholderTextColor="#9CA3AF"
+              placeholderTextColor={C.textPlaceholder}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   registerBtnDisabled: { opacity: 0.5 },
-  registerBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  registerBtnText: { color: C.onAccent, fontSize: 16, fontWeight: '700' },
   loginRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 20 },
   loginText: { color: C.textSecondary, fontSize: 14 },
   loginLink: { color: C.accent, fontSize: 14, fontWeight: '700' },

@@ -2,6 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text } from 'react-native';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { C } from '../theme/colors';
 
 export function OfflineBanner() {
   const { isOffline } = useNetworkStatus();
@@ -20,7 +21,7 @@ export function OfflineBanner() {
 
   return (
     <Animated.View style={[styles.banner, { transform: [{ translateY }] }]}>
-      <MaterialCommunityIcons name="wifi-off" size={16} color="#FFFFFF" />
+      <MaterialCommunityIcons name="wifi-off" size={16} color={C.danger} />
       <Text style={styles.text}>Không có kết nối mạng — Đang dùng dữ liệu offline</Text>
     </Animated.View>
   );
@@ -33,9 +34,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 999,
-    backgroundColor: '#1A1A28',
+    backgroundColor: C.bgSurface,
     borderBottomWidth: 1,
-    borderBottomColor: '#EF4444' + '40',
+    borderBottomColor: C.danger + '40',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -44,7 +45,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   text: {
-    color: '#EF4444',
+    color: C.danger,
     fontSize: 12,
     fontWeight: '600',
     flexShrink: 1,
