@@ -71,7 +71,7 @@ export default function LoginScreen() {
           <TextInput
             style={[styles.input, emailError && styles.inputError]}
             placeholder="email@example.com"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={C.textPlaceholder}
             value={email}
             onChangeText={(text) => {
               setEmail(text);
@@ -88,7 +88,7 @@ export default function LoginScreen() {
           <TextInput
             style={[styles.input, passwordError && styles.inputError]}
             placeholder="Nhập mật khẩu"
-            placeholderTextColor="#9CA3AF"
+            placeholderTextColor={C.textPlaceholder}
             value={password}
             onChangeText={(text) => {
               setPassword(text);
@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 12,
   },
-  logoText: { color: '#FFFFFF', fontSize: 24, fontWeight: '900' },
+  logoText: { color: C.onAccent, fontSize: 24, fontWeight: '900' },
   appName: { fontSize: 26, fontWeight: '800', color: C.textPrimary },
   tagline: { fontSize: 14, color: C.textMuted, marginTop: 4 },
   form: {
@@ -198,7 +198,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loginBtnDisabled: { opacity: 0.5 },
-  loginBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  loginBtnText: { color: C.onAccent, fontSize: 16, fontWeight: '700' },
   divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20 },
   dividerLine: { flex: 1, height: 1, backgroundColor: C.divider },
   dividerText: { marginHorizontal: 12, color: C.textMuted, fontSize: 13 },

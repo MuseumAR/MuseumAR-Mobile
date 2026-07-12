@@ -48,7 +48,7 @@ export default function ExploreScreen() {
         <TextInput
           style={styles.search}
           placeholder="Tìm kiếm hiện vật..."
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor={C.textPlaceholder}
           value={search}
           onChangeText={setSearch}
         />
@@ -131,7 +131,7 @@ const styles = StyleSheet.create({
   },
   categoryChipActive: { backgroundColor: C.accent, borderColor: C.accent },
   categoryText: { fontSize: 13, color: C.textSecondary, fontWeight: '600' },
-  categoryTextActive: { color: '#FFFFFF' },
+  categoryTextActive: { color: C.onAccent },
   list: { paddingHorizontal: 12, paddingBottom: 24 },
   row: { gap: 12, marginBottom: 12 },
   gridCard: {

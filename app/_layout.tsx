@@ -14,7 +14,7 @@ const HEADER_OPTS = {
 export default function RootLayout() {
   return (
     <View style={{ flex: 1, backgroundColor: C.bgPrimary }}>
-      <StatusBar style="light" />
+      <StatusBar style="dark" />
       <OfflineBanner />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" />

@@ -78,29 +78,6 @@ export const EXHIBITS: ExhibitRecord[] = [
     highlights: ['Cao 63cm, đường kính mặt 79cm', 'Trọng lượng ước tính 90kg', 'Phát hiện tại Thanh Hóa năm 1902'],
   },
   {
-    id: '2',
-    museumId: 'm4',
-    title: 'Tượng Phật Đồng Dương',
-    era: 'Thế kỷ IX',
-    category: 'Điêu khắc',
-    origin: 'Quảng Nam',
-    material: 'Đá sa thạch',
-    description:
-      'Tượng Phật Đồng Dương là kiệt tác điêu khắc Champa, được khai quật tại khu phế tích Đồng Dương, Quảng Nam. Tượng thể hiện phong cách nghệ thuật đặc trưng của vương quốc Champa thế kỷ IX với những đường nét tinh tế và biểu cảm sâu sắc.',
-    arAvailable: false,
-    emoji: '🗿',
-    color: '#6D28D9',
-    audioUrl: DEMO_AUDIO,
-    audioDuration: 90,
-    transcript: [
-      'Tượng Phật Đồng Dương là kiệt tác điêu khắc của vương quốc Champa, được khai quật năm 1901 tại khu phế tích Đồng Dương, tỉnh Quảng Nam.',
-      'Khác với phong cách Phật giáo Ấn Độ, tượng mang nét đặc trưng riêng biệt của nghệ thuật Champa thế kỷ IX — khuôn mặt vuông vức, môi dày, tóc xoắn ốc dày đặc.',
-      'Tượng cao 1,15m, được tạc từ đá sa thạch địa phương, thể hiện Đức Phật trong tư thế đứng thẳng với nụ cười bí ẩn và từ bi.',
-      'Đây là một trong những tác phẩm điêu khắc Phật giáo đẹp nhất còn sót lại từ thời kỳ vàng son của Champa.',
-    ],
-    highlights: ['Cao 1,15m', 'Đá sa thạch Quảng Nam', 'Phong cách Đồng Dương thế kỷ IX'],
-  },
-  {
     id: '3',
     museumId: 'm1',
     title: 'Gốm Chu Đậu',
@@ -196,7 +173,7 @@ export const EXHIBITS: ExhibitRecord[] = [
 // ─────────────────────────────────────────────
 
 /** Thay đổi danh sách này để chọn hiện vật nổi bật trên Home */
-export const FEATURED_IDS = ['1', '2', '3'];
+export const FEATURED_IDS = ['1', '3', '6'];
 
 // ─────────────────────────────────────────────
 //  HELPER FUNCTIONS

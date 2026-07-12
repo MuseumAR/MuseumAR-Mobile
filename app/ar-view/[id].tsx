@@ -179,7 +179,7 @@ export default function ARViewScreen() {
           {/* Controls */}
           <View style={styles.controls}>
             <TouchableOpacity style={styles.skipBtn} onPress={() => skip(-10)}>
-              <MaterialCommunityIcons name="rewind-10" size={28} color="#374151" />
+              <MaterialCommunityIcons name="rewind-10" size={28} color={C.textSecondary} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.playBtn, { backgroundColor: data.color }]}
@@ -188,11 +188,11 @@ export default function ARViewScreen() {
               <MaterialCommunityIcons
                 name={status.playing ? 'pause' : 'play'}
                 size={32}
-                color="#FFFFFF"
+                color={C.onAccent}
               />
             </TouchableOpacity>
             <TouchableOpacity style={styles.skipBtn} onPress={() => skip(10)}>
-              <MaterialCommunityIcons name="fast-forward-10" size={28} color="#374151" />
+              <MaterialCommunityIcons name="fast-forward-10" size={28} color={C.textSecondary} />
             </TouchableOpacity>
           </View>
         </View>
@@ -214,7 +214,7 @@ export default function ARViewScreen() {
               <Text
                 style={[
                   styles.transcriptText,
-                  i === activeTranscript && status.playing && { color: '#111827', fontWeight: '600' },
+                  i === activeTranscript && status.playing && { color: C.textPrimary, fontWeight: '600' },
                 ]}
               >
                 {para}

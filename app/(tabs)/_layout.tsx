@@ -9,7 +9,7 @@ function TabIcon({ name, focused, highlight }: { name: IconName; focused: boolea
   if (highlight) {
     return (
       <View style={styles.scanTab}>
-        <MaterialCommunityIcons name={name} size={22} color={focused ? C.bgPrimary : '#FFFFFF'} />
+        <MaterialCommunityIcons name={name} size={22} color={focused ? C.textPrimary : C.onAccent} />
       </View>
     );
   }
@@ -58,7 +58,7 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="map"
         options={{
-          title: 'Museums',
+          title: 'Museum',
           tabBarIcon: ({ focused }) => <TabIcon name="bank-outline" focused={focused} />,
         }}
       />
