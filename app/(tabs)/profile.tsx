@@ -10,9 +10,10 @@ import { removeToken } from '../../src/services/tokenStorage';
 import { C } from '../../src/theme/colors';
 
 const MENU_ITEMS = [
+  { label: 'Vé của tôi', icon: '🎫', statKey: null, route: '/my-tickets' as const },
   { label: 'Lịch sử tham quan', icon: '🕐', statKey: 'visited' as const, route: '/visited-exhibits' as const },
   { label: 'Hiện vật đã lưu', icon: '🔖', statKey: 'saved' as const, route: '/bookmarks' as const },
-  { label: 'Mô hình AR đã tải', icon: '📦', statKey: null, route: null },
+  { label: 'Mô hình AR đã tải', icon: '📦', statKey: null, route: '/ar-packs' as const },
   { label: 'Cài đặt', icon: '⚙️', statKey: null, route: null },
   { label: 'Trợ giúp & Phản hồi', icon: '💬', statKey: null, route: null },
 ];

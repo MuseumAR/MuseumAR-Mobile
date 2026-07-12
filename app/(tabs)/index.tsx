@@ -3,8 +3,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CURRENT_MUSEUM } from '../../src/data/museums';
-import { getFeaturedExhibits } from '../../src/data/exhibits';
+import { useExhibits } from '../../src/hooks/useExhibits';
+import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { C } from '../../src/theme/colors';
 
 // ─── Era categories ───────────────────────────────────────────────────────────
@@ -25,8 +25,8 @@ const QUICK_ACTIONS = [
 
 export default function HomeScreen() {
   const router = useRouter();
-  const featuredExhibits = getFeaturedExhibits();
-  const museum = CURRENT_MUSEUM;
+  const { featured: featuredExhibits } = useExhibits();
+  const { museum } = useMuseumProfile();
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>

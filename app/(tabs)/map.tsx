@@ -3,12 +3,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CURRENT_MUSEUM } from '../../src/data/museums';
+import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { C } from '../../src/theme/colors';
 
 export default function MuseumAboutScreen() {
   const router = useRouter();
-  const museum = CURRENT_MUSEUM;
+  const { museum } = useMuseumProfile();
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>

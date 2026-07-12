@@ -1,18 +1,19 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ARPackCard } from '../../src/components/ARPackCard';
-import { AR_PACKS } from '../../src/data/arPacks';
 import { useARPacks } from '../../src/hooks/useARPacks';
+import { usePackages } from '../../src/hooks/usePackages';
 import { C } from '../../src/theme/colors';
 
 const TOTAL_STORAGE_MB = 2048;
 
 export default function ARPacksScreen() {
   const { downloadPack, deletePack, getState } = useARPacks();
+  const { packs, loading, error } = usePackages();
 
-  const downloadedPacks   = AR_PACKS.filter((p) => getState(p.id).status === 'downloaded');
+  const downloadedPacks   = packs.filter((p) => getState(p.id).status === 'downloaded');
   const downloadedCount   = downloadedPacks.length;
   const usedStorageMB     = downloadedPacks.reduce((s, p) => s + p.sizeMB, 0);
   const storagePercent    = Math.min((usedStorageMB / TOTAL_STORAGE_MB) * 100, 100);
@@ -97,15 +98,21 @@ export default function ARPacksScreen() {
 
         {/* ── Flat pack list ───────────────────────────────────────────── */}
         <View style={styles.packList}>
-          {AR_PACKS.map((pack) => (
-            <ARPackCard
-              key={pack.id}
-              pack={pack}
-              state={getState(pack.id)}
-              onDownload={() => downloadPack(pack.id)}
-              onDelete={() => deletePack(pack.id)}
-            />
-          ))}
+          {loading && packs.length === 0 ? (
+            <ActivityIndicator color={C.accent} style={{ paddingVertical: 24 }} />
+          ) : packs.length === 0 ? (
+            <Text style={styles.emptyText}>{error ?? 'Chưa có gói nội dung nào.'}</Text>
+          ) : (
+            packs.map((pack) => (
+              <ARPackCard
+                key={pack.id}
+                pack={pack}
+                state={getState(pack.id)}
+                onDownload={() => downloadPack(pack.id)}
+                onDelete={() => deletePack(pack.id)}
+              />
+            ))
+          )}
         </View>
 
         <View style={styles.tip}>
@@ -169,6 +176,7 @@ const styles = StyleSheet.create({
   storageFill:  { height: 6, borderRadius: 3 },
 
   packList: { paddingHorizontal: 20 },
+  emptyText: { fontSize: 14, color: C.textMuted, textAlign: 'center', paddingVertical: 24 },
 
   tip: {
     flexDirection: 'row', gap: 8, alignItems: 'flex-start',

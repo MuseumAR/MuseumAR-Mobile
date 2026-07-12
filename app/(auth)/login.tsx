@@ -1,7 +1,9 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
 import { C } from '../../src/theme/colors';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -11,8 +13,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useGoogleLogin } from '../../src/hooks/useGoogleLogin';
 import { apiService, getLoginErrorMessage } from '../../src/services/apiService';
-import { saveToken } from '../../src/services/tokenStorage';
+import { saveTokens } from '../../src/services/tokenStorage';
 import { validateLoginForm } from '../../src/utils/authValidation';
 
 export default function LoginScreen() {
@@ -23,6 +26,14 @@ export default function LoginScreen() {
   const [emailError, setEmailError] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const onGoogleSuccess = useCallback(() => router.replace('/(tabs)'), [router]);
+  const {
+    signIn: googleSignIn,
+    loading: googleLoading,
+    error: googleError,
+    configured: googleConfigured,
+  } = useGoogleLogin(onGoogleSuccess);
 
   const handleLogin = async () => {
     const validation = validateLoginForm(email, password);
@@ -38,7 +49,7 @@ export default function LoginScreen() {
     try {
       const response = await apiService.login(email.trim(), password);
       if (response.data?.accessToken) {
-        await saveToken(response.data.accessToken);
+        await saveTokens(response.data.accessToken, response.data.refreshToken);
         router.replace('/(tabs)');
       } else {
         setFormError('Email hoặc mật khẩu không đúng. Vui lòng kiểm tra và thử lại.');
@@ -125,6 +136,27 @@ export default function LoginScreen() {
           </View>
 
           <TouchableOpacity
+            style={[styles.googleBtn, (googleLoading || !googleConfigured) && styles.googleBtnDisabled]}
+            onPress={googleSignIn}
+            disabled={googleLoading || !googleConfigured}
+          >
+            {googleLoading ? (
+              <ActivityIndicator size="small" color={C.textPrimary} />
+            ) : (
+              <>
+                <MaterialCommunityIcons name="google" size={20} color="#DB4437" />
+                <Text style={styles.googleBtnText}>Đăng nhập với Google</Text>
+              </>
+            )}
+          </TouchableOpacity>
+          {!googleConfigured ? (
+            <Text style={styles.googleHint}>
+              Cần cấu hình Google OAuth client id trong app.json (expo.extra.googleClientIds).
+            </Text>
+          ) : null}
+          {googleError ? <Text style={styles.fieldError}>{googleError}</Text> : null}
+
+          <TouchableOpacity
             style={styles.guestBtn}
             onPress={() => router.replace('/(tabs)')}
           >
@@ -202,6 +234,22 @@ const styles = StyleSheet.create({
   divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 20 },
   dividerLine: { flex: 1, height: 1, backgroundColor: C.divider },
   dividerText: { marginHorizontal: 12, color: C.textMuted, fontSize: 13 },
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginBottom: 12,
+    minHeight: 50,
+    backgroundColor: C.bgElevated,
+  },
+  googleBtnDisabled: { opacity: 0.5 },
+  googleBtnText: { color: C.textPrimary, fontSize: 15, fontWeight: '700' },
+  googleHint: { color: C.textMuted, fontSize: 11, textAlign: 'center', marginBottom: 12, lineHeight: 16 },
   guestBtn: {
     borderWidth: 1.5,
     borderColor: C.border,

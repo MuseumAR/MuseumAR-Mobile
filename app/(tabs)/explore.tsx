@@ -1,8 +1,10 @@
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { C } from '../../src/theme/colors';
 import {
+  ActivityIndicator,
   FlatList,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,7 +13,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { EXHIBITS, EXHIBIT_CATEGORIES } from '../../src/data/exhibits';
+import { useCategories } from '../../src/hooks/useCategories';
+import { useExhibits } from '../../src/hooks/useExhibits';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 
 export default function ExploreScreen() {
@@ -20,7 +23,9 @@ export default function ExploreScreen() {
   const [selectedCategory, setSelectedCategory] = useState('Tất cả');
   const { track } = useTrackAction();
   const searchTrackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const CATEGORIES = EXHIBIT_CATEGORIES;
+  const { categoryLabels } = useCategories();
+  const { exhibits, loading, error, refresh } = useExhibits();
+  const CATEGORIES = categoryLabels.length > 1 ? categoryLabels : ['Tất cả'];
 
   useEffect(() => {
     if (searchTrackTimer.current) clearTimeout(searchTrackTimer.current);
@@ -33,12 +38,15 @@ export default function ExploreScreen() {
     };
   }, [search, track]);
 
-  const filtered = EXHIBITS.filter((e) => {
-    const matchCategory =
-      selectedCategory === 'Tất cả' || e.category === selectedCategory;
-    const matchSearch = e.title.toLowerCase().includes(search.toLowerCase());
-    return matchCategory && matchSearch;
-  });
+  const filtered = useMemo(
+    () =>
+      exhibits.filter((e) => {
+        const matchCategory = selectedCategory === 'Tất cả' || e.category === selectedCategory;
+        const matchSearch = e.title.toLowerCase().includes(search.toLowerCase());
+        return matchCategory && matchSearch;
+      }),
+    [exhibits, selectedCategory, search],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -81,23 +89,39 @@ export default function ExploreScreen() {
         contentContainerStyle={styles.list}
         numColumns={2}
         columnWrapperStyle={styles.row}
+        onRefresh={refresh}
+        refreshing={loading}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.gridCard}
             onPress={() => router.push(`/exhibit/${item.id}`)}
           >
-            <View style={styles.gridThumb} />
+            {item.thumbnailUrl ? (
+              <Image source={{ uri: item.thumbnailUrl }} style={styles.gridThumb} resizeMode="cover" />
+            ) : (
+              <View style={[styles.gridThumb, { backgroundColor: item.color + '22', alignItems: 'center', justifyContent: 'center' }]}>
+                <Text style={{ fontSize: 34 }}>{item.emoji}</Text>
+              </View>
+            )}
             <View style={styles.gridContent}>
               <Text style={styles.gridCategory}>{item.category}</Text>
               <Text style={styles.gridTitle} numberOfLines={2}>{item.title}</Text>
-              <Text style={styles.gridEra}>{item.era}</Text>
+              {item.era ? <Text style={styles.gridEra}>{item.era}</Text> : null}
             </View>
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>Không tìm thấy hiện vật</Text>
-          </View>
+          loading ? (
+            <View style={styles.empty}>
+              <ActivityIndicator color={C.accent} />
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>
+                {error ?? 'Không tìm thấy hiện vật'}
+              </Text>
+            </View>
+          )
         }
       />
     </SafeAreaView>

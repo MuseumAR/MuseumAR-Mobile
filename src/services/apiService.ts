@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { API_BASE_URL } from '../config/apiConfig';
-import { getToken } from './tokenStorage';
+import { getRefreshToken, getToken, saveTokens } from './tokenStorage';
 
 // Giao diện dữ liệu phản hồi chung từ API
 export interface ApiResponse<T> {
@@ -16,6 +16,8 @@ export interface LoginResponse {
   email: string;
   roleName: string;
   accessToken: string;
+  /** Token dùng để lấy accessToken mới khi hết hạn (nếu backend hỗ trợ) */
+  refreshToken?: string;
 }
 
 export interface MuseumDto {
@@ -104,6 +106,163 @@ export interface SyncCheckDto {
   arPackCount?: number;
 }
 
+// --- TICKETING ---
+export interface TicketTypeDto {
+  id: number;
+  name: string;
+  description?: string;
+  /** Giá vé (VND) */
+  price: number;
+  currency?: string;
+  museumId?: number;
+  isActive?: boolean;
+}
+
+export interface CreateOrderItem {
+  ticketTypeId: number;
+  quantity: number;
+}
+
+export interface CreateOrderRequest {
+  museumId?: number | null;
+  /** Ngày tham quan dạng ISO (YYYY-MM-DD) */
+  visitDate?: string | null;
+  items: CreateOrderItem[];
+  fullName?: string;
+  email?: string;
+  phoneNumber?: string;
+}
+
+export interface OrderTicketDto {
+  id: number;
+  ticketCode?: string;
+  ticketTypeId?: number;
+  ticketTypeName?: string;
+  qrCodeUrl?: string;
+  status?: string;
+}
+
+export interface CreateOrderResponse {
+  orderId: number;
+  orderCode?: string;
+  totalAmount: number;
+  status: string;
+  /** URL cổng thanh toán (nếu backend trả về) */
+  paymentUrl?: string;
+  tickets?: OrderTicketDto[];
+}
+
+export interface MyTicketDto {
+  id: number;
+  orderId?: number;
+  ticketCode?: string;
+  ticketTypeId?: number;
+  ticketTypeName?: string;
+  museumId?: number;
+  museumName?: string;
+  price?: number;
+  /** Trạng thái vé: Valid / Used / Expired / Cancelled ... */
+  status?: string;
+  visitDate?: string;
+  qrCodeUrl?: string;
+  purchasedAt?: string;
+}
+
+// --- CONTENT ---
+export interface CategoryDto {
+  id: number;
+  name: string;
+  slug?: string;
+  description?: string;
+  parentId?: number | null;
+  /** 'category' | 'theme' | 'tag' ... */
+  type?: string;
+  exhibitCount?: number;
+}
+
+export interface ArAssetDto {
+  id: number;
+  exhibitId: number;
+  /** 'model' | 'texture' | 'audio' | 'video' ... */
+  assetType?: string;
+  /** 'glb' | 'gltf' | 'usdz' ... */
+  format?: string;
+  url: string;
+  fileSizeBytes?: number;
+  scale?: number;
+  markerUrl?: string;
+  previewImageUrl?: string;
+}
+
+export interface ContentPackageDto {
+  id: number;
+  museumId?: number;
+  name: string;
+  description?: string;
+  sizeBytes?: number;
+  exhibitCount?: number;
+  category?: string;
+  downloadUrl?: string;
+  version?: string;
+  thumbnailUrl?: string;
+}
+
+export interface MuseumMapDto {
+  id: number;
+  museumId?: number;
+  name?: string;
+  floor?: string;
+  level?: number;
+  imageUrl?: string;
+  width?: number;
+  height?: number;
+}
+
+export interface RoutePointDto {
+  id?: number;
+  exhibitId?: number;
+  order?: number;
+  title?: string;
+  x?: number;
+  y?: number;
+}
+
+export interface TourRouteDto {
+  id: number;
+  museumId?: number;
+  name: string;
+  description?: string;
+  durationMinutes?: number;
+  distanceMeters?: number;
+  difficulty?: string;
+  stopCount?: number;
+  thumbnailUrl?: string;
+  points?: RoutePointDto[];
+}
+
+// --- ADMIN ---
+export interface MuseumProfileDto {
+  id: number;
+  name: string;
+  description?: string;
+  address?: string;
+  city?: string;
+  phone?: string;
+  email?: string;
+  openHours?: string;
+  closedDay?: string;
+  /** Giá vé cơ bản (VND) */
+  ticketPrice?: number;
+  foundedYear?: string | number;
+  exhibitCount?: number;
+  thumbnailUrl?: string;
+  logoUrl?: string;
+  status?: string;
+  latitude?: number;
+  longitude?: number;
+  website?: string;
+}
+
 export class ApiError extends Error {
   statusCode: number;
 
@@ -149,8 +308,57 @@ export function getLoginErrorMessage(error: unknown): string {
   return 'Đăng nhập thất bại. Vui lòng thử lại.';
 }
 
-// Hàm fetch API dùng chung hỗ trợ tự động đính kèm token JWT
-async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
+// Xây query string từ object (bỏ qua giá trị null/undefined)
+function buildQuery(params?: Record<string, string | number | boolean | null | undefined>): string {
+  if (!params) return '';
+  const parts = Object.entries(params)
+    .filter(([, v]) => v !== null && v !== undefined && v !== '')
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`);
+  return parts.length ? `?${parts.join('&')}` : '';
+}
+
+// Gọi refresh token; trả về accessToken mới hoặc null nếu thất bại.
+// Dùng biến module để tránh gọi refresh song song nhiều lần.
+let refreshPromise: Promise<string | null> | null = null;
+
+async function tryRefreshToken(): Promise<string | null> {
+  const refreshToken = await getRefreshToken();
+  if (!refreshToken) return null;
+
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/Auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (!res.ok) return null;
+        const json = (await res.json()) as ApiResponse<LoginResponse>;
+        const newAccess = json.data?.accessToken;
+        if (!newAccess) return null;
+        await saveTokens(newAccess, json.data?.refreshToken ?? refreshToken);
+        return newAccess;
+      } catch {
+        return null;
+      } finally {
+        // Reset sau một nhịp để các request đồng thời cùng dùng chung kết quả
+        setTimeout(() => {
+          refreshPromise = null;
+        }, 0);
+      }
+    })();
+  }
+
+  return refreshPromise;
+}
+
+// Hàm fetch API dùng chung hỗ trợ tự động đính kèm token JWT + auto-refresh khi 401
+async function apiFetch<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  allowRefresh = true,
+): Promise<ApiResponse<T>> {
   const token = await getToken();
 
   const headers = {
@@ -167,6 +375,14 @@ async function apiFetch<T>(endpoint: string, options: RequestInit = {}): Promise
     });
   } catch {
     throw new TypeError('Network request failed');
+  }
+
+  // Access token hết hạn: thử refresh 1 lần rồi gọi lại request gốc.
+  if (response.status === 401 && allowRefresh && token) {
+    const newToken = await tryRefreshToken();
+    if (newToken) {
+      return apiFetch<T>(endpoint, options, false);
+    }
   }
 
   const text = await response.text();
@@ -213,6 +429,25 @@ export const apiService = {
     });
   },
 
+  async googleLogin(idToken: string): Promise<ApiResponse<LoginResponse>> {
+    return apiFetch<LoginResponse>('Auth/google-login', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    });
+  },
+
+  async refresh(refreshToken: string): Promise<ApiResponse<LoginResponse>> {
+    // allowRefresh = false: tránh vòng lặp refresh vô hạn
+    return apiFetch<LoginResponse>(
+      'Auth/refresh',
+      {
+        method: 'POST',
+        body: JSON.stringify({ refreshToken }),
+      },
+      false,
+    );
+  },
+
   async logout(): Promise<ApiResponse<null>> {
     return apiFetch<null>('Auth/logout', { method: 'POST' });
   },
@@ -249,6 +484,61 @@ export const apiService = {
 
   async getExhibitDetail(id: number): Promise<ApiResponse<ExhibitDto>> {
     return apiFetch<ExhibitDto>(`Content/exhibits/${id}`);
+  },
+
+  /** Danh sách hiện vật của bảo tàng (thay cho dữ liệu mock). */
+  async getContentExhibits(params?: {
+    categoryId?: number;
+    search?: string;
+  }): Promise<ApiResponse<ExhibitDto[]>> {
+    return apiFetch<ExhibitDto[]>(`Content/exhibits${buildQuery(params)}`);
+  },
+
+  /** Các asset AR 3D của một hiện vật. */
+  async getExhibitArAssets(exhibitId: number): Promise<ApiResponse<ArAssetDto[]>> {
+    return apiFetch<ArAssetDto[]>(`Content/exhibits/${exhibitId}/ar-assets`);
+  },
+
+  /** Gói nội dung offline / AR packs. */
+  async getPackages(): Promise<ApiResponse<ContentPackageDto[]>> {
+    return apiFetch<ContentPackageDto[]>('Content/packages');
+  },
+
+  /** Bản đồ bảo tàng. */
+  async getMaps(): Promise<ApiResponse<MuseumMapDto[]>> {
+    return apiFetch<MuseumMapDto[]>('Content/maps');
+  },
+
+  /** Tour / lộ trình tham quan. */
+  async getRoutes(): Promise<ApiResponse<TourRouteDto[]>> {
+    return apiFetch<TourRouteDto[]>('Content/routes');
+  },
+
+  /** Danh mục / chủ đề / tag để lọc Explore. */
+  async getCategories(): Promise<ApiResponse<CategoryDto[]>> {
+    return apiFetch<CategoryDto[]>('Content/categories');
+  },
+
+  // --- TICKETING ---
+  async getTicketTypes(): Promise<ApiResponse<TicketTypeDto[]>> {
+    return apiFetch<TicketTypeDto[]>('Ticketing/types');
+  },
+
+  async createOrder(payload: CreateOrderRequest): Promise<ApiResponse<CreateOrderResponse>> {
+    return apiFetch<CreateOrderResponse>('Ticketing/create-order', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getMyTickets(): Promise<ApiResponse<MyTicketDto[]>> {
+    return apiFetch<MyTicketDto[]>('Ticketing/my-tickets');
+  },
+
+  // --- ADMIN ---
+  /** Hồ sơ bảo tàng (single museum). */
+  async getMuseumProfile(): Promise<ApiResponse<MuseumProfileDto>> {
+    return apiFetch<MuseumProfileDto>('Admin/museum-profile');
   },
 
   // --- VISITOR ---

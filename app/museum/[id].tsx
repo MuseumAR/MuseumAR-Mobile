@@ -1,12 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ARPackCard } from '../../src/components/ARPackCard';
-import { getPacksByMuseum } from '../../src/data/arPacks';
-import { CURRENT_MUSEUM, type MuseumRecord, type MuseumZone } from '../../src/data/museums';
+import { type MuseumZone } from '../../src/data/museums';
 import { useARPacks } from '../../src/hooks/useARPacks';
+import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
+import { usePackages } from '../../src/hooks/usePackages';
+import { useRoutes } from '../../src/hooks/useRoutes';
 import {
   Animated,
   Image,
@@ -18,7 +20,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../src/theme/colors';
-import { apiService } from '../../src/services/apiService';
 import { parseNumericId } from '../../src/utils/parseId';
 
 // ─── Pulsing dot (user location in floor plan) ────────────────────────────────
@@ -267,54 +268,21 @@ const fpS = StyleSheet.create({
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function MuseumDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [museum, setMuseum] = useState<MuseumRecord>(CURRENT_MUSEUM);
+  const { museum } = useMuseumProfile();
   const [favorited, setFavorited] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
   const { checkSync } = useMuseumSyncCheck();
-  const museumIdParam = id ?? CURRENT_MUSEUM.id;
-  const arPacks = getPacksByMuseum(museumIdParam);
+  const { packs: arPacks } = usePackages();
+  const { routes } = useRoutes();
 
   useEffect(() => {
-    // Base on CURRENT_MUSEUM; enrich from API when available
-    setMuseum(CURRENT_MUSEUM);
-
-    async function loadRealDetails() {
-      try {
-        const response = await apiService.getMuseums();
-        if (response.data && response.data.length > 0) {
-          const apiMuseum = response.data.find(
-            (m) =>
-              m.id.toString() === museumIdParam ||
-              `m${m.id}` === museumIdParam ||
-              m.name.toLowerCase() === CURRENT_MUSEUM.name.toLowerCase()
-          );
-          if (apiMuseum) {
-            const merged: MuseumRecord = {
-              ...CURRENT_MUSEUM,
-              id: apiMuseum.id.toString(),
-              name: apiMuseum.name,
-              city: apiMuseum.city || CURRENT_MUSEUM.city,
-              address: apiMuseum.address || CURRENT_MUSEUM.address,
-              description: apiMuseum.description || CURRENT_MUSEUM.description,
-              thumbnailUrl: apiMuseum.thumbnailUrl,
-            };
-            setMuseum(merged);
-          }
-        }
-      } catch (error) {
-        console.warn('Không thể tải chi tiết bảo tàng từ backend:', error);
-      }
-    }
-    loadRealDetails();
-
-    const museumId = parseNumericId(museumIdParam);
+    const museumId = parseNumericId(museum.id);
     if (museumId != null) {
       checkSync(museumId);
     }
-  }, [museumIdParam, checkSync]);
+  }, [museum.id, checkSync]);
 
   const selectedZoneData = museum.zones.find((z) => z.name === selectedZone);
 
@@ -494,6 +462,32 @@ export default function MuseumDetailScreen() {
             </View>
           )}
 
+          {/* ── Tour routes ─────────────────────────────────────────────── */}
+          {routes.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Tour tham quan</Text>
+              {routes.map((r) => (
+                <View key={r.id} style={styles.routeRow}>
+                  <View style={[styles.routeIcon, { backgroundColor: museum.color + '18', borderColor: museum.color + '40' }]}>
+                    <MaterialCommunityIcons name="map-marker-path" size={18} color={museum.color} />
+                  </View>
+                  <View style={styles.routeInfo}>
+                    <Text style={styles.routeName} numberOfLines={1}>{r.name}</Text>
+                    <Text style={styles.routeMeta}>
+                      {[
+                        r.durationMinutes ? `${r.durationMinutes} phút` : null,
+                        r.stopCount ? `${r.stopCount} điểm` : null,
+                        r.difficulty || null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || 'Lộ trình tham quan'}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* ── CTA: Start AR ───────────────────────────────────────────── */}
           <TouchableOpacity
             style={styles.arBtn}
@@ -612,6 +606,21 @@ const styles = StyleSheet.create({
     borderRadius: 10, borderWidth: 1,
   },
   navigateBtnText: { fontSize: 13, fontWeight: '700' },
+
+  // Tour routes
+  routeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.bgSurface, borderRadius: 12,
+    padding: 12, marginBottom: 8,
+    borderWidth: 1, borderColor: C.border,
+  },
+  routeIcon: {
+    width: 38, height: 38, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
+  },
+  routeInfo: { flex: 1 },
+  routeName: { fontSize: 14, fontWeight: '700', color: C.textPrimary },
+  routeMeta: { fontSize: 12, color: C.textSecondary, marginTop: 2 },
 
   // AR button
   arBtn: { marginTop: 28, borderRadius: 16, overflow: 'hidden' },

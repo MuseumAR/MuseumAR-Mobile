@@ -47,6 +47,8 @@ export type ExhibitRecord = {
   transcript: string[];
   /** Thông tin nổi bật (kích thước, năm, nơi phát hiện...) */
   highlights: string[];
+  /** Ảnh đại diện (khi lấy từ backend); mock không có */
+  thumbnailUrl?: string;
 };
 
 // ─────────────────────────────────────────────

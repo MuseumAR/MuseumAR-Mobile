@@ -3,6 +3,7 @@ import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Easing,
   ScrollView,
@@ -12,7 +13,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getExhibitById } from '../../src/data/exhibits';
+import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
+import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
 import { C } from '../../src/theme/colors';
@@ -27,11 +29,13 @@ function formatTime(seconds: number): string {
 export default function ARViewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const data = getExhibitById(id ?? '1');
+  const { exhibit: data, loading: dataLoading } = useExhibitDetail(id);
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(data?.museumId);
+  const { audioAsset } = useExhibitArAssets(exhibitId);
 
-  const player = useAudioPlayer(data?.audioUrl ?? '');
+  const audioUrl = audioAsset?.url ?? data?.audioUrl ?? '';
+  const player = useAudioPlayer(audioUrl);
   const status = useAudioPlayerStatus(player);
   const { recordVisit } = useVisitedExhibits();
   const { track } = useTrackAction();
@@ -112,10 +116,16 @@ export default function ARViewScreen() {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
-          <Text style={styles.errorText}>Không tìm thấy thuyết minh</Text>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Text style={styles.backBtnText}>Quay lại</Text>
-          </TouchableOpacity>
+          {dataLoading ? (
+            <ActivityIndicator color={C.accent} />
+          ) : (
+            <>
+              <Text style={styles.errorText}>Không tìm thấy thuyết minh</Text>
+              <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+                <Text style={styles.backBtnText}>Quay lại</Text>
+              </TouchableOpacity>
+            </>
+          )}
         </View>
       </SafeAreaView>
     );

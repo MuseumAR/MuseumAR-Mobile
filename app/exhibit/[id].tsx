@@ -11,8 +11,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getExhibitById } from '../../src/data/exhibits';
 import { useBookmarks } from '../../src/hooks/useBookmarks';
+import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
+import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
 import { C } from '../../src/theme/colors';
@@ -30,9 +31,11 @@ type ActionItem = {
 export default function ExhibitDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const exhibit = getExhibitById(id ?? '1');
+  const { exhibit, loading: exhibitLoading } = useExhibitDetail(id);
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(exhibit?.museumId);
+  const { hasAr } = useExhibitArAssets(exhibitId);
+  const arAvailable = hasAr || Boolean(exhibit?.arAvailable);
 
   const {
     isBookmarked,
@@ -99,7 +102,11 @@ export default function ExhibitDetailScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['bottom']}>
         <View style={styles.notFound}>
-          <Text style={styles.notFoundText}>Không tìm thấy hiện vật</Text>
+          {exhibitLoading ? (
+            <ActivityIndicator color={C.accent} />
+          ) : (
+            <Text style={styles.notFoundText}>Không tìm thấy hiện vật</Text>
+          )}
         </View>
       </SafeAreaView>
     );
@@ -167,10 +174,10 @@ export default function ExhibitDetailScreen() {
             ))}
           </View>
 
-          {exhibit.arAvailable && (
+          {arAvailable && (
             <TouchableOpacity
               style={styles.arBtn}
-              onPress={() => router.push('/(tabs)/scan')}
+              onPress={() => router.push(`/ar-view/${id}`)}
             >
               <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
               <Text style={styles.arBtnText}>Xem mô hình AR 3D</Text>
