@@ -1,8 +1,16 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { apiService, BookmarkDto } from '../services/apiService';
-import { getToken } from '../services/tokenStorage';
+import { BookmarkDto } from '../services/apiService';
+import {
+  addLocalBookmark,
+  loadLocalBookmarks,
+  removeLocalBookmark,
+} from '../services/localVisitorStore';
 import { uniqueBookmarks } from '../utils/visitorLists';
 
+/**
+ * Bookmarks — local mock (visitorId = 1).
+ * Không gọi API: BE gán visitorId = JWT userId → FK lỗi.
+ */
 export function useBookmarks() {
   const [bookmarks, setBookmarks] = useState<BookmarkDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -18,18 +26,10 @@ export function useBookmarks() {
   bookmarkIdsRef.current = bookmarkIds;
 
   const refresh = useCallback(async () => {
-    const token = await getToken();
-    if (!token) {
-      setBookmarks([]);
-      setHasLoaded(true);
-      return;
-    }
     setLoading(true);
     try {
-      const response = await apiService.getBookmarks();
-      setBookmarks(response.data ?? []);
-    } catch (error) {
-      console.warn('getBookmarks failed:', error);
+      const list = await loadLocalBookmarks();
+      setBookmarks(list);
     } finally {
       setLoading(false);
       setHasLoaded(true);
@@ -42,24 +42,13 @@ export function useBookmarks() {
   );
 
   const addBookmark = useCallback(async (exhibitId: number): Promise<boolean> => {
-    const token = await getToken();
-    if (!token) return false;
-
     setTogglingId(exhibitId);
     try {
-      await apiService.addBookmark(exhibitId);
-      setBookmarks((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          visitorId: 0,
-          exhibitId,
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      const next = await addLocalBookmark(exhibitId);
+      setBookmarks(next);
       return true;
     } catch (error) {
-      console.warn('addBookmark failed:', error);
+      console.warn('addBookmark (local) failed:', error);
       return false;
     } finally {
       setTogglingId(null);
@@ -67,16 +56,13 @@ export function useBookmarks() {
   }, []);
 
   const removeBookmark = useCallback(async (exhibitId: number): Promise<boolean> => {
-    const token = await getToken();
-    if (!token) return false;
-
     setTogglingId(exhibitId);
     try {
-      await apiService.removeBookmark(exhibitId);
-      setBookmarks((prev) => prev.filter((b) => b.exhibitId !== exhibitId));
+      const next = await removeLocalBookmark(exhibitId);
+      setBookmarks(next);
       return true;
     } catch (error) {
-      console.warn('removeBookmark failed:', error);
+      console.warn('removeBookmark (local) failed:', error);
       return false;
     } finally {
       setTogglingId(null);
@@ -84,16 +70,11 @@ export function useBookmarks() {
   }, []);
 
   const toggleBookmark = useCallback(async (exhibitId: number): Promise<'added' | 'removed' | 'auth_required' | 'failed'> => {
-    const token = await getToken();
-    if (!token) return 'auth_required';
-
     const wasBookmarked = bookmarkIdsRef.current.has(exhibitId);
-
     if (wasBookmarked) {
       const ok = await removeBookmark(exhibitId);
       return ok ? 'removed' : 'failed';
     }
-
     const ok = await addBookmark(exhibitId);
     return ok ? 'added' : 'failed';
   }, [addBookmark, removeBookmark]);

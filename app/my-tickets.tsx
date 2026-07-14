@@ -78,27 +78,13 @@ function TicketCard({ ticket }: { ticket: MyTicketDto }) {
 
 export default function MyTicketsScreen() {
   const router = useRouter();
-  const { tickets, loading, authRequired, error, refresh } = useMyTickets();
+  const { tickets, loading, error, refresh } = useMyTickets();
 
   useFocusEffect(
     useCallback(() => {
       refresh();
     }, [refresh]),
   );
-
-  if (authRequired) {
-    return (
-      <SafeAreaView style={styles.safe} edges={['bottom']}>
-        <View style={styles.center}>
-          <Text style={styles.emptyTitle}>Cần đăng nhập</Text>
-          <Text style={styles.emptyText}>Đăng nhập để xem vé đã đặt của bạn.</Text>
-          <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/(auth)/login')}>
-            <Text style={styles.emptyBtnText}>Đăng nhập</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -109,7 +95,9 @@ export default function MyTicketsScreen() {
         onRefresh={refresh}
         refreshing={loading}
         ListHeaderComponent={
-          tickets.length > 0 ? <Text style={styles.headerHint}>{tickets.length} vé</Text> : null
+          tickets.length > 0 ? (
+            <Text style={styles.headerHint}>{tickets.length} vé (lưu trên thiết bị)</Text>
+          ) : null
         }
         ListEmptyComponent={
           loading ? (
@@ -120,7 +108,7 @@ export default function MyTicketsScreen() {
             <View style={styles.center}>
               <Text style={styles.emptyTitle}>{error ? 'Không tải được vé' : 'Chưa có vé nào'}</Text>
               <Text style={styles.emptyText}>
-                {error ?? 'Đặt vé tham quan để nhận vé điện tử ở đây.'}
+                {error ?? 'Đặt vé tham quan để nhận vé điện tử lưu trên thiết bị.'}
               </Text>
               <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/(tabs)/ticket')}>
                 <Text style={styles.emptyBtnText}>Mua vé ngay</Text>

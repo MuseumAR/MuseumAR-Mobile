@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -34,8 +34,10 @@ export default function ARViewScreen() {
   const museumId = parseNumericId(data?.museumId);
   const { audioAsset } = useExhibitArAssets(exhibitId);
 
-  const audioUrl = audioAsset?.url ?? data?.audioUrl ?? '';
-  const player = useAudioPlayer(audioUrl);
+  // null = no source ('' recreates/releases the native player and causes "already released")
+  const audioUrl = (audioAsset?.url ?? data?.audioUrl ?? '').trim();
+  const audioSource = audioUrl.length > 0 ? audioUrl : null;
+  const player = useAudioPlayer(audioSource, { updateInterval: 250, downloadFirst: true });
   const status = useAudioPlayerStatus(player);
   const { recordVisit } = useVisitedExhibits();
   const { track } = useTrackAction();
@@ -46,47 +48,95 @@ export default function ARViewScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
+  const safePlay = useCallback(() => {
+    try {
+      player.play();
+    } catch {
+      // Player may have been released after source change / unmount
+    }
+  }, [player]);
+
+  const safePause = useCallback(() => {
+    try {
+      player.pause();
+    } catch {
+      // ignore
+    }
+  }, [player]);
+
+  const safeSeek = useCallback(
+    (time: number) => {
+      try {
+        player.seekTo(Math.max(0, time));
+      } catch {
+        // ignore
+      }
+    },
+    [player],
+  );
+
   // Pulse + rotate animation when playing
   useEffect(() => {
     if (status.playing) {
+      rotateAnim.setValue(0);
       const pulse = Animated.loop(
         Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1.12, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        ])
+          Animated.timing(pulseAnim, {
+            toValue: 1.12,
+            duration: 600,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 600,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }),
+        ]),
       );
       pulse.start();
       const rotate = Animated.loop(
-        Animated.timing(rotateAnim, { toValue: 1, duration: 8000, easing: Easing.linear, useNativeDriver: true })
+        Animated.timing(rotateAnim, {
+          toValue: 1,
+          duration: 8000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
       );
       rotate.start();
-      return () => { pulse.stop(); rotate.stop(); };
-    } else {
-      pulseAnim.setValue(1);
+      return () => {
+        pulse.stop();
+        rotate.stop();
+      };
     }
+    pulseAnim.setValue(1);
   }, [status.playing, pulseAnim, rotateAnim]);
 
   // Auto-advance transcript based on playback position
   useEffect(() => {
     if (!data || !status.playing) return;
     const totalSegments = data.transcript.length;
-    const segmentDuration = (status.duration ?? data.audioDuration) / totalSegments;
+    if (totalSegments < 1) return;
+    const duration = status.duration ?? data.audioDuration;
+    if (!duration || duration <= 0) return;
+    const segmentDuration = duration / totalSegments;
     const idx = Math.min(
       Math.floor((status.currentTime ?? 0) / segmentDuration),
-      totalSegments - 1
+      totalSegments - 1,
     );
     setActiveTranscript(idx);
   }, [status.currentTime, status.playing, data, status.duration]);
 
-  // Auto-play on mount
+  // Auto-play only after a real source exists and the player finished loading
   useEffect(() => {
-    const timer = setTimeout(() => { player.play(); }, 600);
+    if (!audioSource || !status.isLoaded) return;
+    const timer = setTimeout(() => safePlay(), 400);
     return () => {
       clearTimeout(timer);
-      player.pause();
+      safePause();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [audioSource, status.isLoaded, safePlay, safePause]);
 
   useEffect(() => {
     if (exhibitId == null) return;
@@ -109,7 +159,7 @@ export default function ARViewScreen() {
   }, [status.playing, exhibitId, museumId, track]);
 
   const skip = (secs: number) => {
-    player.seekTo(Math.max(0, (status.currentTime ?? 0) + secs));
+    safeSeek((status.currentTime ?? 0) + secs);
   };
 
   if (!data) {
@@ -193,7 +243,7 @@ export default function ARViewScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.playBtn, { backgroundColor: data.color }]}
-              onPress={() => (status.playing ? player.pause() : player.play())}
+              onPress={() => (status.playing ? safePause() : safePlay())}
             >
               <MaterialCommunityIcons
                 name={status.playing ? 'pause' : 'play'}

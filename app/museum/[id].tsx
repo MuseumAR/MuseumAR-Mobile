@@ -20,7 +20,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../src/theme/colors';
-import { parseNumericId } from '../../src/utils/parseId';
 
 // ─── Pulsing dot (user location in floor plan) ────────────────────────────────
 
@@ -275,14 +274,12 @@ export default function MuseumDetailScreen() {
   const { downloadPack, deletePack, getState } = useARPacks();
   const { checkSync } = useMuseumSyncCheck();
   const { packs: arPacks } = usePackages();
-  const { routes } = useRoutes();
+  const { routes, loading: routesLoading, error: routesError } = useRoutes();
 
   useEffect(() => {
-    const museumId = parseNumericId(museum.id);
-    if (museumId != null) {
-      checkSync(museumId);
-    }
-  }, [museum.id, checkSync]);
+    // Warm museumId cache + sync-check (404 = chưa có offline pack, đã xử lý im lặng)
+    checkSync();
+  }, [checkSync]);
 
   const selectedZoneData = museum.zones.find((z) => z.name === selectedZone);
 
@@ -463,19 +460,27 @@ export default function MuseumDetailScreen() {
           )}
 
           {/* ── Tour routes ─────────────────────────────────────────────── */}
-          {routes.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Tour tham quan</Text>
-              {routes.map((r) => (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Tour tham quan</Text>
+            {routesLoading ? (
+              <Text style={styles.routeMeta}>Đang tải lộ trình…</Text>
+            ) : routes.length === 0 ? (
+              <Text style={styles.routeMeta}>
+                {routesError ?? 'Chưa có lộ trình tham quan.'}
+              </Text>
+            ) : (
+              routes.map((r) => (
                 <View key={r.id} style={styles.routeRow}>
                   <View style={[styles.routeIcon, { backgroundColor: museum.color + '18', borderColor: museum.color + '40' }]}>
                     <MaterialCommunityIcons name="map-marker-path" size={18} color={museum.color} />
                   </View>
                   <View style={styles.routeInfo}>
-                    <Text style={styles.routeName} numberOfLines={1}>{r.name}</Text>
+                    <Text style={styles.routeName} numberOfLines={1}>
+                      {r.name || `Tour #${r.id}`}
+                    </Text>
                     <Text style={styles.routeMeta}>
                       {[
-                        r.durationMinutes ? `${r.durationMinutes} phút` : null,
+                        r.durationMinutes != null ? `${r.durationMinutes} phút` : null,
                         r.stopCount ? `${r.stopCount} điểm` : null,
                         r.difficulty || null,
                       ]
@@ -484,9 +489,9 @@ export default function MuseumDetailScreen() {
                     </Text>
                   </View>
                 </View>
-              ))}
-            </View>
-          )}
+              ))
+            )}
+          </View>
 
           {/* ── CTA: Start AR ───────────────────────────────────────────── */}
           <TouchableOpacity

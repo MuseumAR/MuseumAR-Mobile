@@ -1,9 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
-import { apiService, VisitedExhibitDto } from '../services/apiService';
-import { getToken } from '../services/tokenStorage';
-import { isIgnorableVisitorError } from '../utils/visitorErrors';
+import { VisitedExhibitDto } from '../services/apiService';
+import { loadLocalVisited, recordLocalVisit } from '../services/localVisitorStore';
 import { uniqueVisitedExhibits } from '../utils/visitorLists';
 
+/**
+ * Visited exhibits — local mock (visitorId = 1).
+ * Không gọi API: BE gán visitorId = JWT userId → FK lỗi.
+ */
 export function useVisitedExhibits() {
   const [visited, setVisited] = useState<VisitedExhibitDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -11,33 +14,22 @@ export function useVisitedExhibits() {
   const uniqueList = useMemo(() => uniqueVisitedExhibits(visited), [visited]);
 
   const refresh = useCallback(async () => {
-    const token = await getToken();
-    if (!token) {
-      setVisited([]);
-      return;
-    }
     setLoading(true);
     try {
-      const response = await apiService.getVisitedExhibits();
-      setVisited(response.data ?? []);
-    } catch (error) {
-      if (!isIgnorableVisitorError(error)) {
-        console.warn('getVisitedExhibits failed:', error);
-      }
+      const list = await loadLocalVisited();
+      setVisited(list);
     } finally {
       setLoading(false);
     }
   }, []);
 
   const recordVisit = useCallback(async (exhibitId: number, timeSpentSeconds: number) => {
-    const token = await getToken();
-    if (!token || timeSpentSeconds < 1) return;
+    if (timeSpentSeconds < 1) return;
     try {
-      await apiService.recordVisitedExhibit(exhibitId, timeSpentSeconds);
+      const next = await recordLocalVisit(exhibitId, timeSpentSeconds);
+      setVisited(next);
     } catch (error) {
-      if (!isIgnorableVisitorError(error)) {
-        console.warn('recordVisitedExhibit failed:', error);
-      }
+      console.warn('recordVisit (local) failed:', error);
     }
   }, []);
 

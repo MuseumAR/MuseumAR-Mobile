@@ -6,13 +6,21 @@ const COLOR_PALETTE = ['#C89B3C', '#A67C2D', '#9A6F1F', '#B45309', '#0369A1'];
 
 function mapPackage(dto: ContentPackageDto, index: number): ARPack {
   const sizeMB = dto.sizeBytes != null ? Math.round(dto.sizeBytes / (1024 * 1024)) : 0;
+  const assetCount = dto.arassetCount ?? dto.exhibitCount ?? 0;
+  const created = dto.createdAt
+    ? new Date(dto.createdAt).toLocaleDateString('vi-VN')
+    : null;
+  const fallbackName =
+    dto.versionId != null ? `Gói offline v${dto.versionId}` : `Gói offline #${dto.id}`;
+  const fallbackDesc = [dto.status, created].filter(Boolean).join(' · ') || 'Gói nội dung AR offline';
+
   return {
     id: String(dto.id),
     museumId: dto.museumId != null ? String(dto.museumId) : '',
-    name: dto.name,
-    description: dto.description ?? '',
+    name: dto.name?.trim() || fallbackName,
+    description: dto.description?.trim() || fallbackDesc,
     sizeMB,
-    artifactCount: dto.exhibitCount ?? 0,
+    artifactCount: assetCount,
     category: dto.category ?? 'Nội dung AR',
     color: COLOR_PALETTE[index % COLOR_PALETTE.length],
     artifacts: [],

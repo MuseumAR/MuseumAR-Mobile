@@ -3,7 +3,7 @@ import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useState } from 'react';
 import { apiService, getAuthErrorMessage } from '../services/apiService';
-import { saveTokens } from '../services/tokenStorage';
+import { persistAuthLogin } from '../services/persistAuthLogin';
 
 // Đảm bảo phiên đăng nhập trên web browser được đóng đúng cách
 WebBrowser.maybeCompleteAuthSession();
@@ -56,7 +56,7 @@ export function useGoogleLogin(onSuccess: () => void) {
         const res = await apiService.googleLogin(idToken);
         if (cancelled) return;
         if (res.data?.accessToken) {
-          await saveTokens(res.data.accessToken, res.data.refreshToken);
+          await persistAuthLogin(res.data);
           onSuccess();
         } else {
           setError('Đăng nhập Google thất bại. Vui lòng thử lại.');

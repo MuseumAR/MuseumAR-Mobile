@@ -4,8 +4,8 @@ import { getExhibitById, type ExhibitRecord } from '../data/exhibits';
 import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
 
 /**
- * Lấy chi tiết một hiện vật từ backend (GET /Content/exhibits/{id}).
- * Nếu id không phải số hoặc gọi API lỗi, fallback sang dữ liệu mock (nếu có).
+ * Lấy chi tiết hiện vật + translations
+ * (GET /Content/exhibits/{id} rồi /translations vì BE thường trả translations rỗng).
  */
 export function useExhibitDetail(routeId: string | undefined) {
   const numericId = routeId ? parseInt(routeId.replace(/^m/i, ''), 10) : NaN;
@@ -26,7 +26,8 @@ export function useExhibitDetail(routeId: string | undefined) {
     try {
       const response = await apiService.getExhibitDetail(numericId);
       if (response.data) {
-        setExhibit(mapExhibitDtoToRecord(response.data));
+        const enriched = await apiService.enrichExhibit(response.data);
+        setExhibit(mapExhibitDtoToRecord(enriched));
       } else {
         setExhibit(getExhibitById(String(numericId)) ?? null);
       }

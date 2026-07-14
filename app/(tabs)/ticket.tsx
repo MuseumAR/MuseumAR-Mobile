@@ -15,7 +15,6 @@ import { useCreateOrder, useTicketTypes } from '../../src/hooks/useTicketing';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { TicketTypeDto } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
-import { parseNumericId } from '../../src/utils/parseId';
 
 const WEEKDAYS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 
@@ -62,23 +61,19 @@ export default function TicketScreen() {
       return;
     }
     const result = await submit({
-      museumId: parseNumericId(museum.id),
+      ticketTypeId: selectedType.id,
+      ticketTypeName: selectedType.name,
+      quantity,
+      unitPrice: selectedType.price ?? 0,
+      museumId: museum.id ? Number(museum.id) || null : null,
+      museumName: museum.name,
       visitDate: selectedDate,
-      items: [{ ticketTypeId: selectedType.id, quantity }],
     });
 
     if (result.ok) {
-      Alert.alert('Đặt vé thành công', 'Vé điện tử của bạn đã sẵn sàng.', [
+      Alert.alert('Đặt vé thành công', 'Vé điện tử đã lưu trên thiết bị của bạn.', [
         { text: 'Xem vé của tôi', onPress: () => router.push('/my-tickets') },
         { text: 'Đóng', style: 'cancel' },
-      ]);
-      return;
-    }
-
-    if (result.authRequired) {
-      Alert.alert('Cần đăng nhập', 'Vui lòng đăng nhập để đặt vé.', [
-        { text: 'Huỷ', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
       ]);
       return;
     }

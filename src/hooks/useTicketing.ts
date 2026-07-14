@@ -1,15 +1,45 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   apiService,
-  CreateOrderRequest,
   CreateOrderResponse,
   getAuthErrorMessage,
   MyTicketDto,
   TicketTypeDto,
 } from '../services/apiService';
-import { getToken } from '../services/tokenStorage';
+import {
+  createLocalOrder,
+  loadLocalTickets,
+  LocalCreateTicketInput,
+} from '../services/localTicketStore';
 
-/** Lấy loại vé (GET /Ticketing/types). */
+const MOCK_TICKET_TYPES: TicketTypeDto[] = [
+  {
+    id: 1,
+    name: 'Vé người lớn',
+    description: 'Áp dụng từ 16 tuổi trở lên',
+    price: 50000,
+    currency: 'VND',
+    isActive: true,
+  },
+  {
+    id: 2,
+    name: 'Vé học sinh / sinh viên',
+    description: 'Có thẻ học sinh / sinh viên',
+    price: 25000,
+    currency: 'VND',
+    isActive: true,
+  },
+  {
+    id: 3,
+    name: 'Vé trẻ em',
+    description: 'Dưới 16 tuổi',
+    price: 0,
+    currency: 'VND',
+    isActive: true,
+  },
+];
+
+/** Lấy loại vé (GET /Ticketing/types), fallback mock nếu API lỗi. */
 export function useTicketTypes() {
   const [types, setTypes] = useState<TicketTypeDto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -20,9 +50,11 @@ export function useTicketTypes() {
     setError(null);
     try {
       const response = await apiService.getTicketTypes();
-      setTypes(response.data ?? []);
+      const list = response.data ?? [];
+      setTypes(list.length > 0 ? list : MOCK_TICKET_TYPES);
     } catch (err: unknown) {
-      setError(getAuthErrorMessage(err, 'Không thể tải loại vé'));
+      setTypes(MOCK_TICKET_TYPES);
+      setError(getAuthErrorMessage(err, 'Đang dùng loại vé mẫu trên thiết bị'));
     } finally {
       setLoading(false);
     }
@@ -35,57 +67,48 @@ export function useTicketTypes() {
   return { types, loading, error, refresh };
 }
 
-/** Danh sách vé của tôi (GET /Ticketing/my-tickets) — yêu cầu đăng nhập. */
+/** Vé của tôi — mock lưu local trên thiết bị. */
 export function useMyTickets() {
   const [tickets, setTickets] = useState<MyTicketDto[]>([]);
   const [loading, setLoading] = useState(false);
-  const [authRequired, setAuthRequired] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const token = await getToken();
-    if (!token) {
-      setTickets([]);
-      setAuthRequired(true);
-      return;
-    }
-    setAuthRequired(false);
     setLoading(true);
     setError(null);
     try {
-      const response = await apiService.getMyTickets();
-      setTickets(response.data ?? []);
+      const list = await loadLocalTickets();
+      setTickets(list);
     } catch (err: unknown) {
-      setError(getAuthErrorMessage(err, 'Không thể tải danh sách vé'));
+      setError(err instanceof Error ? err.message : 'Không thể tải vé local');
+      setTickets([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  return { tickets, loading, authRequired, error, refresh };
+  return { tickets, loading, authRequired: false, error, refresh };
 }
 
 type SubmitResult =
   | { ok: true; order: CreateOrderResponse }
   | { ok: false; authRequired?: boolean; message: string };
 
-/** Đặt vé (POST /Ticketing/create-order) — yêu cầu đăng nhập. */
+export type CreateOrderLocalPayload = LocalCreateTicketInput;
+
+/** Đặt vé — ghi mock data lên thiết bị (không gọi API, không cần đăng nhập). */
 export function useCreateOrder() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = useCallback(async (payload: CreateOrderRequest): Promise<SubmitResult> => {
-    const token = await getToken();
-    if (!token) {
-      return { ok: false, authRequired: true, message: 'Vui lòng đăng nhập để đặt vé.' };
-    }
+  const submit = useCallback(async (payload: CreateOrderLocalPayload): Promise<SubmitResult> => {
     setSubmitting(true);
     setError(null);
     try {
-      const response = await apiService.createOrder(payload);
-      return { ok: true, order: response.data };
+      const { order } = await createLocalOrder(payload);
+      return { ok: true, order };
     } catch (err: unknown) {
-      const message = getAuthErrorMessage(err, 'Đặt vé thất bại. Vui lòng thử lại.');
+      const message = err instanceof Error ? err.message : 'Đặt vé thất bại. Vui lòng thử lại.';
       setError(message);
       return { ok: false, message };
     } finally {

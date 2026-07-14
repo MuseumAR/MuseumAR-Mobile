@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiService, MuseumProfileDto } from '../services/apiService';
+import { setCachedMuseumId } from '../services/museumContext';
 import { CURRENT_MUSEUM, type MuseumRecord } from '../data/museums';
 
-/** Ghép hồ sơ bảo tàng từ backend vào MuseumRecord (giữ mock làm fallback). */
+/** Ghép hồ sơ bảo tàng từ backend vào MuseumRecord (giữ mock cho field BE không trả). */
 function mergeProfile(profile: MuseumProfileDto | null): MuseumRecord {
   if (!profile) return CURRENT_MUSEUM;
 
@@ -14,8 +15,8 @@ function mergeProfile(profile: MuseumProfileDto | null): MuseumRecord {
     name: profile.name || CURRENT_MUSEUM.name,
     city: profile.city || CURRENT_MUSEUM.city,
     address: profile.address || CURRENT_MUSEUM.address,
-    phone: profile.phone || CURRENT_MUSEUM.phone,
-    openHours: profile.openHours || CURRENT_MUSEUM.openHours,
+    phone: profile.phone || profile.contactPhone || CURRENT_MUSEUM.phone,
+    openHours: profile.openHours || profile.openingHours || CURRENT_MUSEUM.openHours,
     closedDay: profile.closedDay || CURRENT_MUSEUM.closedDay,
     ticketPriceVnd,
     ticketPrice: `${ticketPriceVnd.toLocaleString('vi-VN')} đ / người`,
@@ -28,7 +29,7 @@ function mergeProfile(profile: MuseumProfileDto | null): MuseumRecord {
 
 /**
  * Lấy hồ sơ bảo tàng (GET /Admin/museum-profile).
- * `museum` luôn có giá trị (fallback về CURRENT_MUSEUM) để UI không vỡ.
+ * Cache museumId để track-action / visitor APIs dùng.
  */
 export function useMuseumProfile() {
   const [profile, setProfile] = useState<MuseumProfileDto | null>(null);
@@ -40,7 +41,9 @@ export function useMuseumProfile() {
     setError(null);
     try {
       const response = await apiService.getMuseumProfile();
-      setProfile(response.data ?? null);
+      const data = response.data ?? null;
+      setProfile(data);
+      if (data?.id != null) setCachedMuseumId(data.id);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Không thể tải hồ sơ bảo tàng');
     } finally {

@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGoogleLogin } from '../../src/hooks/useGoogleLogin';
 import { apiService, getLoginErrorMessage } from '../../src/services/apiService';
-import { saveTokens } from '../../src/services/tokenStorage';
+import { persistAuthLogin } from '../../src/services/persistAuthLogin';
 import { validateLoginForm } from '../../src/utils/authValidation';
 
 export default function LoginScreen() {
@@ -49,7 +50,7 @@ export default function LoginScreen() {
     try {
       const response = await apiService.login(email.trim(), password);
       if (response.data?.accessToken) {
-        await saveTokens(response.data.accessToken, response.data.refreshToken);
+        await persistAuthLogin(response.data);
         router.replace('/(tabs)');
       } else {
         setFormError('Email hoặc mật khẩu không đúng. Vui lòng kiểm tra và thử lại.');
@@ -64,112 +65,119 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <KeyboardAvoidingView
-        style={styles.container}
+        style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <View style={styles.brand}>
-          <View style={styles.logo}>
-            <Text style={styles.logoText}>AR</Text>
-          </View>
-          <Text style={styles.appName}>MuseumAR</Text>
-          <Text style={styles.tagline}>Trải nghiệm lịch sử theo cách mới</Text>
-        </View>
-
-        <View style={styles.form}>
-          <Text style={styles.formTitle}>Đăng nhập</Text>
-
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={[styles.input, emailError && styles.inputError]}
-            placeholder="email@example.com"
-            placeholderTextColor={C.textPlaceholder}
-            value={email}
-            onChangeText={(text) => {
-              setEmail(text);
-              if (emailError) setEmailError(null);
-              if (formError) setFormError(null);
-            }}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
-
-          <Text style={styles.label}>Mật khẩu</Text>
-          <TextInput
-            style={[styles.input, passwordError && styles.inputError]}
-            placeholder="Nhập mật khẩu"
-            placeholderTextColor={C.textPlaceholder}
-            value={password}
-            onChangeText={(text) => {
-              setPassword(text);
-              if (passwordError) setPasswordError(null);
-              if (formError) setFormError(null);
-            }}
-            secureTextEntry
-          />
-          {passwordError ? <Text style={styles.fieldError}>{passwordError}</Text> : null}
-
-          {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-
-          <TouchableOpacity
-            style={styles.forgotBtn}
-            onPress={() => router.push('/(auth)/forgot-password')}
-          >
-            <Text style={styles.forgotText}>Quên mật khẩu?</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
-            onPress={handleLogin}
-            disabled={loading}
-          >
-            <Text style={styles.loginBtnText}>
-              {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
-            </Text>
-          </TouchableOpacity>
-
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>hoặc</Text>
-            <View style={styles.dividerLine} />
+        <ScrollView
+          style={styles.flex}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.brand}>
+            <View style={styles.logo}>
+              <Text style={styles.logoText}>AR</Text>
+            </View>
+            <Text style={styles.appName}>MuseumAR</Text>
+            <Text style={styles.tagline}>Trải nghiệm lịch sử theo cách mới</Text>
           </View>
 
-          <TouchableOpacity
-            style={[styles.googleBtn, (googleLoading || !googleConfigured) && styles.googleBtnDisabled]}
-            onPress={googleSignIn}
-            disabled={googleLoading || !googleConfigured}
-          >
-            {googleLoading ? (
-              <ActivityIndicator size="small" color={C.textPrimary} />
-            ) : (
-              <>
-                <MaterialCommunityIcons name="google" size={20} color="#DB4437" />
-                <Text style={styles.googleBtnText}>Đăng nhập với Google</Text>
-              </>
-            )}
-          </TouchableOpacity>
-          {!googleConfigured ? (
-            <Text style={styles.googleHint}>
-              Cần cấu hình Google OAuth client id trong app.json (expo.extra.googleClientIds).
-            </Text>
-          ) : null}
-          {googleError ? <Text style={styles.fieldError}>{googleError}</Text> : null}
+          <View style={styles.form}>
+            <Text style={styles.formTitle}>Đăng nhập</Text>
 
-          <TouchableOpacity
-            style={styles.guestBtn}
-            onPress={() => router.replace('/(tabs)')}
-          >
-            <Text style={styles.guestBtnText}>Tiếp tục với tư cách khách</Text>
-          </TouchableOpacity>
-        </View>
+            <Text style={styles.label}>Email</Text>
+            <TextInput
+              style={[styles.input, emailError && styles.inputError]}
+              placeholder="email@example.com"
+              placeholderTextColor={C.textPlaceholder}
+              value={email}
+              onChangeText={(text) => {
+                setEmail(text);
+                if (emailError) setEmailError(null);
+                if (formError) setFormError(null);
+              }}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
 
-        <View style={styles.registerRow}>
-          <Text style={styles.registerText}>Chưa có tài khoản? </Text>
-          <Link href="/(auth)/register">
-            <Text style={styles.registerLink}>Đăng ký ngay</Text>
-          </Link>
-        </View>
+            <Text style={styles.label}>Mật khẩu</Text>
+            <TextInput
+              style={[styles.input, passwordError && styles.inputError]}
+              placeholder="Nhập mật khẩu"
+              placeholderTextColor={C.textPlaceholder}
+              value={password}
+              onChangeText={(text) => {
+                setPassword(text);
+                if (passwordError) setPasswordError(null);
+                if (formError) setFormError(null);
+              }}
+              secureTextEntry
+            />
+            {passwordError ? <Text style={styles.fieldError}>{passwordError}</Text> : null}
+
+            {formError ? <Text style={styles.formError}>{formError}</Text> : null}
+
+            <TouchableOpacity
+              style={styles.forgotBtn}
+              onPress={() => router.push('/(auth)/forgot-password')}
+            >
+              <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              <Text style={styles.loginBtnText}>
+                {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+              </Text>
+            </TouchableOpacity>
+
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>hoặc</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            <TouchableOpacity
+              style={[styles.googleBtn, (googleLoading || !googleConfigured) && styles.googleBtnDisabled]}
+              onPress={googleSignIn}
+              disabled={googleLoading || !googleConfigured}
+            >
+              {googleLoading ? (
+                <ActivityIndicator size="small" color={C.textPrimary} />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="google" size={20} color="#DB4437" />
+                  <Text style={styles.googleBtnText}>Đăng nhập với Google</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            {!googleConfigured ? (
+              <Text style={styles.googleHint}>
+                Cần cấu hình Google OAuth client id trong app.json (expo.extra.googleClientIds).
+              </Text>
+            ) : null}
+            {googleError ? <Text style={styles.fieldError}>{googleError}</Text> : null}
+
+            <TouchableOpacity
+              style={styles.guestBtn}
+              onPress={() => router.replace('/(tabs)')}
+            >
+              <Text style={styles.guestBtnText}>Tiếp tục với tư cách khách</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.registerRow}>
+            <Text style={styles.registerText}>Chưa có tài khoản? </Text>
+            <Link href="/(auth)/register">
+              <Text style={styles.registerLink}>Đăng ký ngay</Text>
+            </Link>
+          </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -177,7 +185,8 @@ export default function LoginScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bgPrimary },
-  container: { flex: 1, paddingHorizontal: 24 },
+  flex: { flex: 1 },
+  scrollContent: { paddingHorizontal: 24, paddingBottom: 40 },
   brand: { alignItems: 'center', paddingTop: 48, paddingBottom: 32 },
   logo: {
     width: 72,

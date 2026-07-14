@@ -1,20 +1,29 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useCategories } from '../../src/hooks/useCategories';
 import { useExhibits } from '../../src/hooks/useExhibits';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { C } from '../../src/theme/colors';
 
-// ─── Era categories ───────────────────────────────────────────────────────────
-const ERAS = [
-  { id: '1', name: 'Văn Lang',   icon: 'lightning-bolt',     color: '#C89B3C' },
-  { id: '2', name: 'Nhà Lý',     icon: 'home-city-outline',  color: '#A67C2D' },
-  { id: '3', name: 'Nhà Trần',   icon: 'shield-outline',     color: '#C89B3C' },
-  { id: '4', name: 'Nhà Lê',     icon: 'sword-cross',        color: '#A67C2D' },
-  { id: '5', name: 'Nhà Nguyễn', icon: 'crown',              color: '#9A6F1F' },
-];
+const TAXONOMY_COLORS = ['#C89B3C', '#A67C2D', '#0369A1', '#047857', '#9A6F1F', '#B45309'];
+const CATEGORY_ICONS = [
+  'view-grid-outline',
+  'home-city-outline',
+  'treasure-chest',
+  'palette-outline',
+  'book-open-page-variant',
+] as const;
+const THEME_ICONS = [
+  'tag-outline',
+  'lightning-bolt',
+  'shield-outline',
+  'crown',
+  'compass-outline',
+] as const;
 
 // ─── Quick actions ────────────────────────────────────────────────────────────
 const QUICK_ACTIONS = [
@@ -27,6 +36,32 @@ export default function HomeScreen() {
   const router = useRouter();
   const { featured: featuredExhibits } = useExhibits();
   const { museum } = useMuseumProfile();
+  const { categories, themes } = useCategories();
+
+  const categoryCards = useMemo(
+    () =>
+      categories
+        .filter((c) => c.name)
+        .slice(0, 6)
+        .map((c, i) => ({
+          id: c.id,
+          name: c.name as string,
+          color: TAXONOMY_COLORS[i % TAXONOMY_COLORS.length],
+          icon: CATEGORY_ICONS[i % CATEGORY_ICONS.length],
+        })),
+    [categories],
+  );
+
+  const themeCards = useMemo(
+    () =>
+      themes.slice(0, 6).map((t, i) => ({
+        id: t.id,
+        name: t.name,
+        color: TAXONOMY_COLORS[(i + 2) % TAXONOMY_COLORS.length],
+        icon: THEME_ICONS[i % THEME_ICONS.length],
+      })),
+    [themes],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -176,31 +211,86 @@ export default function HomeScreen() {
           ))}
         </View>
 
-        {/* ── Explore by Era ─────────────────────────────────────────────── */}
+        {/* ── Explore by Category ────────────────────────────────────────── */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>TIMELINE</Text>
-              <Text style={styles.sectionTitle}>Explore by Era</Text>
+              <Text style={styles.sectionLabel}>BROWSE</Text>
+              <Text style={styles.sectionTitle}>Explore by Category</Text>
+            </View>
+            <TouchableOpacity onPress={() => router.push('/(tabs)/explore')}>
+              <Text style={styles.seeAll}>View all →</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.eraGrid}>
+            {categoryCards.length === 0 ? (
+              <Text style={styles.taxonomyEmpty}>Chưa có danh mục từ API.</Text>
+            ) : (
+              categoryCards.map((item) => (
+                <TouchableOpacity
+                  key={`cat-${item.id}`}
+                  style={styles.eraCard}
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/(tabs)/explore',
+                      params: { categoryId: String(item.id) },
+                    })
+                  }
+                >
+                  <LinearGradient
+                    colors={[item.color + '18', item.color + '08']}
+                    style={styles.eraGradient}
+                  >
+                    <MaterialCommunityIcons name={item.icon} size={22} color={item.color} />
+                    <Text style={[styles.eraName, { color: item.color }]} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </View>
+
+        {/* ── Explore by Theme ───────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>TOPICS</Text>
+              <Text style={styles.sectionTitle}>Explore by Theme</Text>
             </View>
           </View>
 
           <View style={styles.eraGrid}>
-            {ERAS.map((era) => (
-              <TouchableOpacity key={era.id} style={styles.eraCard} activeOpacity={0.8}>
-                <LinearGradient
-                  colors={[era.color + '18', era.color + '08']}
-                  style={styles.eraGradient}
+            {themeCards.length === 0 ? (
+              <Text style={styles.taxonomyEmpty}>Chưa có chủ đề từ API.</Text>
+            ) : (
+              themeCards.map((item) => (
+                <TouchableOpacity
+                  key={`theme-${item.id}`}
+                  style={styles.eraCard}
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/(tabs)/explore',
+                      params: { themeId: String(item.id) },
+                    })
+                  }
                 >
-                  <MaterialCommunityIcons
-                    name={era.icon as React.ComponentProps<typeof MaterialCommunityIcons>['name']}
-                    size={22}
-                    color={era.color}
-                  />
-                  <Text style={[styles.eraName, { color: era.color }]}>{era.name}</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            ))}
+                  <LinearGradient
+                    colors={[item.color + '18', item.color + '08']}
+                    style={styles.eraGradient}
+                  >
+                    <MaterialCommunityIcons name={item.icon} size={22} color={item.color} />
+                    <Text style={[styles.eraName, { color: item.color }]} numberOfLines={2}>
+                      {item.name}
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              ))
+            )}
           </View>
         </View>
 
@@ -457,6 +547,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   eraName: { fontSize: 11, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
+  taxonomyEmpty: { fontSize: 13, color: C.textMuted, paddingVertical: 8 },
 
   actionsGrid: { flexDirection: 'row', gap: 12 },
   actionCard: {

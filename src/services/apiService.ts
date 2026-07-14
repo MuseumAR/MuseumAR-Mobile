@@ -18,6 +18,11 @@ export interface LoginResponse {
   accessToken: string;
   /** Token dùng để lấy accessToken mới khi hết hạn (nếu backend hỗ trợ) */
   refreshToken?: string;
+  /**
+   * Id visitor gắn với tài khoản (nếu BE trả về).
+   * Role Visitor sẽ fallback client-side về 1 nếu thiếu.
+   */
+  visitorId?: number | null;
 }
 
 export interface MuseumDto {
@@ -108,11 +113,16 @@ export interface VisitedExhibitDto {
 }
 
 export interface SyncCheckDto {
-  museumId?: number;
+  id: number;
+  museumId: number;
+  versionId?: number;
+  packageUrl?: string;
+  checksum?: string;
+  status?: string;
+  arassetCount?: number;
+  createdAt?: string;
+  /** Client-only helper flags (optional) */
   hasUpdates?: boolean;
-  lastSyncedAt?: string;
-  exhibitCount?: number;
-  arPackCount?: number;
 }
 
 // --- TICKETING ---
@@ -127,19 +137,10 @@ export interface TicketTypeDto {
   isActive?: boolean;
 }
 
-export interface CreateOrderItem {
+export interface CreateOrderRequest {
+  /** Spec: POST /Ticketing/create-order body { ticketTypeId, quantity } */
   ticketTypeId: number;
   quantity: number;
-}
-
-export interface CreateOrderRequest {
-  museumId?: number | null;
-  /** Ngày tham quan dạng ISO (YYYY-MM-DD) */
-  visitDate?: string | null;
-  items: CreateOrderItem[];
-  fullName?: string;
-  email?: string;
-  phoneNumber?: string;
 }
 
 export interface OrderTicketDto {
@@ -246,10 +247,18 @@ export interface ArAssetDto {
   previewImageUrl?: string;
 }
 
+/** Matches BE OfflinePackageDto (+ optional richer fields if BE expands later). */
 export interface ContentPackageDto {
   id: number;
   museumId?: number;
-  name: string;
+  versionId?: number;
+  packageUrl?: string;
+  checksum?: string;
+  status?: string;
+  arassetCount?: number;
+  createdAt?: string;
+  /** Optional / future fields */
+  name?: string;
   description?: string;
   sizeBytes?: number;
   exhibitCount?: number;
@@ -282,8 +291,12 @@ export interface RoutePointDto {
 export interface TourRouteDto {
   id: number;
   museumId?: number;
-  name: string;
+  /** BE thường null vì tên nằm ở TourRouteTranslations — client tự fallback. */
+  name?: string | null;
   description?: string;
+  /** BE field thật */
+  estimatedDurationMinutes?: number | null;
+  /** Alias cũ dùng trong UI */
   durationMinutes?: number;
   distanceMeters?: number;
   difficulty?: string;
@@ -299,9 +312,13 @@ export interface MuseumProfileDto {
   description?: string;
   address?: string;
   city?: string;
+  /** BE GET MuseumDto hiện chỉ trả các field cơ bản; các field dưới có thể null. */
   phone?: string;
+  contactPhone?: string;
   email?: string;
+  contactEmail?: string;
   openHours?: string;
+  openingHours?: string;
   closedDay?: string;
   /** Giá vé cơ bản (VND) */
   ticketPrice?: number;
@@ -538,14 +555,31 @@ export const apiService = {
     return apiFetch<ExhibitDto>(`Content/exhibits/${id}`);
   },
 
-  /** Danh sách hiện vật của bảo tàng (thay cho dữ liệu mock). */
-  async getContentExhibits(params?: {
-    categoryId?: number;
-    themeId?: number;
-    tagId?: number;
-    search?: string;
-  }): Promise<ApiResponse<ExhibitDto[]>> {
-    return apiFetch<ExhibitDto[]>(`Content/exhibits${buildQuery(params)}`);
+  /**
+   * BE GetExhibit không map ExhibitTranslations → Translations (AutoMapper gap).
+   * Luôn lấy bản dịch qua endpoint này khi cần title/description/audio.
+   */
+  async getExhibitTranslations(exhibitId: number): Promise<ApiResponse<ExhibitTranslationDto[]>> {
+    return apiFetch<ExhibitTranslationDto[]>(`Content/exhibits/${exhibitId}/translations`);
+  },
+
+  /**
+   * Ghép translations vào ExhibitDto (list/detail).
+   * Nếu DTO đã có translations thì giữ nguyên; nếu rỗng thì gọi API translations.
+   */
+  async enrichExhibit(dto: ExhibitDto): Promise<ExhibitDto> {
+    if (dto.translations && dto.translations.length > 0) return dto;
+    try {
+      const res = await apiService.getExhibitTranslations(dto.id);
+      return { ...dto, translations: res.data ?? [] };
+    } catch {
+      return { ...dto, translations: dto.translations ?? [] };
+    }
+  },
+
+  /** Danh sách hiện vật — BE không nhận query filter; filter phía client. */
+  async getContentExhibits(): Promise<ApiResponse<ExhibitDto[]>> {
+    return apiFetch<ExhibitDto[]>('Content/exhibits');
   },
 
   /** Các asset AR 3D của một hiện vật. */
@@ -599,6 +633,11 @@ export const apiService = {
     return apiFetch<MyTicketDto[]>('Ticketing/my-tickets');
   },
 
+  /** Dev/mock: xác nhận thanh toán (GET /Ticketing/mock-confirm?orderCode=). */
+  async mockConfirmPayment(orderCode: string): Promise<ApiResponse<null>> {
+    return apiFetch<null>(`Ticketing/mock-confirm${buildQuery({ orderCode })}`);
+  },
+
   // --- ADMIN ---
   /** Hồ sơ bảo tàng (single museum). */
   async getMuseumProfile(): Promise<ApiResponse<MuseumProfileDto>> {
@@ -607,12 +646,18 @@ export const apiService = {
 
   // --- VISITOR ---
   async trackAction(payload: TrackActionRequest): Promise<ApiResponse<null>> {
+    // BE CreateAnalyticsLogDto.MuseumId là int bắt buộc (FK). Gửi 0/null → 500.
+    const museumId = payload.museumId;
+    if (museumId == null || museumId <= 0) {
+      throw new ApiError('museumId is required for track-action', 400);
+    }
+    const actionType = (payload.actionType ?? 'Unknown').slice(0, 30);
     return apiFetch<null>('Visitor/track-action', {
       method: 'POST',
       body: JSON.stringify({
-        museumId: payload.museumId ?? null,
+        museumId,
         exhibitId: payload.exhibitId ?? null,
-        actionType: payload.actionType,
+        actionType,
         languageUsed: payload.languageUsed ?? null,
         deviceType: payload.deviceType ?? Platform.OS,
         searchQuery: payload.searchQuery ?? null,
@@ -647,15 +692,23 @@ export const apiService = {
 
   async recordVisitedExhibit(
     exhibitId: number,
-    timeSpentSeconds: number,
+    timeSpentSeconds?: number,
   ): Promise<ApiResponse<null>> {
     return apiFetch<null>('Visitor/visited-exhibits', {
       method: 'POST',
-      body: JSON.stringify({ exhibitId, timeSpentSeconds }),
+      body: JSON.stringify({
+        exhibitId,
+        ...(timeSpentSeconds != null ? { timeSpentSeconds } : {}),
+      }),
     });
   },
 
-  async syncCheck(museumId: number): Promise<ApiResponse<SyncCheckDto>> {
-    return apiFetch<SyncCheckDto>(`Visitor/museums/${museumId}/sync-check`);
+  /**
+   * GET /Visitor/sync-check — Public.
+   * Không nhận query; museum lấy từ MuseumResolver trên BE.
+   * 404 = chưa có offline package (bình thường).
+   */
+  async syncCheck(): Promise<ApiResponse<SyncCheckDto>> {
+    return apiFetch<SyncCheckDto>('Visitor/sync-check');
   },
 };

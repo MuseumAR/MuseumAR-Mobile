@@ -1,4 +1,5 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import { removeSession } from './sessionStorage';
 
 const TOKEN_FILE_PATH = FileSystem.documentDirectory + 'auth_token.txt';
 const REFRESH_TOKEN_FILE_PATH = FileSystem.documentDirectory + 'refresh_token.txt';
@@ -55,6 +56,7 @@ export async function removeToken(): Promise<void> {
     if (refreshInfo.exists) {
       await FileSystem.deleteAsync(REFRESH_TOKEN_FILE_PATH);
     }
+    await removeSession();
   } catch (error) {
     console.error('Error removing token:', error);
   }

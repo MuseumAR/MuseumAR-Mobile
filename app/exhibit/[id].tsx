@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,9 +11,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ARPackCard } from '../../src/components/ARPackCard';
+import { useARPacks } from '../../src/hooks/useARPacks';
 import { useBookmarks } from '../../src/hooks/useBookmarks';
 import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
 import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
+import { usePackages } from '../../src/hooks/usePackages';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
 import { C } from '../../src/theme/colors';
@@ -36,6 +39,8 @@ export default function ExhibitDetailScreen() {
   const museumId = parseNumericId(exhibit?.museumId);
   const { hasAr } = useExhibitArAssets(exhibitId);
   const arAvailable = hasAr || Boolean(exhibit?.arAvailable);
+  const { packs, loading: packsLoading } = usePackages();
+  const { downloadPack, deletePack, getState } = useARPacks();
 
   const {
     isBookmarked,
@@ -47,6 +52,11 @@ export default function ExhibitDetailScreen() {
   const { recordVisit } = useVisitedExhibits();
   const { track } = useTrackAction();
   const mountTimeRef = useRef(Date.now());
+
+  const exhibitPacks = useMemo(() => {
+    if (museumId == null) return packs;
+    return packs.filter((p) => !p.museumId || p.museumId === String(museumId));
+  }, [packs, museumId]);
 
   const bookmarked = exhibitId != null && isBookmarked(exhibitId);
   const bookmarkBusy = exhibitId != null && togglingId === exhibitId;
@@ -119,8 +129,8 @@ export default function ExhibitDetailScreen() {
       onPress: () => router.push('/(tabs)/ticket'),
     },
     {
-      icon: 'yin-yang',
-      label: 'Artifact',
+      icon: 'line-scan',
+      label: 'AR Scan',
       onPress: () => router.push('/(tabs)/scan'),
     },
     {
@@ -184,20 +194,33 @@ export default function ExhibitDetailScreen() {
             </TouchableOpacity>
           )}
 
-          <View style={styles.infoGrid}>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Nguồn gốc</Text>
-              <Text style={styles.infoValue}>{exhibit.origin}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Chất liệu</Text>
-              <Text style={styles.infoValue}>{exhibit.material}</Text>
-            </View>
-          </View>
-
           <View style={styles.descSection}>
             <Text style={styles.descTitle}>Giới thiệu</Text>
             <Text style={styles.descText}>{exhibit.description}</Text>
+          </View>
+
+          <View style={styles.packSection}>
+            <View style={styles.packHeader}>
+              <Text style={styles.descTitle}>AR Packs</Text>
+              <TouchableOpacity onPress={() => router.push('/ar-packs')}>
+                <Text style={styles.seeAll}>Xem tất cả</Text>
+              </TouchableOpacity>
+            </View>
+            {packsLoading ? (
+              <ActivityIndicator color={C.accent} style={{ marginVertical: 12 }} />
+            ) : exhibitPacks.length === 0 ? (
+              <Text style={styles.packEmpty}>Chưa có gói offline cho bảo tàng này.</Text>
+            ) : (
+              exhibitPacks.map((pack) => (
+                <ARPackCard
+                  key={pack.id}
+                  pack={pack}
+                  state={getState(pack.id)}
+                  onDownload={() => downloadPack(pack.id)}
+                  onDelete={() => deletePack(pack.id)}
+                />
+              ))
+            )}
           </View>
         </View>
       </ScrollView>
@@ -260,18 +283,16 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   arBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 16 },
-  infoGrid: { flexDirection: 'row', gap: 12, marginBottom: 20 },
-  infoItem: {
-    flex: 1,
-    backgroundColor: C.bgSurface,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: C.border,
-  },
-  infoLabel: { fontSize: 11, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase' },
-  infoValue: { fontSize: 15, fontWeight: '700', color: C.textPrimary, marginTop: 6 },
   descSection: { marginTop: 4 },
   descTitle: { fontSize: 18, fontWeight: '700', color: C.textPrimary, marginBottom: 12 },
   descText: { fontSize: 15, color: C.textSecondary, lineHeight: 26 },
+  packSection: { marginTop: 28 },
+  packHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  seeAll: { fontSize: 13, fontWeight: '600', color: C.accent, marginBottom: 12 },
+  packEmpty: { fontSize: 14, color: C.textMuted, lineHeight: 22, marginTop: 4 },
 });

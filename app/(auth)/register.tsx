@@ -19,6 +19,7 @@ export default function RegisterScreen() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -30,13 +31,18 @@ export default function RegisterScreen() {
       setError('Vui lòng điền đầy đủ thông tin.');
       return;
     }
+    if (password.length < 6) {
+      setError('Mật khẩu phải có ít nhất 6 ký tự.');
+      return;
+    }
     if (password !== confirmPassword) {
       setError('Mật khẩu xác nhận không khớp.');
       return;
     }
     setLoading(true);
     try {
-      const response = await apiService.register(name, email, password);
+      const phone = phoneNumber.trim() || undefined;
+      const response = await apiService.register(name.trim(), email.trim(), password, phone);
       if (response.statusCode === 200 || response.status === 'Success') {
         Alert.alert('Thành công', 'Đăng ký tài khoản thành công! Vui lòng đăng nhập.', [
           { text: 'Đăng nhập', onPress: () => router.replace('/(auth)/login') }
@@ -91,10 +97,22 @@ export default function RegisterScreen() {
               autoCapitalize="none"
             />
 
+            <Text style={styles.label}>
+              Số điện thoại <Text style={styles.optional}>(tuỳ chọn)</Text>
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="0xxx xxx xxx"
+              placeholderTextColor={C.textPlaceholder}
+              value={phoneNumber}
+              onChangeText={setPhoneNumber}
+              keyboardType="phone-pad"
+            />
+
             <Text style={styles.label}>Mật khẩu</Text>
             <TextInput
               style={styles.input}
-              placeholder="Tối thiểu 8 ký tự"
+              placeholder="Tối thiểu 6 ký tự"
               placeholderTextColor={C.textPlaceholder}
               value={password}
               onChangeText={setPassword}
@@ -152,6 +170,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   label: { fontSize: 13, fontWeight: '600', color: C.textSecondary, marginBottom: 6 },
+  optional: { fontWeight: '400', color: C.textMuted },
   input: {
     borderWidth: 1,
     borderColor: C.border,

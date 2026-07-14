@@ -12,8 +12,8 @@ type UseExhibitsOptions = {
 };
 
 /**
- * Lấy danh sách hiện vật từ backend (GET /Content/exhibits) và chuyển sang
- * định dạng UI đang dùng. Tự động ghép tên danh mục từ /Content/categories.
+ * Lấy danh sách hiện vật từ GET /Content/exhibits, bổ sung translations,
+ * rồi lọc phía client theo category/theme/tag/search.
  */
 export function useExhibits(options: UseExhibitsOptions = {}) {
   const { categoryId, themeId, tagId, search } = options;
@@ -26,18 +26,34 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiService.getContentExhibits({
-        categoryId,
-        themeId,
-        tagId,
-        search,
-      });
-      const list = (response.data ?? []).map((dto) =>
+      const response = await apiService.getContentExhibits();
+      const raw = response.data ?? [];
+      const enriched = await Promise.all(raw.map((dto) => apiService.enrichExhibit(dto)));
+      let list = enriched.map((dto) =>
         mapExhibitDtoToRecord(
           dto,
           dto.categoryId != null ? categoryNameById.get(dto.categoryId) : undefined,
         ),
       );
+
+      if (categoryId != null) {
+        list = list.filter((e) => e.categoryId === categoryId);
+      }
+      if (themeId != null) {
+        list = list.filter((e) => e.themeId === themeId);
+      }
+      if (tagId != null) {
+        list = list.filter((e) => (e.tagIds ?? []).includes(tagId));
+      }
+      if (search?.trim()) {
+        const q = search.trim().toLowerCase();
+        list = list.filter(
+          (e) =>
+            e.title.toLowerCase().includes(q) ||
+            e.description.toLowerCase().includes(q),
+        );
+      }
+
       setExhibits(list);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Không thể tải danh sách hiện vật');

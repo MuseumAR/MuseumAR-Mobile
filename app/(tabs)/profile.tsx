@@ -1,12 +1,12 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBookmarks } from '../../src/hooks/useBookmarks';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
 import { useVisitorProfile } from '../../src/hooks/useVisitorProfile';
 import { apiService } from '../../src/services/apiService';
-import { removeToken } from '../../src/services/tokenStorage';
+import { getToken, removeToken } from '../../src/services/tokenStorage';
 import { C } from '../../src/theme/colors';
 
 const MENU_ITEMS = [
@@ -54,9 +54,15 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
-      await apiService.logout();
-    } catch {
-      // Still sign out locally if server logout fails (expired token, offline, etc.)
+      const token = await getToken();
+      // Guest mode: no JWT → skip API, only clear local state and return to login
+      if (token) {
+        try {
+          await apiService.logout();
+        } catch {
+          // Still sign out locally if server logout fails (expired token, offline, etc.)
+        }
+      }
     } finally {
       await removeToken();
       setLoggingOut(false);
@@ -71,74 +77,83 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Hồ sơ</Text>
-      </View>
-
-      <View style={styles.userCard}>
-        <View style={styles.avatar}>
-          {profileLoading ? (
-            <ActivityIndicator color={C.onAccent} size="small" />
-          ) : (
-            <Text style={styles.avatarText}>{initials}</Text>
-          )}
-        </View>
-        <View style={styles.userInfo}>
-          <Text style={styles.userName}>{displayName}</Text>
-          <Text style={styles.userEmail}>{email}</Text>
-        </View>
-        <TouchableOpacity style={styles.editBtn}>
-          <Text style={styles.editBtnText}>Chỉnh sửa</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.statsRow}>
-        {stats.map((stat) => (
-          <View key={stat.label} style={styles.statItem}>
-            <Text style={styles.statValue}>{stat.value}</Text>
-            <Text style={styles.statLabel}>{stat.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.menu}>
-        {MENU_ITEMS.map((item, index) => {
-          const count = menuCount(item.statKey);
-          return (
-            <TouchableOpacity
-              key={item.label}
-              style={[styles.menuItem, index === MENU_ITEMS.length - 1 && styles.menuItemLast]}
-              onPress={() => item.route && router.push(item.route)}
-              disabled={!item.route}
-            >
-              <Text style={styles.menuIcon}>{item.icon}</Text>
-              <Text style={styles.menuLabel}>
-                {item.label}
-                {count != null && count > 0 ? ` (${count})` : ''}
-              </Text>
-              <Text style={styles.menuArrow}>›</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      <TouchableOpacity
-        style={[styles.logoutBtn, loggingOut && styles.logoutBtnDisabled]}
-        onPress={handleLogout}
-        disabled={loggingOut}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {loggingOut ? (
-          <ActivityIndicator color={C.danger} size="small" />
-        ) : (
-          <Text style={styles.logoutText}>Đăng xuất</Text>
-        )}
-      </TouchableOpacity>
+        <View style={styles.header}>
+          <Text style={styles.title}>Hồ sơ</Text>
+        </View>
+
+        <View style={styles.userCard}>
+          <View style={styles.avatar}>
+            {profileLoading ? (
+              <ActivityIndicator color={C.onAccent} size="small" />
+            ) : (
+              <Text style={styles.avatarText}>{initials}</Text>
+            )}
+          </View>
+          <View style={styles.userInfo}>
+            <Text style={styles.userName}>{displayName}</Text>
+            <Text style={styles.userEmail}>{email}</Text>
+          </View>
+          <TouchableOpacity style={styles.editBtn}>
+            <Text style={styles.editBtnText}>Chỉnh sửa</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.statsRow}>
+          {stats.map((stat) => (
+            <View key={stat.label} style={styles.statItem}>
+              <Text style={styles.statValue}>{stat.value}</Text>
+              <Text style={styles.statLabel}>{stat.label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.menu}>
+          {MENU_ITEMS.map((item, index) => {
+            const count = menuCount(item.statKey);
+            return (
+              <TouchableOpacity
+                key={item.label}
+                style={[styles.menuItem, index === MENU_ITEMS.length - 1 && styles.menuItemLast]}
+                onPress={() => item.route && router.push(item.route)}
+                disabled={!item.route}
+              >
+                <Text style={styles.menuIcon}>{item.icon}</Text>
+                <Text style={styles.menuLabel}>
+                  {item.label}
+                  {count != null && count > 0 ? ` (${count})` : ''}
+                </Text>
+                <Text style={styles.menuArrow}>›</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        <TouchableOpacity
+          style={[styles.logoutBtn, loggingOut && styles.logoutBtnDisabled]}
+          onPress={handleLogout}
+          disabled={loggingOut}
+        >
+          {loggingOut ? (
+            <ActivityIndicator color={C.danger} size="small" />
+          ) : (
+            <Text style={styles.logoutText}>Đăng xuất</Text>
+          )}
+        </TouchableOpacity>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bgPrimary },
+  scroll: { flex: 1 },
+  scrollContent: { paddingBottom: 32 },
   header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
   title: { fontSize: 28, fontWeight: '700', color: C.textPrimary },
   userCard: {
