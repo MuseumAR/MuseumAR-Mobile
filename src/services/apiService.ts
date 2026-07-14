@@ -40,10 +40,18 @@ export interface ExhibitTranslationDto {
   audioDuration?: number;
 }
 
+export interface ExhibitMetadataDto {
+  ageGroupId?: number;
+  era?: string;
+  historicalEvent?: string;
+}
+
 export interface ExhibitDto {
   id: number;
   museumId: number;
   categoryId?: number;
+  themeId?: number;
+  tagIds?: number[];
   exhibitCode?: string;
   qrCodeData?: string;
   qrCodeImageUrl?: string;
@@ -52,6 +60,7 @@ export interface ExhibitDto {
   arMarkerUrl?: string;
   status: string;
   publishedAt?: string;
+  exhibitMetadata?: ExhibitMetadataDto | null;
   translations: ExhibitTranslationDto[];
 }
 
@@ -169,15 +178,58 @@ export interface MyTicketDto {
 }
 
 // --- CONTENT ---
+export interface CategoryTranslationDto {
+  id?: number;
+  categoryId?: number;
+  languageCode?: string;
+  categoryName?: string;
+  description?: string;
+}
+
+/** GET /Content/categories — tên nằm trong categoryTranslations[].categoryName */
 export interface CategoryDto {
   id: number;
-  name: string;
+  museumId?: number;
+  parentId?: number | null;
+  sortOrder?: number;
+  iconUrl?: string;
+  status?: string;
+  categoryTranslations?: CategoryTranslationDto[];
+  /** Tên đã chuẩn hoá phía client (sau khi pick translation). */
+  name?: string;
   slug?: string;
   description?: string;
-  parentId?: number | null;
-  /** 'category' | 'theme' | 'tag' ... */
-  type?: string;
+  /** 'category' | 'theme' | 'tag' */
+  type?: 'category' | 'theme' | 'tag' | string;
   exhibitCount?: number;
+}
+
+/** GET /Content/themes */
+export interface ThemeDto {
+  id: number;
+  museumId?: number;
+  themeName?: string;
+  name?: string;
+  description?: string;
+}
+
+/** GET /Content/tags */
+export interface TagDto {
+  id: number;
+  museumId?: number;
+  tagName?: string;
+  name?: string;
+  description?: string;
+}
+
+export type TaxonomyKind = 'category' | 'theme' | 'tag';
+
+/** Chip lọc Explore (category / theme / tag). */
+export interface TaxonomyChip {
+  key: string;
+  id: number;
+  name: string;
+  kind: TaxonomyKind;
 }
 
 export interface ArAssetDto {
@@ -489,6 +541,8 @@ export const apiService = {
   /** Danh sách hiện vật của bảo tàng (thay cho dữ liệu mock). */
   async getContentExhibits(params?: {
     categoryId?: number;
+    themeId?: number;
+    tagId?: number;
     search?: string;
   }): Promise<ApiResponse<ExhibitDto[]>> {
     return apiFetch<ExhibitDto[]>(`Content/exhibits${buildQuery(params)}`);
@@ -514,9 +568,19 @@ export const apiService = {
     return apiFetch<TourRouteDto[]>('Content/routes');
   },
 
-  /** Danh mục / chủ đề / tag để lọc Explore. */
+  /** Danh mục hiện vật. */
   async getCategories(): Promise<ApiResponse<CategoryDto[]>> {
     return apiFetch<CategoryDto[]>('Content/categories');
+  },
+
+  /** Chủ đề trưng bày. */
+  async getThemes(): Promise<ApiResponse<ThemeDto[]>> {
+    return apiFetch<ThemeDto[]>('Content/themes');
+  },
+
+  /** Tag hiện vật. */
+  async getTags(): Promise<ApiResponse<TagDto[]>> {
+    return apiFetch<TagDto[]>('Content/tags');
   },
 
   // --- TICKETING ---

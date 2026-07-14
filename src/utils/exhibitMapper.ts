@@ -36,13 +36,17 @@ export function mapExhibitDtoToRecord(
   const tr = pickTranslation(dto);
   const color = COLOR_PALETTE[dto.id % COLOR_PALETTE.length];
   const description = tr?.description ?? '';
+  const meta = dto.exhibitMetadata;
 
   return {
     id: String(dto.id),
     museumId: String(dto.museumId),
     title: tr?.title ?? dto.exhibitCode ?? `Hiện vật #${dto.id}`,
-    era: '',
+    era: meta?.era ?? '',
     category: categoryName ?? (dto.categoryId != null ? `Danh mục ${dto.categoryId}` : 'Hiện vật'),
+    categoryId: dto.categoryId,
+    themeId: dto.themeId,
+    tagIds: dto.tagIds,
     origin: '',
     material: '',
     description,
@@ -52,7 +56,7 @@ export function mapExhibitDtoToRecord(
     audioUrl: tr?.audioUrl ?? '',
     audioDuration: tr?.audioDuration ?? 0,
     transcript: splitTranscript(description),
-    highlights: [],
+    highlights: meta?.historicalEvent ? [meta.historicalEvent] : [],
     thumbnailUrl: dto.thumbnailUrl,
   };
 }

@@ -6,6 +6,8 @@ import { useCategories } from './useCategories';
 
 type UseExhibitsOptions = {
   categoryId?: number;
+  themeId?: number;
+  tagId?: number;
   search?: string;
 };
 
@@ -14,7 +16,7 @@ type UseExhibitsOptions = {
  * định dạng UI đang dùng. Tự động ghép tên danh mục từ /Content/categories.
  */
 export function useExhibits(options: UseExhibitsOptions = {}) {
-  const { categoryId, search } = options;
+  const { categoryId, themeId, tagId, search } = options;
   const [exhibits, setExhibits] = useState<ExhibitRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -24,9 +26,17 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiService.getContentExhibits({ categoryId, search });
+      const response = await apiService.getContentExhibits({
+        categoryId,
+        themeId,
+        tagId,
+        search,
+      });
       const list = (response.data ?? []).map((dto) =>
-        mapExhibitDtoToRecord(dto, dto.categoryId != null ? categoryNameById.get(dto.categoryId) : undefined),
+        mapExhibitDtoToRecord(
+          dto,
+          dto.categoryId != null ? categoryNameById.get(dto.categoryId) : undefined,
+        ),
       );
       setExhibits(list);
     } catch (err: unknown) {
@@ -34,7 +44,7 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [categoryId, search, categoryNameById]);
+  }, [categoryId, themeId, tagId, search, categoryNameById]);
 
   useEffect(() => {
     refresh();

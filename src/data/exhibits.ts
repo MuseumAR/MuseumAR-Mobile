@@ -26,6 +26,12 @@ export type ExhibitRecord = {
   title: string;
   era: string;
   category: string;
+  /** ID danh mục backend (để lọc Explore). */
+  categoryId?: number;
+  /** ID chủ đề backend (nếu có). */
+  themeId?: number;
+  /** ID tag backend (nếu có). */
+  tagIds?: number[];
   /** Nguồn gốc địa lý */
   origin: string;
   /** Chất liệu chế tác */
