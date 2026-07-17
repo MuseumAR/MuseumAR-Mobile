@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   apiService,
+  CreateOrderRequest,
   CreateOrderResponse,
   getAuthErrorMessage,
   MyTicketDto,
   TicketTypeDto,
 } from '../services/apiService';
-import {
-  createLocalOrder,
-  loadLocalTickets,
-  LocalCreateTicketInput,
-} from '../services/localTicketStore';
+import { getToken } from '../services/tokenStorage';
 
 const MOCK_TICKET_TYPES: TicketTypeDto[] = [
   {
@@ -19,6 +16,7 @@ const MOCK_TICKET_TYPES: TicketTypeDto[] = [
     description: 'Áp dụng từ 16 tuổi trở lên',
     price: 50000,
     currency: 'VND',
+    status: 'Approved',
     isActive: true,
   },
   {
@@ -27,6 +25,7 @@ const MOCK_TICKET_TYPES: TicketTypeDto[] = [
     description: 'Có thẻ học sinh / sinh viên',
     price: 25000,
     currency: 'VND',
+    status: 'Approved',
     isActive: true,
   },
   {
@@ -35,6 +34,7 @@ const MOCK_TICKET_TYPES: TicketTypeDto[] = [
     description: 'Dưới 16 tuổi',
     price: 0,
     currency: 'VND',
+    status: 'Approved',
     isActive: true,
   },
 ];
@@ -50,7 +50,9 @@ export function useTicketTypes() {
     setError(null);
     try {
       const response = await apiService.getTicketTypes();
-      const list = response.data ?? [];
+      const list = (response.data ?? []).filter(
+        (t) => !t.status || t.status.toLowerCase() === 'approved' || t.isActive !== false,
+      );
       setTypes(list.length > 0 ? list : MOCK_TICKET_TYPES);
     } catch (err: unknown) {
       setTypes(MOCK_TICKET_TYPES);
@@ -67,48 +69,73 @@ export function useTicketTypes() {
   return { types, loading, error, refresh };
 }
 
-/** Vé của tôi — mock lưu local trên thiết bị. */
+/** Vé của tôi — GET /Ticketing/my-tickets (JWT Visitor). */
 export function useMyTickets() {
   const [tickets, setTickets] = useState<MyTicketDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
 
   const refresh = useCallback(async () => {
+    const token = await getToken();
+    if (!token) {
+      setTickets([]);
+      setAuthRequired(true);
+      return;
+    }
+    setAuthRequired(false);
     setLoading(true);
     setError(null);
     try {
-      const list = await loadLocalTickets();
-      setTickets(list);
+      const response = await apiService.getMyTickets();
+      setTickets(response.data ?? []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Không thể tải vé local');
+      setError(getAuthErrorMessage(err, 'Không thể tải vé của bạn'));
       setTickets([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  return { tickets, loading, authRequired: false, error, refresh };
+  return { tickets, loading, authRequired, error, refresh };
 }
 
 type SubmitResult =
   | { ok: true; order: CreateOrderResponse }
   | { ok: false; authRequired?: boolean; message: string };
 
-export type CreateOrderLocalPayload = LocalCreateTicketInput;
-
-/** Đặt vé — ghi mock data lên thiết bị (không gọi API, không cần đăng nhập). */
+/** Đặt vé — POST /Ticketing/create-order (JWT Visitor). */
 export function useCreateOrder() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const submit = useCallback(async (payload: CreateOrderLocalPayload): Promise<SubmitResult> => {
+  const submit = useCallback(async (payload: CreateOrderRequest): Promise<SubmitResult> => {
+    const token = await getToken();
+    if (!token) {
+      return { ok: false, authRequired: true, message: 'Vui lòng đăng nhập để đặt vé.' };
+    }
+
     setSubmitting(true);
     setError(null);
     try {
-      const { order } = await createLocalOrder(payload);
+      const response = await apiService.createOrder(payload);
+      const order = response.data;
+      if (!order) {
+        return { ok: false, message: response.message || 'Đặt vé thất bại.' };
+      }
+
+      // Mock payment confirm when BE returns orderCode (dev flow)
+      if (order.orderCode) {
+        try {
+          await apiService.mockConfirmPayment(order.orderCode);
+        } catch (confirmErr) {
+          console.warn('mock-confirm failed (order may still be pending):', confirmErr);
+        }
+      }
+
       return { ok: true, order };
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Đặt vé thất bại. Vui lòng thử lại.';
+      const message = getAuthErrorMessage(err, 'Đặt vé thất bại. Vui lòng thử lại.');
       setError(message);
       return { ok: false, message };
     } finally {

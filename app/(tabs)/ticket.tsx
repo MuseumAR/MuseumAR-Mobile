@@ -62,18 +62,26 @@ export default function TicketScreen() {
     }
     const result = await submit({
       ticketTypeId: selectedType.id,
-      ticketTypeName: selectedType.name,
       quantity,
-      unitPrice: selectedType.price ?? 0,
-      museumId: museum.id ? Number(museum.id) || null : null,
-      museumName: museum.name,
-      visitDate: selectedDate,
     });
 
     if (result.ok) {
-      Alert.alert('Đặt vé thành công', 'Vé điện tử đã lưu trên thiết bị của bạn.', [
-        { text: 'Xem vé của tôi', onPress: () => router.push('/my-tickets') },
-        { text: 'Đóng', style: 'cancel' },
+      const code = result.order.orderCode ? `\nMã đơn: ${result.order.orderCode}` : '';
+      Alert.alert(
+        'Đặt vé thành công',
+        `Vé đã được tạo.${code}\nVé điện tử sẽ hiển thị trong mục Vé của tôi.`,
+        [
+          { text: 'Xem vé của tôi', onPress: () => router.push('/my-tickets') },
+          { text: 'Đóng', style: 'cancel' },
+        ],
+      );
+      return;
+    }
+
+    if (result.authRequired) {
+      Alert.alert('Đăng nhập cần thiết', result.message, [
+        { text: 'Huỷ', style: 'cancel' },
+        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
       ]);
       return;
     }

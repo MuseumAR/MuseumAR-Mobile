@@ -4,37 +4,40 @@ import { Platform } from 'react-native';
 const API_PORT = 5149;
 
 /**
+ * Ghi đè host khi cần (máy thật / Wi‑Fi).
+ * Ví dụ: '192.168.1.20'
+ * Để null = tự chọn theo nền tảng (khuyến nghị cho emulator).
+ */
+const FORCE_DEV_HOST: string | null =
+  (Constants.expoConfig?.extra as { apiHost?: string } | undefined)?.apiHost?.trim() ||
+  null;
+
+/**
  * Host máy chạy backend khi đang phát triển.
  *
- * - Emulator Android: 10.0.2.2 → localhost của PC
- * - Simulator iOS: localhost
- * - Điện thoại thật (Expo Go): lấy IP từ Metro (cùng Wi‑Fi với PC)
+ * - Android emulator: luôn dùng 10.0.2.2 (map tới localhost của PC)
+ * - iOS simulator: localhost
+ * - Máy thật: đặt FORCE_DEV_HOST / expo.extra.apiHost = IP LAN của PC
+ *   và chạy backend listen 0.0.0.0:5149
  *
- * Nếu tự đổi IP, ghi đè bằng FORCE_DEV_HOST bên dưới.
- * Ví dụ: '192.168.1.20'
+ * Lưu ý: KHÔNG dùng Expo hostUri (IP LAN Metro) làm API host trên emulator —
+ * vì Kestrel thường chỉ bind localhost → app không kết nối được.
  */
-const FORCE_DEV_HOST: string | null = null;
-
 function getDevHost(): string {
   if (FORCE_DEV_HOST) return FORCE_DEV_HOST;
 
-  // Expo Go / dev client trên máy thật: hostUri dạng "192.168.1.20:8081"
-  const hostUri =
-    Constants.expoConfig?.hostUri ??
-    (Constants as { manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } } }).manifest2
-      ?.extra?.expoGo?.debuggerHost ??
-    (Constants as { manifest?: { debuggerHost?: string } }).manifest?.debuggerHost;
-
-  if (hostUri) {
-    const host = String(hostUri).split(':')[0]?.trim();
-    if (host && host !== 'localhost' && host !== '127.0.0.1') {
-      return host;
-    }
+  if (Platform.OS === 'android') {
+    // Emulator: 10.0.2.2 → localhost của máy host
+    return '10.0.2.2';
   }
 
-  // Android emulator ánh xạ loopback của máy host qua 10.0.2.2
-  if (Platform.OS === 'android') return '10.0.2.2';
+  // iOS simulator / web
   return 'localhost';
 }
 
 export const API_BASE_URL = `http://${getDevHost()}:${API_PORT}/api`;
+
+if (__DEV__) {
+  // Giúp debug khi virtual device không gọi được API
+  console.log(`[MuseumAR] API_BASE_URL = ${API_BASE_URL}`);
+}

@@ -78,6 +78,17 @@ export interface TrackActionRequest {
   searchQuery?: string | null;
 }
 
+/** POST /Visitor/sync — upsert visitor by device; JWT links userId. */
+export interface VisitorSyncRequest {
+  deviceId: string;
+  displayName?: string;
+  email?: string;
+  preferredLang?: string;
+  deviceType?: string;
+  deviceModel?: string;
+  appVersion?: string;
+}
+
 export interface VisitorProfileDto {
   id: number;
   deviceId: string;
@@ -132,8 +143,12 @@ export interface TicketTypeDto {
   description?: string;
   /** Giá vé (VND) */
   price: number;
-  currency?: string;
   museumId?: number;
+  exhibitionId?: number | null;
+  /** e.g. Approved / Pending / Rejected */
+  status?: string;
+  /** Legacy / UI helper */
+  currency?: string;
   isActive?: boolean;
 }
 
@@ -143,36 +158,29 @@ export interface CreateOrderRequest {
   quantity: number;
 }
 
-export interface OrderTicketDto {
-  id: number;
-  ticketCode?: string;
-  ticketTypeId?: number;
-  ticketTypeName?: string;
-  qrCodeUrl?: string;
-  status?: string;
-}
-
 export interface CreateOrderResponse {
-  orderId: number;
-  orderCode?: string;
-  totalAmount: number;
-  status: string;
-  /** URL cổng thanh toán (nếu backend trả về) */
+  /** BE returns paymentUrl + orderCode for mock/VNPay flow */
   paymentUrl?: string;
-  tickets?: OrderTicketDto[];
+  orderCode?: string;
+  /** Optional richer fields if BE expands later */
+  orderId?: number;
+  totalAmount?: number;
+  status?: string;
 }
 
 export interface MyTicketDto {
   id: number;
-  orderId?: number;
   ticketCode?: string;
-  ticketTypeId?: number;
   ticketTypeName?: string;
+  purchaseDate?: string;
+  validDate?: string | null;
+  status?: string;
+  /** Optional / legacy aliases used in older UI */
+  orderId?: number;
+  ticketTypeId?: number;
   museumId?: number;
   museumName?: string;
   price?: number;
-  /** Trạng thái vé: Valid / Used / Expired / Cancelled ... */
-  status?: string;
   visitDate?: string;
   qrCodeUrl?: string;
   purchasedAt?: string;
@@ -543,12 +551,38 @@ export const apiService = {
   },
 
   // --- CONTENT ---
+  /**
+   * @deprecated BE no longer has Admin/museums list.
+   * Use getMuseumProfile() (GET /Admin/museum-profile) instead.
+   */
   async getMuseums(): Promise<ApiResponse<MuseumDto[]>> {
-    return apiFetch<MuseumDto[]>('Admin/museums');
+    const profile = await apiService.getMuseumProfile();
+    const m = profile.data;
+    if (!m) return { ...profile, data: [] };
+    return {
+      ...profile,
+      data: [
+        {
+          id: m.id,
+          name: m.name,
+          description: m.description,
+          address: m.address,
+          city: m.city,
+          status: m.status ?? 'Active',
+          thumbnailUrl: m.thumbnailUrl,
+        },
+      ],
+    };
   },
 
+  /**
+   * List exhibits for a museum — filters client-side from GET /Content/exhibits
+   * (BE list endpoint has no museumId path param).
+   */
   async getExhibits(museumId: number): Promise<ApiResponse<ExhibitDto[]>> {
-    return apiFetch<ExhibitDto[]>(`Content/museums/${museumId}/exhibits`);
+    const response = await apiService.getContentExhibits();
+    const filtered = (response.data ?? []).filter((e) => e.museumId === museumId);
+    return { ...response, data: filtered };
   },
 
   async getExhibitDetail(id: number): Promise<ApiResponse<ExhibitDto>> {
@@ -556,8 +590,8 @@ export const apiService = {
   },
 
   /**
-   * BE GetExhibit không map ExhibitTranslations → Translations (AutoMapper gap).
-   * Luôn lấy bản dịch qua endpoint này khi cần title/description/audio.
+   * BE GetExhibit sometimes returns empty translations.
+   * Prefer this when title/description/audio are needed.
    */
   async getExhibitTranslations(exhibitId: number): Promise<ApiResponse<ExhibitTranslationDto[]>> {
     return apiFetch<ExhibitTranslationDto[]>(`Content/exhibits/${exhibitId}/translations`);
@@ -577,7 +611,7 @@ export const apiService = {
     }
   },
 
-  /** Danh sách hiện vật — BE không nhận query filter; filter phía client. */
+  /** Danh sách hiện vật — Public. Filter phía client nếu cần. */
   async getContentExhibits(): Promise<ApiResponse<ExhibitDto[]>> {
     return apiFetch<ExhibitDto[]>('Content/exhibits');
   },
@@ -639,14 +673,34 @@ export const apiService = {
   },
 
   // --- ADMIN ---
-  /** Hồ sơ bảo tàng (single museum). */
+  /** Hồ sơ bảo tàng (single museum) — Public. */
   async getMuseumProfile(): Promise<ApiResponse<MuseumProfileDto>> {
     return apiFetch<MuseumProfileDto>('Admin/museum-profile');
   },
 
   // --- VISITOR ---
+  /**
+   * POST /Visitor/sync — Public (optional JWT).
+   * Upsert visitor by deviceId; when JWT is present, links userId.
+   * Call after login/register before bookmarks / visits / tickets.
+   */
+  async syncVisitor(payload: VisitorSyncRequest): Promise<ApiResponse<VisitorProfileDto>> {
+    return apiFetch<VisitorProfileDto>('Visitor/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        deviceId: payload.deviceId,
+        displayName: payload.displayName ?? null,
+        email: payload.email ?? null,
+        preferredLang: payload.preferredLang ?? 'vi',
+        deviceType: payload.deviceType ?? Platform.OS,
+        deviceModel: payload.deviceModel ?? null,
+        appVersion: payload.appVersion ?? null,
+      }),
+    });
+  },
+
   async trackAction(payload: TrackActionRequest): Promise<ApiResponse<null>> {
-    // BE CreateAnalyticsLogDto.MuseumId là int bắt buộc (FK). Gửi 0/null → 500.
+    // BE CreateAnalyticsLogDto.MuseumId is required (FK). Skip invalid ids.
     const museumId = payload.museumId;
     if (museumId == null || museumId <= 0) {
       throw new ApiError('museumId is required for track-action', 400);
@@ -705,7 +759,7 @@ export const apiService = {
 
   /**
    * GET /Visitor/sync-check — Public.
-   * Không nhận query; museum lấy từ MuseumResolver trên BE.
+   * Latest available offline package (no museumId path).
    * 404 = chưa có offline package (bình thường).
    */
   async syncCheck(): Promise<ApiResponse<SyncCheckDto>> {

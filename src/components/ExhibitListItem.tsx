@@ -1,23 +1,29 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { getExhibitById } from '../data/exhibits';
+import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import type { ExhibitRecord } from '../data/exhibits';
 import { C } from '../theme/colors';
 
 type Props = {
   exhibitId: number;
+  /** Prefer API-backed record so title matches Content exhibits. */
+  exhibit?: ExhibitRecord | null;
   subtitle?: string;
   onPress: () => void;
 };
 
-export function ExhibitListItem({ exhibitId, subtitle, onPress }: Props) {
-  const exhibit = getExhibitById(String(exhibitId));
+export function ExhibitListItem({ exhibitId, exhibit, subtitle, onPress }: Props) {
   const title = exhibit?.title ?? `Hiện vật #${exhibitId}`;
-  const meta = exhibit?.category ?? exhibit?.era;
+  const meta = exhibit?.category || exhibit?.era || undefined;
+  const color = exhibit?.color ?? C.accent;
 
   return (
     <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.85}>
-      <View style={[styles.thumb, { backgroundColor: (exhibit?.color ?? C.accent) + '22' }]}>
-        <Text style={styles.emoji}>{exhibit?.emoji ?? '🏺'}</Text>
+      <View style={[styles.thumb, { backgroundColor: color + '22' }]}>
+        {exhibit?.thumbnailUrl ? (
+          <Image source={{ uri: exhibit.thumbnailUrl }} style={styles.thumbImage} resizeMode="cover" />
+        ) : (
+          <Text style={styles.emoji}>{exhibit?.emoji ?? '🏺'}</Text>
+        )}
       </View>
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={2}>{title}</Text>
@@ -47,7 +53,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  thumbImage: { width: '100%', height: '100%' },
   emoji: { fontSize: 26 },
   info: { flex: 1 },
   title: { fontSize: 15, fontWeight: '700', color: C.textPrimary, lineHeight: 20 },

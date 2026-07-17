@@ -1,36 +1,39 @@
 /**
- * QR code parser — dùng EXHIBIT_MAP và MUSEUM_MAP từ data trung tâm.
+ * QR code parser for MuseumAR.
  *
- * Format QR:
- *   museumar://exhibit/<id>   → AR view hiện vật
- *   museumar://museum/<id>    → Chi tiết bảo tàng
+ * Supported formats:
+ *   museumar://exhibit/<id>
+ *   museumar://museum/<id>
+ *   https://... or plain exhibit id digits (fallback)
  *
- * Tạo QR test tại: https://www.qr-code-generator.com
- * Ví dụ nội dung:
- *   museumar://exhibit/1   → Trống đồng Đông Sơn
- *   museumar://exhibit/3   → Gốm Chu Đậu
- *   museumar://museum/m1   → Bảo tàng Lịch sử Quốc gia
+ * Create test QR at: https://www.qr-code-generator.com
+ * Example: museumar://exhibit/1
  */
 
-import { EXHIBIT_MAP } from './exhibits';
-import { MUSEUM_MAP } from './museums';
-
 export type QRTarget =
-  | { type: 'exhibit'; id: string; name: string }
-  | { type: 'museum'; id: string; name: string }
+  | { type: 'exhibit'; id: string }
+  | { type: 'museum'; id: string }
   | { type: 'unknown'; raw: string };
 
 export function parseQRCode(data: string): QRTarget {
-  const match = data.match(/museumar:\/\/(exhibit|museum)\/(\w+)/);
-  if (match) {
-    const kind = match[1] as 'exhibit' | 'museum';
-    const id = match[2];
-    if (kind === 'exhibit') {
-      return { type: 'exhibit', id, name: EXHIBIT_MAP[id]?.title ?? `Hiện vật #${id}` };
-    }
-    if (kind === 'museum') {
-      return { type: 'museum', id, name: MUSEUM_MAP[id]?.name ?? `Bảo tàng #${id}` };
-    }
+  const trimmed = data.trim();
+
+  const deepLink = trimmed.match(/museumar:\/\/(exhibit|museum)\/([A-Za-z0-9_-]+)/i);
+  if (deepLink) {
+    const kind = deepLink[1].toLowerCase() as 'exhibit' | 'museum';
+    return { type: kind, id: deepLink[2] };
   }
-  return { type: 'unknown', raw: data };
+
+  // Backend qrCodeData may be a URL ending with /exhibits/123
+  const urlExhibit = trimmed.match(/\/exhibits?\/(\d+)/i);
+  if (urlExhibit) {
+    return { type: 'exhibit', id: urlExhibit[1] };
+  }
+
+  // Plain numeric id
+  if (/^\d+$/.test(trimmed)) {
+    return { type: 'exhibit', id: trimmed };
+  }
+
+  return { type: 'unknown', raw: trimmed };
 }

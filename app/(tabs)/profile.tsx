@@ -48,7 +48,6 @@ export default function ProfileScreen() {
   const stats = [
     { label: 'Đã xem', value: profile ? String(visitedCount) : '—' },
     { label: 'Đã lưu', value: profile ? String(bookmarkCount) : '—' },
-    { label: 'AR Scan', value: '8' },
   ];
 
   const handleLogout = async () => {

@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -11,18 +11,28 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ExhibitListItem } from '../src/components/ExhibitListItem';
 import { useBookmarks } from '../src/hooks/useBookmarks';
+import { useExhibits } from '../src/hooks/useExhibits';
 import { C } from '../src/theme/colors';
 import { formatVisitorDate } from '../src/utils/visitorLists';
 
 export default function BookmarksScreen() {
   const router = useRouter();
   const { bookmarks, loading, refresh } = useBookmarks();
+  const { exhibits, loading: exhibitsLoading, refresh: refreshExhibits } = useExhibits();
+
+  const exhibitById = useMemo(
+    () => new Map(exhibits.map((e) => [Number(e.id), e])),
+    [exhibits],
+  );
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-    }, [refresh]),
+      refreshExhibits();
+    }, [refresh, refreshExhibits]),
   );
+
+  const listLoading = loading || exhibitsLoading;
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -36,7 +46,7 @@ export default function BookmarksScreen() {
           </Text>
         }
         ListEmptyComponent={
-          loading ? (
+          listLoading ? (
             <View style={styles.center}>
               <ActivityIndicator color={C.accent} />
             </View>
@@ -58,6 +68,7 @@ export default function BookmarksScreen() {
         renderItem={({ item }) => (
           <ExhibitListItem
             exhibitId={item.exhibitId}
+            exhibit={exhibitById.get(item.exhibitId)}
             subtitle={`Đã lưu: ${formatVisitorDate(item.createdAt)}`}
             onPress={() => router.push(`/exhibit/${item.exhibitId}`)}
           />

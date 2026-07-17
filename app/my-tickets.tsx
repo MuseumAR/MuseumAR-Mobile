@@ -47,10 +47,10 @@ function TicketCard({ ticket }: { ticket: MyTicketDto }) {
               <Text style={styles.metaText}>{ticket.ticketCode}</Text>
             </View>
           ) : null}
-          {ticket.visitDate ? (
+          {(ticket.validDate || ticket.visitDate) ? (
             <View style={styles.metaItem}>
               <MaterialCommunityIcons name="calendar-outline" size={14} color={C.textMuted} />
-              <Text style={styles.metaText}>{ticket.visitDate}</Text>
+              <Text style={styles.metaText}>{ticket.validDate || ticket.visitDate}</Text>
             </View>
           ) : null}
         </View>
@@ -63,8 +63,10 @@ function TicketCard({ ticket }: { ticket: MyTicketDto }) {
                 : `${ticket.price.toLocaleString('vi-VN')}đ`
               : ''}
           </Text>
-          {ticket.purchasedAt ? (
-            <Text style={styles.purchased}>Mua: {formatVisitorDate(ticket.purchasedAt)}</Text>
+          {(ticket.purchaseDate || ticket.purchasedAt) ? (
+            <Text style={styles.purchased}>
+              Mua: {formatVisitorDate(ticket.purchaseDate || ticket.purchasedAt || '')}
+            </Text>
           ) : null}
         </View>
 
@@ -96,7 +98,7 @@ export default function MyTicketsScreen() {
         refreshing={loading}
         ListHeaderComponent={
           tickets.length > 0 ? (
-            <Text style={styles.headerHint}>{tickets.length} vé (lưu trên thiết bị)</Text>
+            <Text style={styles.headerHint}>{tickets.length} vé</Text>
           ) : null
         }
         ListEmptyComponent={
@@ -108,7 +110,7 @@ export default function MyTicketsScreen() {
             <View style={styles.center}>
               <Text style={styles.emptyTitle}>{error ? 'Không tải được vé' : 'Chưa có vé nào'}</Text>
               <Text style={styles.emptyText}>
-                {error ?? 'Đặt vé tham quan để nhận vé điện tử lưu trên thiết bị.'}
+                {error ?? 'Đăng nhập và đặt vé tham quan để xem vé điện tử tại đây.'}
               </Text>
               <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/(tabs)/ticket')}>
                 <Text style={styles.emptyBtnText}>Mua vé ngay</Text>

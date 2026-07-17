@@ -9,7 +9,15 @@
     "userInterfaceStyle": "light",
     "plugins": [
       "expo-router",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "MuseumAR cần camera để quét mã QR hiện vật.",
+          "barcodeScannerEnabled": true,
+          "recordAudioAndroid": false
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -37,6 +45,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
+      "apiHost": "",
       "googleClientIds": {
         "web": "",
         "ios": "",

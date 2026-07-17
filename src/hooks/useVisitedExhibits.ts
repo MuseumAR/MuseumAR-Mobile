@@ -1,11 +1,12 @@
 import { useCallback, useMemo, useState } from 'react';
-import { VisitedExhibitDto } from '../services/apiService';
-import { loadLocalVisited, recordLocalVisit } from '../services/localVisitorStore';
+import { apiService, VisitedExhibitDto } from '../services/apiService';
+import { getToken } from '../services/tokenStorage';
+import { isIgnorableVisitorError } from '../utils/visitorErrors';
 import { uniqueVisitedExhibits } from '../utils/visitorLists';
 
 /**
- * Visited exhibits — local mock (visitorId = 1).
- * Không gọi API: BE gán visitorId = JWT userId → FK lỗi.
+ * Visited exhibits — GET/POST /Visitor/visited-exhibits (JWT).
+ * Requires Visitor linked via POST /Visitor/sync after login.
  */
 export function useVisitedExhibits() {
   const [visited, setVisited] = useState<VisitedExhibitDto[]>([]);
@@ -14,22 +15,33 @@ export function useVisitedExhibits() {
   const uniqueList = useMemo(() => uniqueVisitedExhibits(visited), [visited]);
 
   const refresh = useCallback(async () => {
+    const token = await getToken();
+    if (!token) {
+      setVisited([]);
+      return;
+    }
     setLoading(true);
     try {
-      const list = await loadLocalVisited();
-      setVisited(list);
+      const response = await apiService.getVisitedExhibits();
+      setVisited(response.data ?? []);
+    } catch (error) {
+      if (!isIgnorableVisitorError(error)) {
+        console.warn('getVisitedExhibits failed:', error);
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
   const recordVisit = useCallback(async (exhibitId: number, timeSpentSeconds: number) => {
-    if (timeSpentSeconds < 1) return;
+    const token = await getToken();
+    if (!token || timeSpentSeconds < 1) return;
     try {
-      const next = await recordLocalVisit(exhibitId, timeSpentSeconds);
-      setVisited(next);
+      await apiService.recordVisitedExhibit(exhibitId, timeSpentSeconds);
     } catch (error) {
-      console.warn('recordVisit (local) failed:', error);
+      if (!isIgnorableVisitorError(error)) {
+        console.warn('recordVisitedExhibit failed:', error);
+      }
     }
   }, []);
 

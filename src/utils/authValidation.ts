@@ -35,7 +35,7 @@ export function validateResetPasswordForm(
   confirmError: string | null;
 } {
   const tokenError = !token.trim() ? 'Vui lòng nhập mã xác nhận từ email.' : null;
-  const passwordError = validatePassword(newPassword, 8);
+  const passwordError = validatePassword(newPassword, 6);
   let confirmError: string | null = null;
   if (!confirmPassword) {
     confirmError = 'Vui lòng xác nhận mật khẩu mới.';
