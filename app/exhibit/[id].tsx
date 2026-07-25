@@ -37,8 +37,10 @@ export default function ExhibitDetailScreen() {
   const { exhibit, loading: exhibitLoading } = useExhibitDetail(id);
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(exhibit?.museumId);
-  const { hasAr } = useExhibitArAssets(exhibitId);
+  const { hasAr, hasAudio, audioAsset } = useExhibitArAssets(exhibitId);
   const arAvailable = hasAr || Boolean(exhibit?.arAvailable);
+  const audioAvailable =
+    hasAudio || Boolean(audioAsset?.url) || Boolean(exhibit?.audioUrl?.trim());
   const { packs, loading: packsLoading } = usePackages();
   const { downloadPack, deletePack, getState } = useARPacks();
 
@@ -184,14 +186,27 @@ export default function ExhibitDetailScreen() {
             ))}
           </View>
 
-          {arAvailable && (
-            <TouchableOpacity
-              style={styles.arBtn}
-              onPress={() => router.push(`/ar-view/${id}`)}
-            >
-              <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
-              <Text style={styles.arBtnText}>Xem mô hình AR 3D</Text>
-            </TouchableOpacity>
+          {(arAvailable || audioAvailable) && (
+            <View style={styles.ctaColumn}>
+              {audioAvailable && (
+                <TouchableOpacity
+                  style={styles.audioBtn}
+                  onPress={() => router.push(`/ar-view/${id}`)}
+                >
+                  <MaterialCommunityIcons name="headphones" size={22} color={C.onAccent} />
+                  <Text style={styles.arBtnText}>Audio Guide</Text>
+                </TouchableOpacity>
+              )}
+              {arAvailable && (
+                <TouchableOpacity
+                  style={styles.arBtn}
+                  onPress={() => router.push(`/ar-model/${id}`)}
+                >
+                  <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
+                  <Text style={styles.arBtnText}>Xem mô hình AR 2D/3D</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           )}
 
           <View style={styles.descSection}>
@@ -279,9 +294,18 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 20,
-    marginBottom: 20,
     gap: 10,
   },
+  audioBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.bronze,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    gap: 10,
+  },
+  ctaColumn: { gap: 10, marginBottom: 20 },
   arBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 16 },
   descSection: { marginTop: 4 },
   descTitle: { fontSize: 18, fontWeight: '700', color: C.textPrimary, marginBottom: 12 },

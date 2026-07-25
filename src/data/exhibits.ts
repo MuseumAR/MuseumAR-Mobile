@@ -37,8 +37,12 @@ export type ExhibitRecord = {
   /** Chất liệu chế tác */
   material: string;
   description: string;
-  /** Có hỗ trợ xem AR 3D không */
+  /** Có hỗ trợ xem AR (2D overlay và/hoặc 3D model) */
   arAvailable: boolean;
+  /** URL ảnh overlay 2D (nếu backend gắn trên exhibit) */
+  arOverlayUrl?: string;
+  /** URL marker Vuforia / tracking (nếu có) */
+  arMarkerUrl?: string;
 
   // ── Thuyết minh / AR view ──────────────────
   /** Emoji đại diện hiện vật (hiển thị trên AR view) */

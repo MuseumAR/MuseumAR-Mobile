@@ -51,6 +51,8 @@ export function mapExhibitDtoToRecord(
     material: '',
     description,
     arAvailable: Boolean(dto.arOverlayUrl || dto.arMarkerUrl),
+    arOverlayUrl: dto.arOverlayUrl,
+    arMarkerUrl: dto.arMarkerUrl,
     emoji: '🏺',
     color,
     audioUrl: tr?.audioUrl ?? '',
