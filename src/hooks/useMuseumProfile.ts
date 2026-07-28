@@ -1,38 +1,94 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiService, MuseumProfileDto } from '../services/apiService';
 import { setCachedMuseumId } from '../services/museumContext';
-import { CURRENT_MUSEUM, type MuseumRecord } from '../data/museums';
+import { type MuseumRecord } from '../data/museums';
+import { C } from '../theme/colors';
 
-/** Ghép hồ sơ bảo tàng từ backend vào MuseumRecord (giữ mock cho field BE không trả). */
-function mergeProfile(profile: MuseumProfileDto | null): MuseumRecord {
-  if (!profile) return CURRENT_MUSEUM;
+/** Brand accent only — not mock museum content. */
+const UI_ACCENT = C.accent;
 
-  const ticketPriceVnd = profile.ticketPrice ?? CURRENT_MUSEUM.ticketPriceVnd;
+type ProfileExtras = {
+  exhibitCount: number;
+  ticketPriceVnd: number;
+};
+
+/**
+ * Map BE museum profile → UI record.
+ * Does not merge National History Museum mock content.
+ */
+function mapProfileFromApi(
+  profile: MuseumProfileDto,
+  extras?: Partial<ProfileExtras>,
+): MuseumRecord {
+  const ticketPriceVnd =
+    extras?.ticketPriceVnd ??
+    (profile.ticketPrice != null && profile.ticketPrice > 0 ? profile.ticketPrice : 0);
+
+  const cityParts = [profile.city, profile.province].filter(Boolean);
+  const city = cityParts.join(', ');
+
+  const openHours = (profile.openingHours || profile.openHours || '').trim();
+  const phone = (profile.contactPhone || profile.phone || '').trim();
+  const founded =
+    profile.foundedYear != null && String(profile.foundedYear).trim()
+      ? String(profile.foundedYear).trim()
+      : '';
 
   return {
-    ...CURRENT_MUSEUM,
     id: String(profile.id),
-    name: profile.name || CURRENT_MUSEUM.name,
-    city: profile.city || CURRENT_MUSEUM.city,
-    address: profile.address || CURRENT_MUSEUM.address,
-    phone: profile.phone || profile.contactPhone || CURRENT_MUSEUM.phone,
-    openHours: profile.openHours || profile.openingHours || CURRENT_MUSEUM.openHours,
-    closedDay: profile.closedDay || CURRENT_MUSEUM.closedDay,
+    name: profile.name?.trim() || 'Bảo tàng',
+    city: city || '—',
+    tag: '',
+    color: UI_ACCENT,
+    address: profile.address?.trim() || '—',
+    phone: phone || '—',
+    openHours: openHours || '—',
+    closedDay: profile.closedDay?.trim() || '',
     ticketPriceVnd,
-    ticketPrice: `${ticketPriceVnd.toLocaleString('vi-VN')} đ / người`,
-    exhibits: profile.exhibitCount ?? CURRENT_MUSEUM.exhibits,
-    founded: profile.foundedYear != null ? String(profile.foundedYear) : CURRENT_MUSEUM.founded,
-    description: profile.description || CURRENT_MUSEUM.description,
-    thumbnailUrl: profile.thumbnailUrl ?? profile.logoUrl,
+    ticketPrice:
+      ticketPriceVnd > 0
+        ? `${ticketPriceVnd.toLocaleString('vi-VN')} đ / người`
+        : 'Liên hệ',
+    exhibits: extras?.exhibitCount ?? profile.exhibitCount ?? 0,
+    founded,
+    description: profile.description?.trim() || '',
+    // BE MuseumDto does not provide these — leave empty (UI hides empty sections).
+    highlights: [],
+    zones: [],
+    thumbnailUrl: profile.thumbnailUrl || profile.logoUrl,
   };
 }
 
+/** Minimal placeholder while loading / on error — not the old mock museum. */
+const EMPTY_MUSEUM: MuseumRecord = {
+  id: '0',
+  name: 'Đang tải…',
+  city: '—',
+  tag: '',
+  color: UI_ACCENT,
+  address: '—',
+  phone: '—',
+  openHours: '—',
+  closedDay: '',
+  ticketPrice: '—',
+  ticketPriceVnd: 0,
+  exhibits: 0,
+  founded: '',
+  description: '',
+  highlights: [],
+  zones: [],
+};
+
 /**
- * Lấy hồ sơ bảo tàng (GET /Admin/museum-profile).
- * Cache museumId để track-action / visitor APIs dùng.
+ * Lấy hồ sơ bảo tàng thật từ GET /Admin/museum-profile.
+ * Bổ sung số hiện vật (Content/exhibits) và giá vé thấp nhất (Ticketing/types).
  */
 export function useMuseumProfile() {
   const [profile, setProfile] = useState<MuseumProfileDto | null>(null);
+  const [extras, setExtras] = useState<ProfileExtras>({
+    exhibitCount: 0,
+    ticketPriceVnd: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,8 +99,37 @@ export function useMuseumProfile() {
       const response = await apiService.getMuseumProfile();
       const data = response.data ?? null;
       setProfile(data);
-      if (data?.id != null) setCachedMuseumId(data.id);
+
+      if (data?.id != null) {
+        setCachedMuseumId(data.id);
+
+        const [exhibitsResult, ticketsResult] = await Promise.allSettled([
+          apiService.getExhibits(data.id),
+          apiService.getTicketTypes(),
+        ]);
+
+        let exhibitCount = data.exhibitCount ?? 0;
+        if (exhibitsResult.status === 'fulfilled') {
+          exhibitCount = exhibitsResult.value.data?.length ?? exhibitCount;
+        }
+
+        let ticketPriceVnd = data.ticketPrice ?? 0;
+        if (ticketsResult.status === 'fulfilled') {
+          const prices = (ticketsResult.value.data ?? [])
+            .map((t) => Number(t.price))
+            .filter((p) => Number.isFinite(p) && p > 0);
+          if (prices.length > 0) {
+            ticketPriceVnd = Math.min(...prices);
+          }
+        }
+
+        setExtras({ exhibitCount, ticketPriceVnd });
+      } else {
+        setExtras({ exhibitCount: 0, ticketPriceVnd: 0 });
+      }
     } catch (err: unknown) {
+      setProfile(null);
+      setExtras({ exhibitCount: 0, ticketPriceVnd: 0 });
       setError(err instanceof Error ? err.message : 'Không thể tải hồ sơ bảo tàng');
     } finally {
       setLoading(false);
@@ -55,7 +140,10 @@ export function useMuseumProfile() {
     refresh();
   }, [refresh]);
 
-  const museum = useMemo(() => mergeProfile(profile), [profile]);
+  const museum = useMemo(() => {
+    if (!profile) return EMPTY_MUSEUM;
+    return mapProfileFromApi(profile, extras);
+  }, [profile, extras]);
 
   return { profile, museum, loading, error, refresh };
 }

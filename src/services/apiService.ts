@@ -156,15 +156,27 @@ export interface CreateOrderRequest {
   /** Spec: POST /Ticketing/create-order body { ticketTypeId, quantity } */
   ticketTypeId: number;
   quantity: number;
+  /**
+   * Optional deep links for PayOS redirect back into the app.
+   * Requires BE to forward these into CreatePaymentLink (ignored if BE DTO lacks fields).
+   */
+  returnUrl?: string;
+  cancelUrl?: string;
 }
 
+/**
+ * POST /Ticketing/create-order → PayOS payment payload
+ * (PaymentService anonymous object: CheckoutUrl, QrCode, OrderCode, Amount).
+ */
 export interface CreateOrderResponse {
-  /** BE returns paymentUrl + orderCode for mock/VNPay flow */
-  paymentUrl?: string;
+  checkoutUrl?: string;
+  qrCode?: string;
   orderCode?: string;
-  /** Optional richer fields if BE expands later */
-  orderId?: number;
+  amount?: number;
+  /** Legacy aliases */
+  paymentUrl?: string;
   totalAmount?: number;
+  orderId?: number;
   status?: string;
 }
 
@@ -241,18 +253,54 @@ export interface TaxonomyChip {
   kind: TaxonomyKind;
 }
 
+/**
+ * Matches WebBE ExhibitArassetDto.
+ * Backend fields: assetUrl, assetType (OverlayImage | Model3D | MarkerImage | Audio).
+ * `url` is a client-normalized alias of assetUrl.
+ */
 export interface ArAssetDto {
   id: number;
   exhibitId: number;
-  /** 'model' | 'texture' | 'audio' | 'video' ... */
+  /** Backend: OverlayImage | Model3D | MarkerImage | Audio | … */
   assetType?: string;
-  /** 'glb' | 'gltf' | 'usdz' ... */
-  format?: string;
+  /** Backend field */
+  assetUrl?: string;
+  /** Normalized from assetUrl (or url if already present) */
   url: string;
+  /** 'glb' | 'gltf' | 'png' | 'mp3' … (inferred when BE omits it) */
+  format?: string;
+  description?: string;
   fileSizeBytes?: number;
   scale?: number;
   markerUrl?: string;
   previewImageUrl?: string;
+  createdAt?: string;
+}
+
+/** Normalize BE AR asset payload → mobile shape. */
+export function normalizeArAsset(
+  raw: Partial<ArAssetDto> & { assetUrl?: string | null },
+): ArAssetDto {
+  const url = String(raw.url ?? raw.assetUrl ?? '').trim();
+  const formatFromUrl = (() => {
+    const m = url.match(/\.([a-z0-9]+)(?:\?|$)/i);
+    return m?.[1]?.toLowerCase();
+  })();
+
+  return {
+    id: Number(raw.id) || 0,
+    exhibitId: Number(raw.exhibitId) || 0,
+    assetType: raw.assetType,
+    assetUrl: (raw.assetUrl ?? url) || undefined,
+    url,
+    format: raw.format ?? formatFromUrl,
+    description: raw.description,
+    fileSizeBytes: raw.fileSizeBytes,
+    scale: raw.scale,
+    markerUrl: raw.markerUrl,
+    previewImageUrl: raw.previewImageUrl,
+    createdAt: raw.createdAt,
+  };
 }
 
 /** Matches BE OfflinePackageDto (+ optional richer fields if BE expands later). */
@@ -276,15 +324,52 @@ export interface ContentPackageDto {
   thumbnailUrl?: string;
 }
 
+/**
+ * GET /Content/maps → BE MuseumMapDto returns only:
+ * { id, museumId, mapImageUrl, mapType }  (mapType = entity MapName ?? "floor").
+ * Other entity columns (floorNumber, width, height, isDefault) are not exposed.
+ */
 export interface MuseumMapDto {
   id: number;
   museumId?: number;
-  name?: string;
-  floor?: string;
-  level?: number;
+  /** BE field */
+  mapImageUrl?: string;
+  /** Normalized alias of mapImageUrl for UI */
   imageUrl?: string;
-  width?: number;
-  height?: number;
+  /** BE field — carries the map/floor name */
+  mapType?: string;
+  /** Display label derived from mapType */
+  label?: string;
+  /** Parsed from the label when it contains a number (e.g. "Tầng 2" → 2) */
+  floorNumber?: number;
+}
+
+/** Pull a leading/embedded floor number out of a label such as "Tầng 2" / "Floor 3". */
+function parseFloorNumber(label: string): number | undefined {
+  const match = label.match(/\d+/);
+  if (!match) return undefined;
+  const n = Number(match[0]);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Normalize BE museum map payload → mobile shape. */
+export function normalizeMuseumMap(
+  raw: Partial<MuseumMapDto> & { mapImageUrl?: string | null },
+): MuseumMapDto {
+  const imageUrl = String(raw.imageUrl ?? raw.mapImageUrl ?? '').trim();
+  const mapType = String(raw.mapType ?? '').trim();
+  const id = Number(raw.id) || 0;
+  const label = mapType && mapType.toLowerCase() !== 'floor' ? mapType : '';
+
+  return {
+    id,
+    museumId: raw.museumId != null ? Number(raw.museumId) : undefined,
+    mapImageUrl: (raw.mapImageUrl ?? imageUrl) || undefined,
+    imageUrl: imageUrl || undefined,
+    mapType: mapType || undefined,
+    label: label || `Bản đồ ${id}`,
+    floorNumber: label ? parseFloorNumber(label) : undefined,
+  };
 }
 
 export interface RoutePointDto {
@@ -320,15 +405,20 @@ export interface MuseumProfileDto {
   description?: string;
   address?: string;
   city?: string;
-  /** BE GET MuseumDto hiện chỉ trả các field cơ bản; các field dưới có thể null. */
-  phone?: string;
+  province?: string;
+  country?: string;
+  /** BE field */
   contactPhone?: string;
-  email?: string;
+  /** Alias used by older clients */
+  phone?: string;
   contactEmail?: string;
-  openHours?: string;
+  email?: string;
+  /** BE field */
   openingHours?: string;
+  /** Alias used by older clients */
+  openHours?: string;
   closedDay?: string;
-  /** Giá vé cơ bản (VND) */
+  /** Giá vé cơ bản (VND) — not on BE MuseumDto; filled from ticket types when possible */
   ticketPrice?: number;
   foundedYear?: string | number;
   exhibitCount?: number;
@@ -338,6 +428,52 @@ export interface MuseumProfileDto {
   latitude?: number;
   longitude?: number;
   website?: string;
+}
+
+/** Normalize BE MuseumDto → mobile MuseumProfileDto. */
+export function normalizeMuseumProfile(
+  raw: Partial<MuseumProfileDto> | null | undefined,
+): MuseumProfileDto | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const id = Number(raw.id);
+  if (!Number.isFinite(id) || id <= 0) return null;
+
+  const openingHours = String(raw.openingHours ?? raw.openHours ?? '').trim();
+  const contactPhone = String(raw.contactPhone ?? raw.phone ?? '').trim();
+  const contactEmail = String(raw.contactEmail ?? raw.email ?? '').trim();
+  const thumbnailUrl = String(raw.thumbnailUrl ?? raw.logoUrl ?? '').trim();
+
+  return {
+    id,
+    name: String(raw.name ?? '').trim(),
+    description: String(raw.description ?? '').trim() || undefined,
+    address: String(raw.address ?? '').trim() || undefined,
+    city: String(raw.city ?? '').trim() || undefined,
+    province: String(raw.province ?? '').trim() || undefined,
+    country: String(raw.country ?? '').trim() || undefined,
+    contactPhone: contactPhone || undefined,
+    phone: contactPhone || undefined,
+    contactEmail: contactEmail || undefined,
+    email: contactEmail || undefined,
+    openingHours: openingHours || undefined,
+    openHours: openingHours || undefined,
+    closedDay: String(raw.closedDay ?? '').trim() || undefined,
+    ticketPrice:
+      raw.ticketPrice != null && Number.isFinite(Number(raw.ticketPrice))
+        ? Number(raw.ticketPrice)
+        : undefined,
+    foundedYear: raw.foundedYear,
+    exhibitCount:
+      raw.exhibitCount != null && Number.isFinite(Number(raw.exhibitCount))
+        ? Number(raw.exhibitCount)
+        : undefined,
+    thumbnailUrl: thumbnailUrl || undefined,
+    logoUrl: thumbnailUrl || undefined,
+    status: String(raw.status ?? '').trim() || undefined,
+    latitude: raw.latitude != null ? Number(raw.latitude) : undefined,
+    longitude: raw.longitude != null ? Number(raw.longitude) : undefined,
+    website: String(raw.website ?? '').trim() || undefined,
+  };
 }
 
 export class ApiError extends Error {
@@ -618,7 +754,11 @@ export const apiService = {
 
   /** Các asset AR 3D của một hiện vật. */
   async getExhibitArAssets(exhibitId: number): Promise<ApiResponse<ArAssetDto[]>> {
-    return apiFetch<ArAssetDto[]>(`Content/exhibits/${exhibitId}/ar-assets`);
+    const response = await apiFetch<ArAssetDto[]>(`Content/exhibits/${exhibitId}/ar-assets`);
+    return {
+      ...response,
+      data: (response.data ?? []).map((item) => normalizeArAsset(item)),
+    };
   },
 
   /** Gói nội dung offline / AR packs. */
@@ -628,7 +768,11 @@ export const apiService = {
 
   /** Bản đồ bảo tàng. */
   async getMaps(): Promise<ApiResponse<MuseumMapDto[]>> {
-    return apiFetch<MuseumMapDto[]>('Content/maps');
+    const response = await apiFetch<MuseumMapDto[]>('Content/maps');
+    return {
+      ...response,
+      data: (response.data ?? []).map((item) => normalizeMuseumMap(item)),
+    };
   },
 
   /** Tour / lộ trình tham quan. */
@@ -657,25 +801,59 @@ export const apiService = {
   },
 
   async createOrder(payload: CreateOrderRequest): Promise<ApiResponse<CreateOrderResponse>> {
-    return apiFetch<CreateOrderResponse>('Ticketing/create-order', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    const response = await apiFetch<CreateOrderResponse & Record<string, unknown>>(
+      'Ticketing/create-order',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          ticketTypeId: payload.ticketTypeId,
+          quantity: payload.quantity,
+          ...(payload.returnUrl ? { returnUrl: payload.returnUrl } : {}),
+          ...(payload.cancelUrl ? { cancelUrl: payload.cancelUrl } : {}),
+        }),
+      },
+    );
+    const raw = response.data;
+    if (!raw) return { ...response, data: undefined };
+
+    // Normalize PascalCase / camelCase from PayOS create-order response.
+    const checkoutUrl = String(
+      raw.checkoutUrl ?? raw.CheckoutUrl ?? raw.paymentUrl ?? '',
+    ).trim();
+    const qrCode = String(raw.qrCode ?? raw.QrCode ?? '').trim() || undefined;
+    const orderCode = String(raw.orderCode ?? raw.OrderCode ?? '').trim() || undefined;
+    const amountRaw = raw.amount ?? raw.Amount ?? raw.totalAmount;
+    const amount =
+      amountRaw != null && Number.isFinite(Number(amountRaw))
+        ? Number(amountRaw)
+        : undefined;
+
+    return {
+      ...response,
+      data: {
+        checkoutUrl: checkoutUrl || undefined,
+        paymentUrl: checkoutUrl || undefined,
+        qrCode,
+        orderCode,
+        amount,
+        totalAmount: amount,
+      },
+    };
   },
 
   async getMyTickets(): Promise<ApiResponse<MyTicketDto[]>> {
     return apiFetch<MyTicketDto[]>('Ticketing/my-tickets');
   },
 
-  /** Dev/mock: xác nhận thanh toán (GET /Ticketing/mock-confirm?orderCode=). */
-  async mockConfirmPayment(orderCode: string): Promise<ApiResponse<null>> {
-    return apiFetch<null>(`Ticketing/mock-confirm${buildQuery({ orderCode })}`);
-  },
-
   // --- ADMIN ---
   /** Hồ sơ bảo tàng (single museum) — Public. */
   async getMuseumProfile(): Promise<ApiResponse<MuseumProfileDto>> {
-    return apiFetch<MuseumProfileDto>('Admin/museum-profile');
+    const response = await apiFetch<MuseumProfileDto>('Admin/museum-profile');
+    const normalized = normalizeMuseumProfile(response.data);
+    return {
+      ...response,
+      data: normalized as MuseumProfileDto,
+    };
   },
 
   // --- VISITOR ---

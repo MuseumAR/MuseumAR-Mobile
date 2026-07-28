@@ -1,15 +1,19 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useWindowDimensions } from 'react-native';
 import { ARPackCard } from '../../src/components/ARPackCard';
 import { type MuseumZone } from '../../src/data/museums';
 import { useARPacks } from '../../src/hooks/useARPacks';
+import { useMaps } from '../../src/hooks/useMaps';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
 import { usePackages } from '../../src/hooks/usePackages';
 import { useRoutes } from '../../src/hooks/useRoutes';
+import type { MuseumMapDto } from '../../src/services/apiService';
 import {
+  ActivityIndicator,
   Animated,
   Image,
   ScrollView,
@@ -264,6 +268,142 @@ const fpS = StyleSheet.create({
   legendText: { fontSize: 11, color: C.textMuted },
 });
 
+// ─── API map image viewer (when MuseumMaps have MapImageUrl) ─────────────────
+
+type MuseumMapImagesProps = {
+  maps: MuseumMapDto[];
+  accentColor: string;
+};
+
+/** Horizontal padding of the screen content — page width must exclude it. */
+const CONTENT_PADDING = 20;
+
+function MuseumMapImages({ maps, accentColor }: MuseumMapImagesProps) {
+  const { width: windowWidth } = useWindowDimensions();
+  const pageWidth = Math.max(1, windowWidth - CONTENT_PADDING * 2);
+  const pagerRef = useRef<ScrollView | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const safeIndex = Math.min(activeIndex, maps.length - 1);
+  const active = maps[safeIndex];
+
+  useEffect(() => {
+    if (activeIndex > maps.length - 1) setActiveIndex(0);
+  }, [maps.length, activeIndex]);
+
+  const goToIndex = (index: number) => {
+    setActiveIndex(index);
+    pagerRef.current?.scrollTo({ x: index * pageWidth, animated: true });
+  };
+
+  if (!active?.imageUrl) return null;
+
+  return (
+    <View>
+      {maps.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={fpS.floorRow}
+        >
+          {maps.map((m, index) => {
+            const activeTab = index === safeIndex;
+            return (
+              <TouchableOpacity
+                key={m.id}
+                style={[fpS.floorTab, activeTab && { borderColor: accentColor + '70' }]}
+                onPress={() => goToIndex(index)}
+              >
+                {activeTab && (
+                  <LinearGradient
+                    colors={[accentColor + '28', accentColor + '08']}
+                    style={StyleSheet.absoluteFill}
+                  />
+                )}
+                <MaterialCommunityIcons
+                  name="map-outline"
+                  size={12}
+                  color={activeTab ? accentColor : C.textMuted}
+                />
+                <Text
+                  style={[fpS.floorTabText, activeTab && { color: accentColor, fontWeight: '700' }]}
+                >
+                  {m.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      <ScrollView
+        ref={pagerRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          const index = Math.round(e.nativeEvent.contentOffset.x / pageWidth);
+          setActiveIndex(Math.max(0, Math.min(index, maps.length - 1)));
+        }}
+      >
+        {maps.map((m) => (
+          <View key={m.id} style={[mapImgS.frame, { width: pageWidth }]}>
+            <Image
+              source={{ uri: m.imageUrl }}
+              style={mapImgS.image}
+              resizeMode="contain"
+            />
+          </View>
+        ))}
+      </ScrollView>
+
+      <View style={mapImgS.footer}>
+        {active.label ? <Text style={mapImgS.caption}>{active.label}</Text> : null}
+        {maps.length > 1 && (
+          <View style={mapImgS.dots}>
+            {maps.map((m, index) => (
+              <View
+                key={m.id}
+                style={[
+                  mapImgS.dot,
+                  {
+                    backgroundColor:
+                      index === safeIndex ? accentColor : C.border,
+                    width: index === safeIndex ? 18 : 6,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const mapImgS = StyleSheet.create({
+  frame: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: C.bgElevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    minHeight: 220,
+  },
+  image: {
+    width: '100%',
+    height: 280,
+  },
+  footer: { marginTop: 8, alignItems: 'center', gap: 8 },
+  caption: {
+    fontSize: 12,
+    color: C.textMuted,
+    textAlign: 'center',
+  },
+  dots: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  dot: { height: 6, borderRadius: 3 },
+});
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function MuseumDetailScreen() {
@@ -275,6 +415,24 @@ export default function MuseumDetailScreen() {
   const { checkSync } = useMuseumSyncCheck();
   const { packs: arPacks } = usePackages();
   const { routes, loading: routesLoading, error: routesError } = useRoutes();
+  const { maps, loading: mapsLoading } = useMaps();
+
+  const mapsWithImage = useMemo(
+    () =>
+      maps
+        .filter((m) => Boolean(m.imageUrl))
+        // BE exposes no floor column — order by number parsed from the label, then id.
+        .sort((a, b) => {
+          const fa = a.floorNumber;
+          const fb = b.floorNumber;
+          if (fa != null && fb != null && fa !== fb) return fa - fb;
+          if (fa != null && fb == null) return -1;
+          if (fa == null && fb != null) return 1;
+          return a.id - b.id;
+        }),
+    [maps],
+  );
+  const hasMapImage = mapsWithImage.length > 0;
 
   useEffect(() => {
     // Warm museumId cache + sync-check (404 = chưa có offline pack, đã xử lý im lặng)
@@ -301,9 +459,6 @@ export default function MuseumDetailScreen() {
               <Text style={styles.heroEmoji}>🏛</Text>
             </View>
           )}
-          <View style={[styles.heroTag, { borderColor: museum.color + '60' }]}>
-            <Text style={[styles.heroTagText, { color: museum.color }]}>{museum.tag}</Text>
-          </View>
         </View>
 
         <View style={styles.content}>
@@ -312,7 +467,10 @@ export default function MuseumDetailScreen() {
           <Text style={styles.name}>{museum.name}</Text>
           <View style={styles.locationRow}>
             <MaterialCommunityIcons name="map-marker-outline" size={14} color={C.textSecondary} />
-            <Text style={styles.city}>{museum.city} · Est. {museum.founded}</Text>
+            <Text style={styles.city}>
+              {museum.city}
+              {museum.founded ? ` · Est. ${museum.founded}` : ''}
+            </Text>
           </View>
 
           {/* ── Action buttons ──────────────────────────────────────────── */}
@@ -351,7 +509,9 @@ export default function MuseumDetailScreen() {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statBox}>
-              <Text style={[styles.statValue, { color: museum.color }]}>{museum.zones.length}</Text>
+              <Text style={[styles.statValue, { color: museum.color }]}>
+                {museum.zones.length > 0 ? museum.zones.length : '—'}
+              </Text>
               <Text style={styles.statLabel}>Zones</Text>
             </View>
             <View style={styles.statDivider} />
@@ -365,7 +525,12 @@ export default function MuseumDetailScreen() {
           <View style={styles.infoGrid}>
             {[
               { icon: '📍', label: 'Address',   value: museum.address },
-              { icon: '⏰', label: 'Hours',     value: museum.openHours, note: `Closed: ${museum.closedDay}` },
+              {
+                icon: '⏰',
+                label: 'Hours',
+                value: museum.openHours,
+                note: museum.closedDay ? `Closed: ${museum.closedDay}` : undefined,
+              },
               { icon: '🎫', label: 'Ticket',    value: museum.ticketPrice },
               { icon: '📞', label: 'Contact',   value: museum.phone },
             ].map((item) => (
@@ -379,41 +544,53 @@ export default function MuseumDetailScreen() {
           </View>
 
           {/* ── Description ─────────────────────────────────────────────── */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>About</Text>
-            <Text style={styles.description}>{museum.description}</Text>
-          </View>
+          {museum.description ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>About</Text>
+              <Text style={styles.description}>{museum.description}</Text>
+            </View>
+          ) : null}
 
           {/* ── Highlights ──────────────────────────────────────────────── */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Highlights</Text>
-            {museum.highlights.map((item, i) => (
-              <View key={i} style={styles.highlightRow}>
-                <View style={[styles.highlightDot, { backgroundColor: museum.color }]} />
-                <Text style={styles.highlightText}>{item}</Text>
-              </View>
-            ))}
-          </View>
+          {museum.highlights.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Highlights</Text>
+              {museum.highlights.map((item, i) => (
+                <View key={i} style={styles.highlightRow}>
+                  <View style={[styles.highlightDot, { backgroundColor: museum.color }]} />
+                  <Text style={styles.highlightText}>{item}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
-          {/* ── Floor Plan ──────────────────────────────────────────────── */}
+          {/* ── Floor Plan / Map image ──────────────────────────────────── */}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Floor Plan</Text>
               <View style={[styles.livePill, { borderColor: C.success + '40' }]}>
                 <View style={styles.liveDot} />
-                <Text style={styles.liveText}>Interactive</Text>
+                <Text style={styles.liveText}>
+                  {hasMapImage ? 'Map image' : 'Interactive'}
+                </Text>
               </View>
             </View>
 
-            <FloorPlan
-              zones={museum.zones}
-              accentColor={museum.color}
-              selectedZone={selectedZone}
-              onSelectZone={(name) => setSelectedZone((prev) => (prev === name ? null : name))}
-            />
+            {mapsLoading ? (
+              <ActivityIndicator color={museum.color} style={{ marginVertical: 16 }} />
+            ) : hasMapImage ? (
+              <MuseumMapImages maps={mapsWithImage} accentColor={museum.color} />
+            ) : (
+              <FloorPlan
+                zones={museum.zones}
+                accentColor={museum.color}
+                selectedZone={selectedZone}
+                onSelectZone={(name) => setSelectedZone((prev) => (prev === name ? null : name))}
+              />
+            )}
 
-            {/* Selected zone info card */}
-            {selectedZoneData && (
+            {/* Selected zone info card — only for interactive floor plan */}
+            {!hasMapImage && selectedZoneData && (
               <View style={[styles.zoneInfoCard, { borderColor: museum.color + '50' }]}>
                 <LinearGradient
                   colors={[museum.color + '10', 'transparent']}
@@ -534,12 +711,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: 12,
   },
   heroEmoji: { fontSize: 38 },
-  heroTag: {
-    paddingHorizontal: 12, paddingVertical: 5,
-    borderRadius: 8, borderWidth: 1,
-    backgroundColor: 'rgba(43,29,14,0.08)',
-  },
-  heroTagText: { fontSize: 13, fontWeight: '700' },
 
   content: { paddingHorizontal: 20, paddingTop: 4 },
   name:    { fontSize: 24, fontWeight: '800', color: C.textPrimary, lineHeight: 32 },

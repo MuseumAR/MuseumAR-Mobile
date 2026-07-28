@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -13,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
 import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
+import { isExpoGo } from '../../src/services/unityAr';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
 
@@ -35,7 +37,6 @@ export default function ArModelScreen() {
     const modes: ArMode[] = [];
     if (hasAr2d || exhibit?.arOverlayUrl) modes.push('2d');
     if (hasAr3d) modes.push('3d');
-    // Fallback: arAvailable with thumbnail as 2D preview
     if (modes.length === 0 && exhibit?.arAvailable && exhibit.thumbnailUrl) {
       modes.push('2d');
     }
@@ -49,11 +50,8 @@ export default function ArModelScreen() {
     setMode(availableModes[0] ?? null);
   }, [availableModes, mode]);
 
-  const overlayUrl =
-    imageAsset?.url ||
-    exhibit?.arOverlayUrl ||
-    (mode === '2d' ? exhibit?.thumbnailUrl : undefined) ||
-    null;
+  // Prefer OverlayImage asset only — never MarkerImage / Model3D URLs.
+  const overlayUrl = imageAsset?.url || exhibit?.arOverlayUrl || null;
 
   const modelPreviewUrl =
     modelAsset?.previewImageUrl ||
@@ -62,6 +60,42 @@ export default function ArModelScreen() {
     null;
 
   const loading = exhibitLoading || assetsLoading;
+
+  const openAr = useCallback(() => {
+    if (mode === '3d') {
+      Alert.alert(
+        'AR 3D',
+        'Xem mô hình 3D sẽ được hỗ trợ ở bước sau. Hiện tại chỉ mở được AR overlay ảnh 2D.',
+      );
+      return;
+    }
+
+    if (exhibitId == null || !overlayUrl) {
+      Alert.alert('AR', 'Chưa có ảnh overlay cho hiện vật này.');
+      return;
+    }
+
+    if (isExpoGo()) {
+      Alert.alert(
+        'Cần Development Build',
+        'Unity AR không chạy trong Expo Go. Export Unity vào unity/builds rồi chạy:\n\nnpx expo prebuild\nnpx expo run:android',
+      );
+      return;
+    }
+
+    if (__DEV__) {
+      console.log('[MuseumAR] Opening Unity AR with OverlayImage URL:', overlayUrl);
+    }
+
+    router.push({
+      pathname: '/unity-ar/[id]',
+      params: {
+        id: String(exhibitId),
+        // Encode so query chars in Cloudinary URLs survive routing.
+        overlayUrl: encodeURIComponent(overlayUrl),
+      },
+    });
+  }, [mode, exhibitId, overlayUrl, router]);
 
   if (loading && !exhibit) {
     return (
@@ -175,17 +209,18 @@ export default function ArModelScreen() {
 
         <Text style={styles.hint}>
           {mode === '2d'
-            ? 'Ảnh overlay 2D sẽ được đặt lên mặt phẳng (Ground Plane) khi mở trải nghiệm AR.'
-            : 'Mô hình 3D sẽ được đặt lên mặt phẳng khi mở trải nghiệm AR (Unity / Vuforia).'}
+            ? 'Mở Unity trong app (không deep link). Chạm mặt phẳng trong camera để đặt overlay 2D.'
+            : 'Xem mô hình 3D trong Unity sẽ được bổ sung sau. Hiện chỉ hỗ trợ overlay ảnh 2D.'}
         </Text>
 
         <TouchableOpacity
-          style={styles.primaryBtn}
-          onPress={() => router.push('/(tabs)/scan')}
+          style={[styles.primaryBtn, mode === '2d' && !overlayUrl && styles.primaryBtnDisabled]}
+          onPress={openAr}
+          disabled={mode === '2d' && !overlayUrl}
         >
           <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
           <Text style={styles.primaryBtnText}>
-            {mode === '2d' ? 'Mở AR với overlay 2D' : 'Mở AR với mô hình 3D'}
+            {mode === '2d' ? 'Mở AR trong app (Unity)' : 'AR 3D (sắp có)'}
           </Text>
         </TouchableOpacity>
       </ScrollView>
@@ -254,6 +289,7 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 16,
   },
+  primaryBtnDisabled: { opacity: 0.55 },
   primaryBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 16 },
   secondaryBtn: {
     marginTop: 16,

@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useMemo } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCategories } from '../../src/hooks/useCategories';
 import { useExhibits } from '../../src/hooks/useExhibits';
@@ -145,7 +145,15 @@ export default function HomeScreen() {
           onPress={() => router.push(`/museum/${museum.id}`)}
         >
           <View style={[styles.museumCardImage, { backgroundColor: museum.color + '18' }]}>
-            <Text style={styles.museumEmoji}>🏛</Text>
+            {museum.thumbnailUrl ? (
+              <Image
+                source={{ uri: museum.thumbnailUrl }}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+              />
+            ) : (
+              <Text style={styles.museumEmoji}>🏛</Text>
+            )}
             <LinearGradient
               colors={['transparent', 'rgba(247,242,233,0.95)']}
               style={styles.museumCardGradient}
@@ -153,9 +161,11 @@ export default function HomeScreen() {
           </View>
 
           <View style={styles.museumCardInfo}>
-            <View style={[styles.museumBadge, { borderColor: museum.color + '60' }]}>
-              <Text style={[styles.museumBadgeText, { color: museum.color }]}>{museum.tag}</Text>
-            </View>
+            {museum.tag ? (
+              <View style={[styles.museumBadge, { borderColor: museum.color + '60' }]}>
+                <Text style={[styles.museumBadgeText, { color: museum.color }]}>{museum.tag}</Text>
+              </View>
+            ) : null}
             <Text style={styles.museumName}>{museum.name}</Text>
             <View style={styles.museumLocation}>
               <MaterialCommunityIcons name="map-marker-outline" size={11} color={C.textSecondary} />
@@ -190,7 +200,15 @@ export default function HomeScreen() {
               onPress={() => router.push(`/exhibit/${item.id}`)}
             >
               <View style={[styles.artifactThumb, { backgroundColor: item.color + '18' }]}>
-                <Text style={styles.artifactEmoji}>{item.emoji}</Text>
+                {item.thumbnailUrl ? (
+                  <Image
+                    source={{ uri: item.thumbnailUrl }}
+                    style={styles.artifactThumbImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <Text style={styles.artifactEmoji}>{item.emoji}</Text>
+                )}
               </View>
 
               <View style={styles.artifactInfo}>
@@ -507,7 +525,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
+  artifactThumbImage: { width: '100%', height: '100%' },
   artifactEmoji: { fontSize: 28 },
   artifactInfo: { flex: 1 },
   artifactCategory: {

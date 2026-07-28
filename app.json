@@ -10,24 +10,46 @@
     "plugins": [
       "expo-router",
       "expo-web-browser",
+      "expo-dev-client",
+      "@azesmway/react-native-unity",
       [
         "expo-camera",
         {
-          "cameraPermission": "MuseumAR cần camera để quét mã QR hiện vật.",
+          "cameraPermission": "MuseumAR cần camera để quét mã QR và hiển thị AR.",
           "barcodeScannerEnabled": true,
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "minSdkVersion": 29,
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "useLegacyPackaging": true
+          }
+        }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "hidden": true
+        }
+      ],
+      "./plugins/withUnityManifestMergerFixes.js"
     ],
     "experiments": {
       "typedRoutes": true
     },
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.museumar.app",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
-        }
+        },
+        "NSCameraUsageDescription": "MuseumAR cần camera để quét mã QR và hiển thị AR overlay."
       }
     },
     "android": {
@@ -39,7 +61,11 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.INTERNET"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"

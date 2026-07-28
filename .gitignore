@@ -42,3 +42,12 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Unity UaaL export binaries (keep README / .gitkeep)
+unity/builds/android/**
+!unity/builds/android/.gitkeep
+!unity/builds/android/README.txt
+unity/builds/ios/**
+!unity/builds/ios/.gitkeep
+!unity/builds/ios/README.txt
+

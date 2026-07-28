@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -153,9 +154,24 @@ export default function ExhibitDetailScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.hero}>
-          <Text style={styles.heroCategory}>{exhibit.category}</Text>
-          <Text style={styles.heroHint}>Hình ảnh hiện vật</Text>
+        <View style={[styles.hero, { backgroundColor: exhibit.color + '18' }]}>
+          {exhibit.thumbnailUrl ? (
+            <Image
+              source={{ uri: exhibit.thumbnailUrl }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.heroFallback}>
+              <Text style={styles.heroEmoji}>{exhibit.emoji || '🏺'}</Text>
+              <Text style={styles.heroHint}>Chưa có hình ảnh</Text>
+            </View>
+          )}
+          {exhibit.category ? (
+            <View style={styles.heroCategoryBadge}>
+              <Text style={styles.heroCategory}>{exhibit.category}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.content}>
@@ -254,14 +270,30 @@ const styles = StyleSheet.create({
     backgroundColor: C.bgSurface,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  heroFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  heroEmoji: { fontSize: 64 },
+  heroCategoryBadge: {
+    position: 'absolute',
+    left: 16,
+    bottom: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(43,29,14,0.55)',
   },
   heroCategory: {
     fontSize: 12,
     fontWeight: '700',
-    color: C.accent,
+    color: '#FFFDF8',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 8,
   },
   heroHint: { color: C.textMuted, fontSize: 14 },
   content: { padding: 24 },
@@ -299,7 +331,7 @@ const styles = StyleSheet.create({
   audioBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: C.bronze,
+    backgroundColor: C.accent,
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 20,

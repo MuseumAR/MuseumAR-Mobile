@@ -66,15 +66,13 @@ export default function TicketScreen() {
     });
 
     if (result.ok) {
-      const code = result.order.orderCode ? `\nMã đơn: ${result.order.orderCode}` : '';
-      Alert.alert(
-        'Đặt vé thành công',
-        `Vé đã được tạo.${code}\nVé điện tử sẽ hiển thị trong mục Vé của tôi.`,
-        [
-          { text: 'Xem vé của tôi', onPress: () => router.push('/my-tickets') },
-          { text: 'Đóng', style: 'cancel' },
-        ],
-      );
+      router.replace({
+        pathname: '/payment-result',
+        params: {
+          status: result.browserOutcome === 'cancel' ? 'cancel' : 'success',
+          orderCode: result.order.orderCode ?? '',
+        },
+      });
       return;
     }
 
@@ -244,14 +242,14 @@ export default function TicketScreen() {
             <ActivityIndicator color={C.onAccent} size="small" />
           ) : (
             <>
-              <MaterialCommunityIcons name="ticket-confirmation-outline" size={22} color={C.onAccent} />
-              <Text style={styles.buyBtnText}>Xác nhận đặt vé</Text>
+              <MaterialCommunityIcons name="credit-card-outline" size={22} color={C.onAccent} />
+              <Text style={styles.buyBtnText}>Thanh toán với PayOS</Text>
             </>
           )}
         </TouchableOpacity>
 
         <Text style={styles.note}>
-          * Vé điện tử sẽ được gửi qua email sau khi thanh toán thành công
+          * Sau thanh toán, app mở màn hình kết quả và kiểm tra vé. Vé Paid chỉ xuất hiện khi webhook PayOS tới server.
         </Text>
       </ScrollView>
     </SafeAreaView>

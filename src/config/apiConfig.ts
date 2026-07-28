@@ -4,40 +4,45 @@ import { Platform } from 'react-native';
 const API_PORT = 5149;
 
 /**
- * Ghi đè host khi cần (máy thật / Wi‑Fi).
- * Ví dụ: '192.168.1.20'
- * Để null = tự chọn theo nền tảng (khuyến nghị cho emulator).
+ * Optional override (e.g. when Metro hostUri is wrong).
+ * Set expo.extra.apiHost in app.json, e.g. "192.168.1.42".
+ * Leave empty to auto-detect from Expo's Metro host (works for emulator + physical).
  */
 const FORCE_DEV_HOST: string | null =
   (Constants.expoConfig?.extra as { apiHost?: string } | undefined)?.apiHost?.trim() ||
   null;
 
 /**
- * Host máy chạy backend khi đang phát triển.
+ * Dev API host — one path for emulator and physical device.
  *
- * - Android emulator: luôn dùng 10.0.2.2 (map tới localhost của PC)
- * - iOS simulator: localhost
- * - Máy thật: đặt FORCE_DEV_HOST / expo.extra.apiHost = IP LAN của PC
- *   và chạy backend listen 0.0.0.0:5149
+ * Uses Metro's LAN IP from hostUri (e.g. "192.168.1.42:8081" → "192.168.1.42").
+ * Backend must listen on 0.0.0.0:5149 (not localhost-only).
  *
- * Lưu ý: KHÔNG dùng Expo hostUri (IP LAN Metro) làm API host trên emulator —
- * vì Kestrel thường chỉ bind localhost → app không kết nối được.
+ * Fallbacks: Android emulator → 10.0.2.2, else localhost.
  */
 function getDevHost(): string {
   if (FORCE_DEV_HOST) return FORCE_DEV_HOST;
 
-  if (Platform.OS === 'android') {
-    // Emulator: 10.0.2.2 → localhost của máy host
-    return '10.0.2.2';
+  const hostUri =
+    Constants.expoConfig?.hostUri ??
+    (Constants as { manifest2?: { extra?: { expoClient?: { hostUri?: string } } } })
+      .manifest2?.extra?.expoClient?.hostUri ??
+    (Constants as { manifest?: { debuggerHost?: string; hostUri?: string } }).manifest
+      ?.debuggerHost ??
+    (Constants as { manifest?: { debuggerHost?: string; hostUri?: string } }).manifest
+      ?.hostUri;
+
+  const lanIp = hostUri?.split(':')[0]?.trim();
+  if (lanIp && lanIp !== 'localhost' && lanIp !== '127.0.0.1') {
+    return lanIp;
   }
 
-  // iOS simulator / web
+  if (Platform.OS === 'android') return '10.0.2.2';
   return 'localhost';
 }
 
 export const API_BASE_URL = `http://${getDevHost()}:${API_PORT}/api`;
 
 if (__DEV__) {
-  // Giúp debug khi virtual device không gọi được API
   console.log(`[MuseumAR] API_BASE_URL = ${API_BASE_URL}`);
 }

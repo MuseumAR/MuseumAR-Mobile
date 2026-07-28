@@ -95,14 +95,8 @@ export async function createLocalOrder(
       orderId,
       orderCode,
       totalAmount: input.unitPrice * qty,
+      amount: input.unitPrice * qty,
       status: 'Paid',
-      tickets: created.map((t) => ({
-        id: t.id,
-        ticketCode: t.ticketCode,
-        ticketTypeId: t.ticketTypeId,
-        ticketTypeName: t.ticketTypeName,
-        status: t.status,
-      })),
     },
     tickets: next,
   };

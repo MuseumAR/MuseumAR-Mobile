@@ -9,37 +9,67 @@ function formatOf(a: ArAssetDto): string {
   return (a.format ?? '').toLowerCase().trim();
 }
 
+function assetUrlOf(a: ArAssetDto): string {
+  return (a.url || a.assetUrl || '').trim();
+}
+
 function isAudioAsset(a: ArAssetDto): boolean {
   const t = assetTypeOf(a);
   const f = formatOf(a);
-  return t === 'audio' || f === 'mp3' || f === 'wav' || f === 'm4a';
+  if (t === 'audio') return true;
+  if (f === 'mp3' || f === 'wav' || f === 'm4a' || f === 'aac') return true;
+  return /\.(mp3|wav|m4a|aac)(\?|$)/i.test(assetUrlOf(a));
 }
 
-/** 2D image overlay for Ground Plane / Vuforia overlay. */
+/**
+ * 2D image overlay — matches WebBE assetType OverlayImage only.
+ * MarkerImage is intentionally excluded (separate marker QR / tracking asset).
+ */
 function isImageOverlayAsset(a: ArAssetDto): boolean {
   if (isAudioAsset(a)) return false;
   const t = assetTypeOf(a);
+  if (t === 'markerimage' || t === 'marker') return false;
+  if (
+    t === 'overlayimage' ||
+    t === 'overlay' ||
+    t === 'image' ||
+    t === '2d' ||
+    t === 'texture'
+  ) {
+    return true;
+  }
+  // Legacy rows without assetType: treat image extensions as overlay,
+  // but never when type is already known as marker/model.
+  if (t) return false;
   const f = formatOf(a);
-  if (t === 'image' || t === 'overlay' || t === '2d' || t === 'texture') return true;
   if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(f)) return true;
-  if (/\.(png|jpe?g|webp|gif)(\?|$)/i.test(a.url ?? '')) return true;
-  return false;
+  return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(assetUrlOf(a));
 }
 
-/** 3D model asset. */
+/**
+ * 3D model — matches WebBE assetType Model3D / 3DModel
+ * (also legacy: model / 3d / mesh).
+ */
 function isModel3dAsset(a: ArAssetDto): boolean {
   if (isAudioAsset(a) || isImageOverlayAsset(a)) return false;
   const t = assetTypeOf(a);
   const f = formatOf(a);
-  if (t === 'model' || t === '3d' || t === 'mesh') return true;
+  if (
+    t === 'model3d' ||
+    t === '3dmodel' ||
+    t === 'model' ||
+    t === '3d' ||
+    t === 'mesh'
+  ) {
+    return true;
+  }
   if (['glb', 'gltf', 'usdz', 'fbx', 'obj', 'assetbundle'].includes(f)) return true;
-  if (/\.(glb|gltf|usdz|fbx|obj)(\?|$)/i.test(a.url ?? '')) return true;
-  return false;
+  return /\.(glb|gltf|usdz|fbx|obj)(\?|$)/i.test(assetUrlOf(a));
 }
 
 /**
  * Lấy asset AR của hiện vật (GET /Content/exhibits/{id}/ar-assets).
- * Tách rõ: 2D overlay, 3D model, audio.
+ * Tách rõ: 2D overlay, 3D model, audio — khớp assetType WebBE.
  */
 export function useExhibitArAssets(exhibitId: number | null) {
   const [assets, setAssets] = useState<ArAssetDto[]>([]);
