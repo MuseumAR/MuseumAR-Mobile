@@ -382,6 +382,21 @@ export function normalizeMuseumMap(
   };
 }
 
+/** BE TourRouteStopDto — ordered exhibit stop with room/floor. */
+export interface TourRouteStopDto {
+  exhibitId: number;
+  exhibitName?: string | null;
+  exhibitCode?: string | null;
+  stopOrder: number;
+  estimatedMinutes?: number | null;
+  mapId?: number | null;
+  floorNumber?: number | null;
+  roomId?: number | null;
+  roomCode?: string | null;
+  roomName?: string | null;
+}
+
+/** @deprecated Prefer TourRouteStopDto / stops from BE. */
 export interface RoutePointDto {
   id?: number;
   exhibitId?: number;
@@ -405,7 +420,54 @@ export interface TourRouteDto {
   difficulty?: string;
   stopCount?: number;
   thumbnailUrl?: string;
+  status?: string;
+  /** Ordered stops from BE TourRouteExhibits */
+  stops?: TourRouteStopDto[];
+  /** @deprecated legacy alias — prefer stops */
   points?: RoutePointDto[];
+}
+
+/** BE RoomDto — room on a floor map (no X/Y; layout is client-side). */
+export interface RoomDto {
+  id: number;
+  museumId: number;
+  mapId?: number | null;
+  roomCode: string;
+  roomName: string;
+  floorNumber: number;
+  description?: string | null;
+}
+
+export function normalizeTourRouteStop(
+  raw: Partial<TourRouteStopDto> & Record<string, unknown>,
+): TourRouteStopDto {
+  return {
+    exhibitId: Number(raw.exhibitId) || 0,
+    exhibitName: (raw.exhibitName as string | null | undefined) ?? null,
+    exhibitCode: (raw.exhibitCode as string | null | undefined) ?? null,
+    stopOrder: Number(raw.stopOrder ?? raw.order) || 0,
+    estimatedMinutes:
+      raw.estimatedMinutes != null ? Number(raw.estimatedMinutes) : null,
+    mapId: raw.mapId != null ? Number(raw.mapId) : null,
+    floorNumber: raw.floorNumber != null ? Number(raw.floorNumber) : null,
+    roomId: raw.roomId != null ? Number(raw.roomId) : null,
+    roomCode: (raw.roomCode as string | null | undefined) ?? null,
+    roomName: (raw.roomName as string | null | undefined) ?? null,
+  };
+}
+
+export function normalizeRoomDto(
+  raw: Partial<RoomDto> & Record<string, unknown>,
+): RoomDto {
+  return {
+    id: Number(raw.id) || 0,
+    museumId: Number(raw.museumId) || 0,
+    mapId: raw.mapId != null ? Number(raw.mapId) : null,
+    roomCode: String(raw.roomCode ?? '').trim() || `R${raw.id ?? 0}`,
+    roomName: String(raw.roomName ?? '').trim() || String(raw.roomCode ?? 'Phòng'),
+    floorNumber: Number(raw.floorNumber) || 1,
+    description: (raw.description as string | null | undefined) ?? null,
+  };
 }
 
 // --- ADMIN ---
@@ -785,9 +847,25 @@ export const apiService = {
     };
   },
 
-  /** Tour / lộ trình tham quan. */
+  /** Tour / lộ trình tham quan (kèm stops nếu BE include). */
   async getRoutes(): Promise<ApiResponse<TourRouteDto[]>> {
     return apiFetch<TourRouteDto[]>('Content/routes');
+  },
+
+  /** Chi tiết một lộ trình + stops có thứ tự. */
+  async getRouteById(id: number): Promise<ApiResponse<TourRouteDto>> {
+    return apiFetch<TourRouteDto>(`Content/routes/${id}`);
+  },
+
+  /** Phòng theo museum — GET Content/rooms/museum/{museumId}. */
+  async getRoomsByMuseum(museumId: number): Promise<ApiResponse<RoomDto[]>> {
+    const response = await apiFetch<RoomDto[]>(`Content/rooms/museum/${museumId}`);
+    return {
+      ...response,
+      data: (response.data ?? []).map((item) =>
+        normalizeRoomDto(item as Partial<RoomDto> & Record<string, unknown>),
+      ),
+    };
   },
 
   /** Danh mục hiện vật. */
