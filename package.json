@@ -8,6 +8,8 @@
     "ios": "cross-env NODE_OPTIONS=--max-old-space-size=4096 expo start --ios",
     "web": "cross-env NODE_OPTIONS=--max-old-space-size=4096 expo start --web",
     "prebuild": "cross-env NODE_OPTIONS=--max-old-space-size=4096 expo prebuild",
+    "run:android": "cross-env GRADLE_USER_HOME=C:\\Users\\ADMIN\\.gradle NODE_OPTIONS=--max-old-space-size=4096 expo run:android",
+    "run:ios": "cross-env NODE_OPTIONS=--max-old-space-size=4096 expo run:ios",
     "postinstall": "patch-package"
   },
   "dependencies": {

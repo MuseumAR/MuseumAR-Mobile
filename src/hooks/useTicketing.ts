@@ -45,21 +45,72 @@ const MOCK_TICKET_TYPES: TicketTypeDto[] = [
   },
 ];
 
-/** Deep links PayOS should redirect to (needs BE PAYOS_RETURN_URL / create-order support). */
+export type PaymentBrowserOutcome = 'success' | 'cancel' | 'dismiss' | 'pending';
+
+/** PayOS return URLs — use app scheme so Custom Tabs can hand off into the app. */
 export function buildPayOsReturnUrls(orderCode?: string) {
-  const success = Linking.createURL('payment-result', {
-    queryParams: {
-      status: 'success',
-      ...(orderCode ? { orderCode } : {}),
-    },
+  const redirectBase = 'museumar://payment-result';
+  const q = orderCode ? `&orderCode=${encodeURIComponent(orderCode)}` : '';
+  return {
+    redirectBase,
+    success: `${redirectBase}?status=success${q}`,
+    cancel: `${redirectBase}?status=cancel${q}`,
+  };
+}
+
+function parsePaymentUrl(url: string): PaymentBrowserOutcome {
+  const u = url.toLowerCase();
+  if (
+    u.includes('status=cancel') ||
+    u.includes('cancel=true') ||
+    u.includes('status%3dcancel')
+  ) {
+    return 'cancel';
+  }
+  if (u.includes('status=success') || u.includes('status%3dsuccess')) {
+    return 'success';
+  }
+  if (u.includes('payment-result')) {
+    return 'success';
+  }
+  return 'dismiss';
+}
+
+/** Open PayOS checkout; returns success | cancel | pending (closed without pay/cancel). */
+export async function openPayOsCheckout(
+  checkoutUrl: string,
+): Promise<PaymentBrowserOutcome> {
+  const { redirectBase } = buildPayOsReturnUrls();
+  let linkingOutcome: PaymentBrowserOutcome | null = null;
+  const linkSub = Linking.addEventListener('url', ({ url }) => {
+    const parsed = parsePaymentUrl(url);
+    if (parsed === 'dismiss' || parsed === 'pending') return;
+    linkingOutcome = parsed;
+    try {
+      WebBrowser.dismissBrowser();
+    } catch {
+      // ignore
+    }
   });
-  const cancel = Linking.createURL('payment-result', {
-    queryParams: {
-      status: 'cancel',
-      ...(orderCode ? { orderCode } : {}),
-    },
-  });
-  return { success, cancel };
+
+  try {
+    const authResult = await WebBrowser.openAuthSessionAsync(
+      checkoutUrl,
+      redirectBase,
+    );
+    if (linkingOutcome === 'success' || linkingOutcome === 'cancel') {
+      return linkingOutcome;
+    }
+    if (authResult.type === 'success' && authResult.url) {
+      const parsed = parsePaymentUrl(authResult.url);
+      if (parsed === 'cancel') return 'cancel';
+      if (parsed === 'success') return 'success';
+    }
+    // Closed browser without PayOS success/cancel redirect → keep Pending
+    return 'pending';
+  } finally {
+    linkSub.remove();
+  }
 }
 
 /** Lấy loại vé (GET /Ticketing/types), fallback mock nếu API lỗi. */
@@ -128,22 +179,19 @@ export function useMyTickets() {
   return { tickets, loading, authRequired, error, refresh };
 }
 
-export type PaymentBrowserOutcome = 'success' | 'cancel' | 'dismiss';
-
 export type CreateOrderSubmitResult =
   | {
       ok: true;
       order: CreateOrderResponse;
       paymentOpened: boolean;
       browserOutcome: PaymentBrowserOutcome;
+      paidCountBefore: number;
     }
   | { ok: false; authRequired?: boolean; message: string };
 
 /**
  * Đặt vé + PayOS:
- * 1) POST /Visitor/sync
- * 2) POST /Ticketing/create-order (sends return/cancel deep links when BE supports them)
- * 3) openAuthSessionAsync — closes back into app when redirected to museumar://…
+ * success → Paid screen | cancel → Cancelled | close → Pending (resume later)
  */
 export function useCreateOrder() {
   const [submitting, setSubmitting] = useState(false);
@@ -163,14 +211,20 @@ export function useCreateOrder() {
       try {
         await ensureVisitorSynced();
 
-        // Placeholder orderCode in URL; real code comes back from create-order.
-        // First create without deep-link orderCode, then we open browser with known code on result screen.
-        const provisionalUrls = buildPayOsReturnUrls();
+        let paidCountBefore = 0;
+        try {
+          const before = await apiService.getMyTickets();
+          paidCountBefore = countPaidTickets(before.data ?? []);
+        } catch {
+          paidCountBefore = 0;
+        }
+
+        const { success: returnUrl, cancel: cancelUrl } = buildPayOsReturnUrls();
 
         const response = await apiService.createOrder({
           ...payload,
-          returnUrl: provisionalUrls.success,
-          cancelUrl: provisionalUrls.cancel,
+          returnUrl,
+          cancelUrl,
         });
         const order = response.data;
         if (!order) {
@@ -187,26 +241,33 @@ export function useCreateOrder() {
           };
         }
 
-        // Prefer URLs that include the real orderCode (works once BE forwards returnUrl).
-        const { success: returnUrl, cancel: cancelUrl } = buildPayOsReturnUrls(order.orderCode);
+        let browserOutcome = await openPayOsCheckout(checkoutUrl);
 
-        // Re-send is not possible without recreating the PayOS link; openAuthSession
-        // watches for returnUrl. If BE still uses localhost, session ends when user closes browser.
-        const authResult = await WebBrowser.openAuthSessionAsync(checkoutUrl, returnUrl);
-
-        let browserOutcome: PaymentBrowserOutcome = 'dismiss';
-        if (authResult.type === 'success') {
-          const returned = authResult.url ?? '';
-          if (returned.includes('status=cancel') || returned.includes(cancelUrl)) {
-            browserOutcome = 'cancel';
-          } else {
-            browserOutcome = 'success';
-          }
-        } else if (authResult.type === 'cancel' || authResult.type === 'dismiss') {
-          browserOutcome = 'dismiss';
+        // If closed without redirect, webhook may still have paid — quick probe.
+        if (browserOutcome === 'pending') {
+          const probe = await waitForPaidTickets({
+            attempts: 4,
+            intervalMs: 1200,
+            minCountBefore: paidCountBefore,
+          });
+          if (probe.confirmed) browserOutcome = 'success';
         }
 
-        return { ok: true, order, paymentOpened: true, browserOutcome };
+        if (browserOutcome === 'cancel' && order.orderCode) {
+          try {
+            await apiService.cancelOrder(order.orderCode);
+          } catch (cancelErr) {
+            console.warn('cancel-order failed:', cancelErr);
+          }
+        }
+
+        return {
+          ok: true,
+          order,
+          paymentOpened: true,
+          browserOutcome,
+          paidCountBefore,
+        };
       } catch (err: unknown) {
         const message = getAuthErrorMessage(err, 'Đặt vé thất bại. Vui lòng thử lại.');
         setError(message);
@@ -221,9 +282,23 @@ export function useCreateOrder() {
   return { submit, submitting, error };
 }
 
+export function countPaidTickets(tickets: MyTicketDto[]): number {
+  return tickets.filter((t) => (t.status ?? '').toLowerCase() === 'paid').length;
+}
+
 /**
- * Poll my-tickets until paid tickets appear or timeout.
- * Webhook may lag; this only reads API — does not mark tickets paid.
+ * Resume an existing Pending PayOS checkout (after check-payment).
+ */
+export async function resumePayOsPayment(checkoutUrl: string): Promise<PaymentBrowserOutcome> {
+  let outcome = await openPayOsCheckout(checkoutUrl);
+  if (outcome === 'pending') {
+    // Leave as pending — caller shows pending screen
+  }
+  return outcome;
+}
+
+/**
+ * Poll my-tickets until Paid count increases (webhook lag).
  */
 export async function waitForPaidTickets(options?: {
   attempts?: number;
@@ -240,7 +315,7 @@ export async function waitForPaidTickets(options?: {
       await ensureVisitorSynced().catch(() => undefined);
       const res = await apiService.getMyTickets();
       tickets = res.data ?? [];
-      if (tickets.length > minCountBefore) {
+      if (countPaidTickets(tickets) > minCountBefore) {
         return { tickets, confirmed: true };
       }
     } catch {
@@ -250,5 +325,5 @@ export async function waitForPaidTickets(options?: {
       await new Promise((r) => setTimeout(r, intervalMs));
     }
   }
-  return { tickets, confirmed: tickets.length > minCountBefore };
+  return { tickets, confirmed: countPaidTickets(tickets) > minCountBefore };
 }

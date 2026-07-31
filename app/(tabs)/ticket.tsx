@@ -66,11 +66,19 @@ export default function TicketScreen() {
     });
 
     if (result.ok) {
+      const status =
+        result.browserOutcome === 'success'
+          ? 'success'
+          : result.browserOutcome === 'cancel'
+            ? 'cancel'
+            : 'pending';
       router.replace({
         pathname: '/payment-result',
         params: {
-          status: result.browserOutcome === 'cancel' ? 'cancel' : 'success',
+          status,
           orderCode: result.order.orderCode ?? '',
+          paidBefore: String(result.paidCountBefore),
+          checkoutUrl: result.order.checkoutUrl || result.order.paymentUrl || '',
         },
       });
       return;

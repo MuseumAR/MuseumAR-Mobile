@@ -187,6 +187,9 @@ export interface MyTicketDto {
   purchaseDate?: string;
   validDate?: string | null;
   status?: string;
+  orderCode?: string;
+  checkoutUrl?: string;
+  canResumePayment?: boolean;
   /** Optional / legacy aliases used in older UI */
   orderId?: number;
   ticketTypeId?: number;
@@ -196,6 +199,13 @@ export interface MyTicketDto {
   visitDate?: string;
   qrCodeUrl?: string;
   purchasedAt?: string;
+}
+
+export interface PaymentCheckDto {
+  valid?: boolean;
+  status?: string;
+  orderCode?: string;
+  checkoutUrl?: string | null;
 }
 
 // --- CONTENT ---
@@ -843,6 +853,36 @@ export const apiService = {
 
   async getMyTickets(): Promise<ApiResponse<MyTicketDto[]>> {
     return apiFetch<MyTicketDto[]>('Ticketing/my-tickets');
+  },
+
+  /**
+   * POST /Ticketing/cancel-order?orderCode= — JWT.
+   * Marks Pending tickets Cancelled when user cancels PayOS.
+   */
+  async cancelOrder(orderCode: string): Promise<ApiResponse<unknown>> {
+    return apiFetch<unknown>(
+      `Ticketing/cancel-order${buildQuery({ orderCode })}`,
+      { method: 'POST' },
+    );
+  },
+
+  /** GET /Ticketing/check-payment?orderCode= — sync PayOS status; may expire → Cancelled. */
+  async checkPayment(orderCode: string): Promise<ApiResponse<PaymentCheckDto>> {
+    const response = await apiFetch<PaymentCheckDto & Record<string, unknown>>(
+      `Ticketing/check-payment${buildQuery({ orderCode })}`,
+    );
+    const raw = response.data;
+    if (!raw) return { ...response, data: undefined };
+    return {
+      ...response,
+      data: {
+        valid: Boolean(raw.valid ?? raw.Valid),
+        status: String(raw.status ?? raw.Status ?? ''),
+        orderCode: String(raw.orderCode ?? raw.OrderCode ?? orderCode),
+        checkoutUrl:
+          String(raw.checkoutUrl ?? raw.CheckoutUrl ?? '').trim() || null,
+      },
+    };
   },
 
   // --- ADMIN ---
