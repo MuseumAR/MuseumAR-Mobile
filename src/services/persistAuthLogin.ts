@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { apiService, type LoginResponse, type VisitorProfileDto } from './apiService';
 import { getOrCreateDeviceId } from './deviceId';
+import { getStoredLanguage } from './languagePrefs';
 import { buildAuthSession, saveSession, type AuthSession } from './sessionStorage';
 import { saveTokens } from './tokenStorage';
 import { getDeviceModel, getDeviceType } from '../utils/deviceInfo';
@@ -15,11 +16,12 @@ export async function persistAuthLogin(data: LoginResponse): Promise<AuthSession
   let visitor: VisitorProfileDto | null = null;
   try {
     const deviceId = await getOrCreateDeviceId();
+    const preferredLang = await getStoredLanguage();
     const syncRes = await apiService.syncVisitor({
       deviceId,
       displayName: data.fullName,
       email: data.email,
-      preferredLang: 'vi',
+      preferredLang,
       deviceType: getDeviceType(),
       deviceModel: getDeviceModel(),
       appVersion: Constants.expoConfig?.version ?? '1.0.0',

@@ -1,22 +1,21 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBookmarks } from '../../src/hooks/useBookmarks';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
 import { useVisitorProfile } from '../../src/hooks/useVisitorProfile';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService } from '../../src/services/apiService';
 import { getToken, removeToken } from '../../src/services/tokenStorage';
 import { C } from '../../src/theme/colors';
-
-const MENU_ITEMS = [
-  { label: 'Vé của tôi', icon: '🎫', statKey: null, route: '/my-tickets' as const },
-  { label: 'Lịch sử tham quan', icon: '🕐', statKey: 'visited' as const, route: '/visited-exhibits' as const },
-  { label: 'Hiện vật đã lưu', icon: '🔖', statKey: 'saved' as const, route: '/bookmarks' as const },
-  { label: 'Mô hình AR đã tải', icon: '📦', statKey: null, route: '/ar-packs' as const },
-  { label: 'Cài đặt', icon: '⚙️', statKey: null, route: null },
-  { label: 'Trợ giúp & Phản hồi', icon: '💬', statKey: null, route: null },
-];
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/);
@@ -28,10 +27,61 @@ function getInitials(name: string): string {
 
 export default function ProfileScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [loggingOut, setLoggingOut] = useState(false);
-  const { profile, loading: profileLoading, refresh: refreshProfile } = useVisitorProfile();
+  const { profile, loading: profileLoading, refresh: refreshProfile } =
+    useVisitorProfile();
   const { bookmarkCount, refresh: refreshBookmarks } = useBookmarks();
   const { visitedCount, refresh: refreshVisited } = useVisitedExhibits();
+
+  const menuItems = useMemo(
+    () =>
+      [
+        {
+          key: 'tickets',
+          label: t('profile.myTickets'),
+          icon: '🎫',
+          statKey: null as 'visited' | 'saved' | null,
+          route: '/my-tickets' as const,
+        },
+        {
+          key: 'history',
+          label: t('profile.visitHistory'),
+          icon: '🕐',
+          statKey: 'visited' as const,
+          route: '/visited-exhibits' as const,
+        },
+        {
+          key: 'bookmarks',
+          label: t('profile.bookmarks'),
+          icon: '🔖',
+          statKey: 'saved' as const,
+          route: '/bookmarks' as const,
+        },
+        {
+          key: 'ar',
+          label: t('profile.arPacks'),
+          icon: '📦',
+          statKey: null,
+          route: '/ar-packs' as const,
+        },
+        {
+          key: 'settings',
+          label: t('profile.settings'),
+          icon: '⚙️',
+          statKey: null,
+          route: '/settings' as const,
+        },
+        {
+          key: 'help',
+          label: t('profile.help'),
+          icon: '💬',
+          statKey: null,
+          route: null,
+        },
+      ] as const,
+    [t],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -41,25 +91,24 @@ export default function ProfileScreen() {
     }, [refreshProfile, refreshBookmarks, refreshVisited]),
   );
 
-  const displayName = profile?.displayName ?? 'Khách hàng';
-  const email = profile?.email ?? 'Đăng nhập để đồng bộ hồ sơ';
+  const displayName = profile?.displayName ?? t('profile.guest');
+  const email = profile?.email ?? t('profile.loginHint');
   const initials = getInitials(displayName);
 
   const stats = [
-    { label: 'Đã xem', value: profile ? String(visitedCount) : '—' },
-    { label: 'Đã lưu', value: profile ? String(bookmarkCount) : '—' },
+    { label: t('profile.viewed'), value: profile ? String(visitedCount) : '—' },
+    { label: t('profile.saved'), value: profile ? String(bookmarkCount) : '—' },
   ];
 
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
       const token = await getToken();
-      // Guest mode: no JWT → skip API, only clear local state and return to login
       if (token) {
         try {
           await apiService.logout();
         } catch {
-          // Still sign out locally if server logout fails (expired token, offline, etc.)
+          // Still sign out locally if server logout fails
         }
       }
     } finally {
@@ -83,7 +132,7 @@ export default function ProfileScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Hồ sơ</Text>
+          <Text style={styles.title}>{t('profile.title')}</Text>
         </View>
 
         <View style={styles.userCard}>
@@ -99,7 +148,7 @@ export default function ProfileScreen() {
             <Text style={styles.userEmail}>{email}</Text>
           </View>
           <TouchableOpacity style={styles.editBtn}>
-            <Text style={styles.editBtnText}>Chỉnh sửa</Text>
+            <Text style={styles.editBtnText}>{t('profile.edit')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -113,12 +162,15 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.menu}>
-          {MENU_ITEMS.map((item, index) => {
+          {menuItems.map((item, index) => {
             const count = menuCount(item.statKey);
             return (
               <TouchableOpacity
-                key={item.label}
-                style={[styles.menuItem, index === MENU_ITEMS.length - 1 && styles.menuItemLast]}
+                key={item.key}
+                style={[
+                  styles.menuItem,
+                  index === menuItems.length - 1 && styles.menuItemLast,
+                ]}
                 onPress={() => item.route && router.push(item.route)}
                 disabled={!item.route}
               >
@@ -141,7 +193,7 @@ export default function ProfileScreen() {
           {loggingOut ? (
             <ActivityIndicator color={C.danger} size="small" />
           ) : (
-            <Text style={styles.logoutText}>Đăng xuất</Text>
+            <Text style={styles.logoutText}>{t('profile.logout')}</Text>
           )}
         </TouchableOpacity>
       </ScrollView>

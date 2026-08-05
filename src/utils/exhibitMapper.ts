@@ -1,19 +1,17 @@
 import { ExhibitDto, ExhibitTranslationDto } from '../services/apiService';
 import type { ExhibitRecord } from '../data/exhibits';
+import type { AppLanguage } from '../services/languagePrefs';
+import { pickLocalizedRow } from './pickLocalized';
 
 /** Bảng màu chủ đạo dùng khi backend không cung cấp màu cho hiện vật. */
 const COLOR_PALETTE = ['#C89B3C', '#B45309', '#0369A1', '#047857', '#9A6F1F', '#4B5563', '#D97706'];
 
-/** Chọn bản dịch theo ngôn ngữ ưu tiên, fallback về bản đầu tiên. */
+/** Chọn bản dịch theo ngôn ngữ ưu tiên; không có thì dùng bản đầu / dữ liệu hiện có. */
 export function pickTranslation(
   dto: ExhibitDto,
-  lang = 'vi',
+  lang: AppLanguage | string = 'vi',
 ): ExhibitTranslationDto | undefined {
-  if (!dto.translations || dto.translations.length === 0) return undefined;
-  return (
-    dto.translations.find((t) => t.languageCode?.toLowerCase() === lang.toLowerCase()) ??
-    dto.translations[0]
-  );
+  return pickLocalizedRow(dto.translations, lang);
 }
 
 /** Tách mô tả dài thành các đoạn transcript ngắn để hiển thị theo audio. */
@@ -32,8 +30,9 @@ function splitTranscript(description?: string): string[] {
 export function mapExhibitDtoToRecord(
   dto: ExhibitDto,
   categoryName?: string,
+  lang: AppLanguage | string = 'vi',
 ): ExhibitRecord {
-  const tr = pickTranslation(dto);
+  const tr = pickTranslation(dto, lang);
   const color = COLOR_PALETTE[dto.id % COLOR_PALETTE.length];
   const description = tr?.description ?? '';
   const meta = dto.exhibitMetadata;
@@ -43,7 +42,9 @@ export function mapExhibitDtoToRecord(
     museumId: String(dto.museumId),
     title: tr?.title ?? dto.exhibitCode ?? `Hiện vật #${dto.id}`,
     era: meta?.era ?? '',
-    category: categoryName ?? (dto.categoryId != null ? `Danh mục ${dto.categoryId}` : 'Hiện vật'),
+    category:
+      categoryName ??
+      (dto.categoryId != null ? `Danh mục ${dto.categoryId}` : 'Hiện vật'),
     categoryId: dto.categoryId,
     themeId: dto.themeId,
     tagIds: dto.tagIds,

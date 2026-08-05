@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import {
   apiService,
   CategoryDto,
@@ -6,8 +7,8 @@ import {
   TaxonomyChip,
   ThemeDto,
 } from '../services/apiService';
-
-export const ALL_LABEL = 'Tất cả';
+import type { AppLanguage } from '../services/languagePrefs';
+import { pickLocalizedField } from '../utils/pickLocalized';
 
 /** Chuẩn hoá chuỗi tên từ API. */
 function toLabel(value: unknown): string | null {
@@ -25,23 +26,28 @@ function asId(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-/** Lấy tên category từ categoryTranslations (ưu tiên vi). */
-function pickCategoryName(raw: CategoryDto, lang = 'vi'): string | null {
-  const translations = raw.categoryTranslations ?? [];
-  if (translations.length > 0) {
-    const preferred =
-      translations.find((t) => t.languageCode?.toLowerCase() === lang.toLowerCase()) ??
-      translations[0];
-    return toLabel(preferred?.categoryName) ?? toLabel(raw.name);
-  }
-  return toLabel(raw.name);
+/** Lấy tên category theo ngôn ngữ; không có bản dịch thì giữ name hiện có. */
+function pickCategoryName(
+  raw: CategoryDto,
+  lang: AppLanguage | string = 'vi',
+): string | null {
+  const fromTr = pickLocalizedField(
+    raw.categoryTranslations,
+    lang,
+    'categoryName',
+    raw.name,
+  );
+  return toLabel(fromTr) ?? toLabel(raw.name);
 }
 
-function normalizeCategory(entry: unknown): CategoryDto | null {
+function normalizeCategory(
+  entry: unknown,
+  lang: AppLanguage,
+): CategoryDto | null {
   const c = entry as CategoryDto & { Id?: unknown; Name?: unknown };
   const id = asId(c.id) ?? asId(c.Id);
   if (id == null) return null;
-  const name = pickCategoryName(c) ?? toLabel(c.Name);
+  const name = pickCategoryName(c, lang) ?? toLabel(c.Name);
   if (name == null) return null;
   return { ...c, id, name, type: 'category' };
 }
@@ -68,6 +74,8 @@ function normalizeTag(entry: unknown): TaxonomyChip | null {
  * Lấy categories + themes + tags từ backend để lọc màn Explore.
  */
 export function useCategories() {
+  const { lang, t } = useLanguage();
+  const ALL_LABEL = t('common.all');
   const [categories, setCategories] = useState<CategoryDto[]>([]);
   const [themes, setThemes] = useState<TaxonomyChip[]>([]);
   const [tags, setTags] = useState<TaxonomyChip[]>([]);
@@ -85,7 +93,11 @@ export function useCategories() {
       ]);
 
       const catList = Array.isArray(catRes.data) ? catRes.data : [];
-      setCategories(catList.map(normalizeCategory).filter((c): c is CategoryDto => c != null));
+      setCategories(
+        catList
+          .map((c) => normalizeCategory(c, lang))
+          .filter((c): c is CategoryDto => c != null),
+      );
 
       const themeList = Array.isArray(themeRes.data) ? themeRes.data : [];
       setThemes(themeList.map(normalizeTheme).filter((c): c is TaxonomyChip => c != null));
@@ -97,7 +109,7 @@ export function useCategories() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     refresh();
@@ -111,7 +123,7 @@ export function useCategories() {
     return map;
   }, [categories]);
 
-  /** Chip lọc: Tất cả + category + theme + tag. */
+  /** Chip lọc: category + theme + tag. */
   const filterChips = useMemo(() => {
     const chips: TaxonomyChip[] = [
       ...categories
@@ -131,7 +143,7 @@ export function useCategories() {
   /** Nhãn chip (giữ tương thích UI cũ). */
   const categoryLabels = useMemo(
     () => [ALL_LABEL, ...filterChips.map((c) => c.name)],
-    [filterChips],
+    [filterChips, ALL_LABEL],
   );
 
   return {
@@ -147,3 +159,6 @@ export function useCategories() {
     ALL_LABEL,
   };
 }
+
+/** Re-export for callers that imported ALL_LABEL as a constant. */
+export const ALL_LABEL = 'Tất cả';

@@ -13,23 +13,26 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCreateOrder, useTicketTypes } from '../../src/hooks/useTicketing';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { TicketTypeDto } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
 
-const WEEKDAYS = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const WEEKDAYS_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 type DayOption = { iso: string; weekday: string; dayMonth: string };
 
-function nextDays(count: number): DayOption[] {
+function nextDays(count: number, lang: 'vi' | 'en'): DayOption[] {
   const out: DayOption[] = [];
   const now = new Date();
+  const weekdays = lang === 'en' ? WEEKDAYS_EN : WEEKDAYS_VI;
   for (let i = 0; i < count; i += 1) {
     const d = new Date(now);
     d.setDate(now.getDate() + i);
     const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     out.push({
       iso,
-      weekday: i === 0 ? 'Hôm nay' : WEEKDAYS[d.getDay()],
+      weekday: i === 0 ? (lang === 'en' ? 'Today' : 'Hôm nay') : weekdays[d.getDay()],
       dayMonth: `${d.getDate()}/${d.getMonth() + 1}`,
     });
   }
@@ -38,11 +41,12 @@ function nextDays(count: number): DayOption[] {
 
 export default function TicketScreen() {
   const router = useRouter();
+  const { t, lang } = useLanguage();
   const { museum } = useMuseumProfile();
   const { types, loading: typesLoading, error: typesError } = useTicketTypes();
   const { submit, submitting } = useCreateOrder();
 
-  const days = useMemo(() => nextDays(7), []);
+  const days = useMemo(() => nextDays(7, lang), [lang]);
   const [selectedType, setSelectedType] = useState<TicketTypeDto | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string>(days[0].iso);
@@ -57,7 +61,7 @@ export default function TicketScreen() {
 
   const handleConfirm = async () => {
     if (!selectedType) {
-      Alert.alert('Chọn loại vé', 'Vui lòng chọn loại vé trước khi đặt.');
+      Alert.alert(t('ticket.selectType'), t('ticket.selectTypeHint'));
       return;
     }
     const result = await submit({
@@ -85,14 +89,14 @@ export default function TicketScreen() {
     }
 
     if (result.authRequired) {
-      Alert.alert('Đăng nhập cần thiết', result.message, [
-        { text: 'Huỷ', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
+      Alert.alert(t('auth.loginRequired'), result.message, [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.login'), onPress: () => router.push('/(auth)/login') },
       ]);
       return;
     }
 
-    Alert.alert('Lỗi', result.message);
+    Alert.alert(t('exhibit.error'), result.message);
   };
 
   return (
@@ -100,8 +104,8 @@ export default function TicketScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.headerRow}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.pageTitle}>Mua vé</Text>
-            <Text style={styles.pageSubtitle}>Đặt vé tham quan trực tuyến</Text>
+            <Text style={styles.pageTitle}>{t('ticket.title')}</Text>
+            <Text style={styles.pageSubtitle}>{t('ticket.onlineHint')}</Text>
           </View>
           <TouchableOpacity style={styles.myTicketsBtn} onPress={() => router.push('/my-tickets')}>
             <MaterialCommunityIcons name="ticket-account" size={18} color={C.accent} />
@@ -132,7 +136,7 @@ export default function TicketScreen() {
             <View style={styles.stepBadge}>
               <Text style={styles.stepNum}>2</Text>
             </View>
-            <Text style={styles.sectionTitle}>Loại vé</Text>
+            <Text style={styles.sectionTitle}>{t('ticket.type')}</Text>
           </View>
 
           {typesLoading ? (
@@ -173,7 +177,7 @@ export default function TicketScreen() {
             <View style={styles.stepBadge}>
               <Text style={styles.stepNum}>3</Text>
             </View>
-            <Text style={styles.sectionTitle}>Số lượng vé</Text>
+            <Text style={styles.sectionTitle}>{t('ticket.quantity')}</Text>
           </View>
           <View style={styles.quantityRow}>
             <TouchableOpacity
@@ -225,16 +229,16 @@ export default function TicketScreen() {
             <Text style={styles.summaryValue} numberOfLines={1}>{museum.name}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Loại vé</Text>
+            <Text style={styles.summaryLabel}>{t('ticket.type')}</Text>
             <Text style={styles.summaryValue}>{selectedType?.name ?? '—'}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Số lượng</Text>
+            <Text style={styles.summaryLabel}>{t('ticket.qty')}</Text>
             <Text style={styles.summaryValue}>{quantity} vé</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.summaryRow}>
-            <Text style={styles.totalLabel}>Tổng cộng</Text>
+            <Text style={styles.totalLabel}>{t('ticket.total')}</Text>
             <Text style={styles.totalValue}>
               {total === 0 ? 'Miễn phí' : `${total.toLocaleString('vi-VN')}đ`}
             </Text>
@@ -251,7 +255,9 @@ export default function TicketScreen() {
           ) : (
             <>
               <MaterialCommunityIcons name="credit-card-outline" size={22} color={C.onAccent} />
-              <Text style={styles.buyBtnText}>Thanh toán với PayOS</Text>
+              <Text style={styles.buyBtnText}>
+                {submitting ? t('ticket.booking') : t('ticket.confirm')}
+              </Text>
             </>
           )}
         </TouchableOpacity>

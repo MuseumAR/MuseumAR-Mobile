@@ -17,6 +17,7 @@ import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
 import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
 
@@ -29,6 +30,7 @@ function formatTime(seconds: number): string {
 export default function ARViewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { lang } = useLanguage();
   const { exhibit: data, loading: dataLoading } = useExhibitDetail(id);
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(data?.museumId);
@@ -154,9 +156,9 @@ export default function ARViewScreen() {
       actionType: 'PlayAudio',
       exhibitId,
       museumId,
-      languageUsed: 'vi',
+      languageUsed: lang,
     });
-  }, [status.playing, exhibitId, museumId, track]);
+  }, [status.playing, exhibitId, museumId, track, lang]);
 
   const skip = (secs: number) => {
     safeSeek((status.currentTime ?? 0) + secs);

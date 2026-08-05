@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCategories } from '../../src/hooks/useCategories';
 import { useExhibits } from '../../src/hooks/useExhibits';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
 
 const TAXONOMY_COLORS = ['#C89B3C', '#A67C2D', '#0369A1', '#047857', '#9A6F1F', '#B45309'];
@@ -25,18 +26,18 @@ const THEME_ICONS = [
   'compass-outline',
 ] as const;
 
-// ─── Quick actions ────────────────────────────────────────────────────────────
-const QUICK_ACTIONS = [
-  { label: 'Scan AR',     icon: 'line-scan',        route: '/(tabs)/scan'    },
-  { label: 'Audio Guide', icon: 'headphones',        route: '/(tabs)/explore' },
-  { label: 'Saved',       icon: 'bookmark-outline',  route: '/(tabs)/profile' },
-] as const;
-
 export default function HomeScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const { featured: featuredExhibits } = useExhibits();
   const { museum } = useMuseumProfile();
   const { categories, themes } = useCategories();
+
+  const quickActions = [
+    { label: t('home.quickScan'), icon: 'line-scan' as const, route: '/(tabs)/scan' as const },
+    { label: t('home.quickAudio'), icon: 'headphones' as const, route: '/(tabs)/explore' as const },
+    { label: t('home.quickSaved'), icon: 'bookmark-outline' as const, route: '/(tabs)/profile' as const },
+  ];
 
   const categoryCards = useMemo(
     () =>
@@ -54,9 +55,9 @@ export default function HomeScreen() {
 
   const themeCards = useMemo(
     () =>
-      themes.slice(0, 6).map((t, i) => ({
-        id: t.id,
-        name: t.name,
+      themes.slice(0, 6).map((theme, i) => ({
+        id: theme.id,
+        name: theme.name,
         color: TAXONOMY_COLORS[(i + 2) % TAXONOMY_COLORS.length],
         icon: THEME_ICONS[i % THEME_ICONS.length],
       })),
@@ -73,10 +74,10 @@ export default function HomeScreen() {
         {/* ── Header ─────────────────────────────────────────────────────── */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.greeting}>Welcome back</Text>
+            <Text style={styles.greeting}>{t('home.welcome')}</Text>
             <View style={styles.headerTitleRow}>
-              <Text style={styles.headerTitle}>Museum</Text>
-              <Text style={[styles.headerTitle, styles.headerTitleGold]}> AR</Text>
+              <Text style={styles.headerTitle}>{t('home.brandMuseum')}</Text>
+              <Text style={[styles.headerTitle, styles.headerTitleGold]}>{t('home.brandAr')}</Text>
             </View>
           </View>
           <TouchableOpacity style={styles.avatar} onPress={() => router.push('/(tabs)/profile')}>
@@ -106,11 +107,11 @@ export default function HomeScreen() {
           <View style={styles.heroContent}>
             <View style={styles.heroTag}>
               <MaterialCommunityIcons name="augmented-reality" size={12} color={C.accent} />
-              <Text style={styles.heroTagText}>AR EXPERIENCE</Text>
+              <Text style={styles.heroTagText}>{t('home.heroTag')}</Text>
             </View>
-            <Text style={styles.heroTitle}>Discover History{'\n'}Through AR</Text>
+            <Text style={styles.heroTitle}>{t('home.heroTitle')}</Text>
             <Text style={styles.heroSubtitle}>
-              Scan artifacts to see 3D models and listen to AI narration
+              {t('home.heroSubtitle')}
             </Text>
             <View style={styles.heroCTA}>
               <LinearGradient
@@ -120,7 +121,7 @@ export default function HomeScreen() {
                 style={styles.heroCTAGradient}
               >
                 <MaterialCommunityIcons name="line-scan" size={16} color={C.onAccent} />
-                <Text style={styles.heroCTAText}>Start AR Scan</Text>
+                <Text style={styles.heroCTAText}>{t('home.heroCta')}</Text>
               </LinearGradient>
             </View>
           </View>
@@ -130,11 +131,11 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>YOUR MUSEUM</Text>
-              <Text style={styles.sectionTitle}>About the Museum</Text>
+              <Text style={styles.sectionLabel}>{t('museum.about')}</Text>
+              <Text style={styles.sectionTitle}>{t('museum.title')}</Text>
             </View>
             <TouchableOpacity onPress={() => router.push('/(tabs)/map')}>
-              <Text style={styles.seeAll}>Details →</Text>
+              <Text style={styles.seeAll}>{t('home.seeAll')} →</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -184,11 +185,11 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>HIGHLIGHTS</Text>
-              <Text style={styles.sectionTitle}>Notable Artifacts</Text>
+              <Text style={styles.sectionLabel}>{t('museum.highlights')}</Text>
+              <Text style={styles.sectionTitle}>{t('home.featured')}</Text>
             </View>
             <TouchableOpacity onPress={() => router.push('/(tabs)/explore')}>
-              <Text style={styles.seeAll}>View all →</Text>
+              <Text style={styles.seeAll}>{t('home.seeAll')} →</Text>
             </TouchableOpacity>
           </View>
 
@@ -233,17 +234,17 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>BROWSE</Text>
-              <Text style={styles.sectionTitle}>Explore by Category</Text>
+              <Text style={styles.sectionLabel}>{t('home.categories').toUpperCase()}</Text>
+              <Text style={styles.sectionTitle}>{t('home.categories')}</Text>
             </View>
             <TouchableOpacity onPress={() => router.push('/(tabs)/explore')}>
-              <Text style={styles.seeAll}>View all →</Text>
+              <Text style={styles.seeAll}>{t('home.seeAll')} →</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.eraGrid}>
             {categoryCards.length === 0 ? (
-              <Text style={styles.taxonomyEmpty}>Chưa có danh mục từ API.</Text>
+              <Text style={styles.taxonomyEmpty}>{t('explore.empty')}</Text>
             ) : (
               categoryCards.map((item) => (
                 <TouchableOpacity
@@ -276,14 +277,14 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
-              <Text style={styles.sectionLabel}>TOPICS</Text>
-              <Text style={styles.sectionTitle}>Explore by Theme</Text>
+              <Text style={styles.sectionLabel}>{t('home.topics')}</Text>
+              <Text style={styles.sectionTitle}>{t('home.exploreByTheme')}</Text>
             </View>
           </View>
 
           <View style={styles.eraGrid}>
             {themeCards.length === 0 ? (
-              <Text style={styles.taxonomyEmpty}>Chưa có chủ đề từ API.</Text>
+              <Text style={styles.taxonomyEmpty}>{t('home.noThemes')}</Text>
             ) : (
               themeCards.map((item) => (
                 <TouchableOpacity
@@ -314,11 +315,11 @@ export default function HomeScreen() {
 
         {/* ── Quick Actions ──────────────────────────────────────────────── */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>QUICK ACCESS</Text>
-          <Text style={[styles.sectionTitle, { marginBottom: 16 }]}>What's Next?</Text>
+          <Text style={styles.sectionLabel}>{t('home.quickScan').toUpperCase()}</Text>
+          <Text style={[styles.sectionTitle, { marginBottom: 16 }]}>{t('home.heroCta')}</Text>
 
           <View style={styles.actionsGrid}>
-            {QUICK_ACTIONS.map((action) => (
+            {quickActions.map((action) => (
               <TouchableOpacity
                 key={action.label}
                 style={styles.actionCard}

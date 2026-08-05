@@ -20,6 +20,7 @@ import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
 import { usePackages } from '../../src/hooks/usePackages';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
 
@@ -35,6 +36,7 @@ type ActionItem = {
 export default function ExhibitDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { lang, t } = useLanguage();
   const { exhibit, loading: exhibitLoading } = useExhibitDetail(id);
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(exhibit?.museumId);
@@ -78,13 +80,13 @@ export default function ExhibitDetailScreen() {
       actionType: 'ViewExhibit',
       exhibitId,
       museumId,
-      languageUsed: 'vi',
+      languageUsed: lang,
     });
     return () => {
       const seconds = Math.round((Date.now() - mountTimeRef.current) / 1000);
       recordVisit(exhibitId, seconds);
     };
-  }, [exhibitId, museumId, track, recordVisit]);
+  }, [exhibitId, museumId, track, recordVisit, lang]);
 
   const handleToggleBookmark = useCallback(async () => {
     if (exhibitId == null) return;
@@ -92,15 +94,15 @@ export default function ExhibitDetailScreen() {
     const result = await toggleBookmark(exhibitId);
 
     if (result === 'auth_required') {
-      Alert.alert('Đăng nhập cần thiết', 'Vui lòng đăng nhập để lưu hiện vật.', [
-        { text: 'Huỷ', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
+      Alert.alert(t('auth.loginRequired'), t('auth.loginRequiredBookmark'), [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.login'), onPress: () => router.push('/(auth)/login') },
       ]);
       return;
     }
 
     if (result === 'failed') {
-      Alert.alert('Lỗi', 'Không thể cập nhật bookmark. Vui lòng thử lại.');
+      Alert.alert(t('exhibit.error'), t('exhibit.bookmarkError'));
       return;
     }
 
@@ -109,7 +111,7 @@ export default function ExhibitDetailScreen() {
     } else if (result === 'removed') {
       track({ actionType: 'Unbookmark', exhibitId, museumId });
     }
-  }, [exhibitId, museumId, toggleBookmark, track, router]);
+  }, [exhibitId, museumId, toggleBookmark, track, router, t]);
 
   if (!exhibit) {
     return (
@@ -118,7 +120,7 @@ export default function ExhibitDetailScreen() {
           {exhibitLoading ? (
             <ActivityIndicator color={C.accent} />
           ) : (
-            <Text style={styles.notFoundText}>Không tìm thấy hiện vật</Text>
+            <Text style={styles.notFoundText}>{t('exhibit.notFound')}</Text>
           )}
         </View>
       </SafeAreaView>
@@ -128,17 +130,17 @@ export default function ExhibitDetailScreen() {
   const actions: ActionItem[] = [
     {
       icon: 'ticket-outline',
-      label: 'Ticket',
+      label: t('exhibit.ticket'),
       onPress: () => router.push('/(tabs)/ticket'),
     },
     {
       icon: 'line-scan',
-      label: 'AR Scan',
+      label: t('exhibit.arScan'),
       onPress: () => router.push('/(tabs)/scan'),
     },
     {
       icon: bookmarked ? 'heart' : 'heart-outline',
-      label: 'Favorite',
+      label: t('exhibit.favorite'),
       onPress: handleToggleBookmark,
       active: bookmarked,
       activeColor: '#EF4444',
@@ -146,7 +148,7 @@ export default function ExhibitDetailScreen() {
     },
     {
       icon: 'package-variant-closed',
-      label: 'Package',
+      label: t('exhibit.package'),
       onPress: () => router.push('/ar-packs'),
     },
   ];
@@ -164,7 +166,7 @@ export default function ExhibitDetailScreen() {
           ) : (
             <View style={styles.heroFallback}>
               <Text style={styles.heroEmoji}>{exhibit.emoji || '🏺'}</Text>
-              <Text style={styles.heroHint}>Chưa có hình ảnh</Text>
+              <Text style={styles.heroHint}>{t('exhibit.noImage')}</Text>
             </View>
           )}
           {exhibit.category ? (
@@ -210,7 +212,7 @@ export default function ExhibitDetailScreen() {
                   onPress={() => router.push(`/ar-view/${id}`)}
                 >
                   <MaterialCommunityIcons name="headphones" size={22} color={C.onAccent} />
-                  <Text style={styles.arBtnText}>Audio Guide</Text>
+                  <Text style={styles.arBtnText}>{t('exhibit.audioGuide')}</Text>
                 </TouchableOpacity>
               )}
               {arAvailable && (
@@ -219,28 +221,28 @@ export default function ExhibitDetailScreen() {
                   onPress={() => router.push(`/ar-model/${id}`)}
                 >
                   <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
-                  <Text style={styles.arBtnText}>Xem mô hình AR 2D/3D</Text>
+                  <Text style={styles.arBtnText}>{t('exhibit.viewArModel')}</Text>
                 </TouchableOpacity>
               )}
             </View>
           )}
 
           <View style={styles.descSection}>
-            <Text style={styles.descTitle}>Giới thiệu</Text>
+            <Text style={styles.descTitle}>{t('exhibit.about')}</Text>
             <Text style={styles.descText}>{exhibit.description}</Text>
           </View>
 
           <View style={styles.packSection}>
             <View style={styles.packHeader}>
-              <Text style={styles.descTitle}>AR Packs</Text>
+              <Text style={styles.descTitle}>{t('exhibit.arPacks')}</Text>
               <TouchableOpacity onPress={() => router.push('/ar-packs')}>
-                <Text style={styles.seeAll}>Xem tất cả</Text>
+                <Text style={styles.seeAll}>{t('exhibit.seeAll')}</Text>
               </TouchableOpacity>
             </View>
             {packsLoading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 12 }} />
             ) : exhibitPacks.length === 0 ? (
-              <Text style={styles.packEmpty}>Chưa có gói offline cho bảo tàng này.</Text>
+              <Text style={styles.packEmpty}>{t('exhibit.noPacks')}</Text>
             ) : (
               exhibitPacks.map((pack) => (
                 <ARPackCard

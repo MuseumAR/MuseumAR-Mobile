@@ -12,9 +12,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ALL_LABEL, useCategories } from '../../src/hooks/useCategories';
+import { useCategories } from '../../src/hooks/useCategories';
 import { useExhibits } from '../../src/hooks/useExhibits';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import type { TaxonomyChip } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
@@ -30,6 +31,7 @@ function chipMatches(filter: SelectedFilter, chip: TaxonomyChip): boolean {
 
 export default function ExploreScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const params = useLocalSearchParams<{ categoryId?: string; themeId?: string }>();
   const paramCategoryId = parseNumericId(params.categoryId);
   const paramThemeId = parseNumericId(params.themeId);
@@ -38,7 +40,7 @@ export default function ExploreScreen() {
   const [selected, setSelected] = useState<SelectedFilter>({ kind: 'all' });
   const { track } = useTrackAction();
   const searchTrackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { filterChips, categories, themes } = useCategories();
+  const { filterChips, categories, themes, ALL_LABEL } = useCategories();
   const { exhibits, loading, error, refresh } = useExhibits();
 
   // Deep-link from Home: explore by category / theme
@@ -89,10 +91,10 @@ export default function ExploreScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>Khám phá</Text>
+        <Text style={styles.title}>{t('explore.title')}</Text>
         <TextInput
           style={styles.search}
-          placeholder="Tìm kiếm hiện vật..."
+          placeholder={t('explore.search')}
           placeholderTextColor={C.textPlaceholder}
           value={search}
           onChangeText={setSearch}
@@ -174,7 +176,7 @@ export default function ExploreScreen() {
             </View>
           ) : (
             <View style={styles.empty}>
-              <Text style={styles.emptyText}>{error ?? 'Không tìm thấy hiện vật'}</Text>
+              <Text style={styles.emptyText}>{error ?? t('explore.empty')}</Text>
             </View>
           )
         }

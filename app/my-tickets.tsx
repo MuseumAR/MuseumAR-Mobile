@@ -12,17 +12,21 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { openPayOsCheckout, useMyTickets } from '../src/hooks/useTicketing';
+import { useLanguage } from '../src/i18n/LanguageContext';
 import { apiService, MyTicketDto } from '../src/services/apiService';
 import { C } from '../src/theme/colors';
 import { formatVisitorDate } from '../src/utils/visitorLists';
 
-function statusStyle(status?: string): { color: string; label: string } {
+function statusStyle(
+  status: string | undefined,
+  t: (key: string) => string,
+): { color: string; label: string } {
   const s = (status ?? '').toLowerCase();
-  if (s === 'pending') return { color: C.accent, label: 'Pending' };
-  if (s === 'paid') return { color: C.success, label: 'Paid' };
-  if (s.includes('cancel')) return { color: C.danger, label: 'Cancelled' };
+  if (s === 'pending') return { color: C.accent, label: t('ticket.statusPending') };
+  if (s === 'paid') return { color: C.success, label: t('ticket.statusPaid') };
+  if (s.includes('cancel')) return { color: C.danger, label: t('ticket.statusCancelled') };
   if (s.includes('used') || s.includes('đã dùng')) {
-    return { color: C.textMuted, label: status ?? 'Đã dùng' };
+    return { color: C.textMuted, label: status ?? '—' };
   }
   return { color: C.textMuted, label: status ?? '—' };
 }
@@ -36,7 +40,8 @@ function TicketCard({
   onResume: (ticket: MyTicketDto) => void;
   resumingId: number | null;
 }) {
-  const st = statusStyle(ticket.status);
+  const { t } = useLanguage();
+  const st = statusStyle(ticket.status, t);
   const showResume =
     (ticket.status ?? '').toLowerCase() === 'pending' &&
     Boolean(ticket.canResumePayment && ticket.checkoutUrl);
@@ -47,7 +52,9 @@ function TicketCard({
       <View style={[styles.accent, { backgroundColor: st.color }]} />
       <View style={styles.cardBody}>
         <View style={styles.cardHeader}>
-          <Text style={styles.ticketName}>{ticket.ticketTypeName ?? 'Vé tham quan'}</Text>
+          <Text style={styles.ticketName}>
+            {ticket.ticketTypeName ?? t('ticket.defaultName')}
+          </Text>
           <View
             style={[
               styles.statusPill,
@@ -59,7 +66,9 @@ function TicketCard({
         </View>
 
         {ticket.orderCode ? (
-          <Text style={styles.orderCode}>Đơn: {ticket.orderCode}</Text>
+          <Text style={styles.orderCode}>
+            {t('ticket.title')}: {ticket.orderCode}
+          </Text>
         ) : null}
         {ticket.museumName ? <Text style={styles.museum}>{ticket.museumName}</Text> : null}
 
@@ -82,13 +91,13 @@ function TicketCard({
           <Text style={styles.price}>
             {ticket.price != null
               ? ticket.price === 0
-                ? 'Miễn phí'
+                ? '—'
                 : `${Number(ticket.price).toLocaleString('vi-VN')}đ`
               : ''}
           </Text>
           {(ticket.purchaseDate || ticket.purchasedAt) ? (
             <Text style={styles.purchased}>
-              Mua: {formatVisitorDate(ticket.purchaseDate || ticket.purchasedAt || '')}
+              {formatVisitorDate(ticket.purchaseDate || ticket.purchasedAt || '')}
             </Text>
           ) : null}
         </View>
@@ -108,7 +117,7 @@ function TicketCard({
             ) : (
               <>
                 <MaterialCommunityIcons name="qrcode" size={16} color={C.onAccent} />
-                <Text style={styles.resumeBtnText}>Tiếp tục PayOS</Text>
+                <Text style={styles.resumeBtnText}>{t('ticket.resumePayos')}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -120,6 +129,7 @@ function TicketCard({
 
 export default function MyTicketsScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const { tickets, loading, error, refresh } = useMyTickets();
   const [resumingId, setResumingId] = useState<number | null>(null);
 
@@ -200,7 +210,10 @@ export default function MyTicketsScreen() {
         refreshing={loading}
         ListHeaderComponent={
           tickets.length > 0 ? (
-            <Text style={styles.headerHint}>{tickets.length} vé (Paid / Pending / Cancelled)</Text>
+            <Text style={styles.headerHint}>
+              {tickets.length} · {t('ticket.statusPaid')} / {t('ticket.statusPending')} /{' '}
+              {t('ticket.statusCancelled')}
+            </Text>
           ) : null
         }
         ListEmptyComponent={
@@ -210,12 +223,14 @@ export default function MyTicketsScreen() {
             </View>
           ) : (
             <View style={styles.center}>
-              <Text style={styles.emptyTitle}>{error ? 'Không tải được vé' : 'Chưa có vé nào'}</Text>
+              <Text style={styles.emptyTitle}>
+                {error ? t('ticket.loadError') : t('ticket.empty')}
+              </Text>
               <Text style={styles.emptyText}>
-                {error ?? 'Đăng nhập và đặt vé tham quan để xem vé điện tử tại đây.'}
+                {error ?? t('ticket.emptyHint')}
               </Text>
               <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/(tabs)/ticket')}>
-                <Text style={styles.emptyBtnText}>Mua vé ngay</Text>
+                <Text style={styles.emptyBtnText}>{t('ticket.buyMore')}</Text>
               </TouchableOpacity>
             </View>
           )

@@ -8,6 +8,7 @@ import {
   View,
 } from 'react-native';
 import type { TourRouteStopDto } from '../services/apiService';
+import { useLanguage } from '../i18n/LanguageContext';
 import { C } from '../theme/colors';
 import {
   arrowIconName,
@@ -133,6 +134,7 @@ export function RouteNavigationOverlay({
   onNext,
   onExit,
 }: Props) {
+  const { t, lang } = useLanguage();
   const safeIndex = Math.max(0, Math.min(stopIndex, Math.max(0, stops.length - 1)));
   const current = stops[safeIndex];
   const next = stops[safeIndex + 1];
@@ -140,16 +142,16 @@ export function RouteNavigationOverlay({
 
   let guide: RouteStepGuide | null = null;
   if (current && next) {
-    guide = buildRouteStepGuide(current, next, rooms);
+    guide = buildRouteStepGuide(current, next, rooms, lang);
   }
 
   return (
     <View style={[s.wrap, { borderColor: accentColor + '55' }]}>
       <View style={s.header}>
         <View style={{ flex: 1 }}>
-          <Text style={s.kicker}>Lộ trình di chuyển</Text>
+          <Text style={s.kicker}>{t('route.title')}</Text>
           <Text style={[s.title, { color: accentColor }]} numberOfLines={1}>
-            {routeName || 'Tour tham quan'}
+            {routeName || t('content.tour')}
           </Text>
         </View>
         <TouchableOpacity onPress={onExit} hitSlop={10} style={s.exitBtn}>
@@ -158,16 +160,16 @@ export function RouteNavigationOverlay({
       </View>
 
       <Text style={s.progress}>
-        Bước {safeIndex + 1}/{stops.length}
-        {current ? ` · ${roomLabel(current)}` : ''}
+        {t('route.step')} {safeIndex + 1}/{stops.length}
+        {current ? ` · ${roomLabel(current, lang)}` : ''}
       </Text>
 
       <View style={s.markers}>
         <View style={s.markerCol}>
           <Text style={s.markerEmoji}>📍</Text>
-          <Text style={s.markerLabel}>Bạn đang ở đây</Text>
+          <Text style={s.markerLabel}>{t('route.youAreHere')}</Text>
           <Text style={[s.markerRoom, { color: C.success }]} numberOfLines={2}>
-            {current ? roomLabel(current) : '—'}
+            {current ? roomLabel(current, lang) : '—'}
           </Text>
           {current?.exhibitName ? (
             <Text style={s.markerExhibit} numberOfLines={1}>
@@ -186,9 +188,15 @@ export function RouteNavigationOverlay({
 
         <View style={s.markerCol}>
           <Text style={s.markerEmoji}>{isLast ? '🏁' : '🎯'}</Text>
-          <Text style={s.markerLabel}>{isLast ? 'Điểm cuối' : 'Hiện vật tiếp theo'}</Text>
+          <Text style={s.markerLabel}>
+            {isLast ? t('route.lastStop') : t('route.nextExhibit')}
+          </Text>
           <Text style={[s.markerRoom, { color: accentColor }]} numberOfLines={2}>
-            {next ? roomLabel(next) : current ? roomLabel(current) : '—'}
+            {next
+              ? roomLabel(next, lang)
+              : current
+                ? roomLabel(current, lang)
+                : '—'}
           </Text>
           {(next ?? current)?.exhibitName ? (
             <Text style={s.markerExhibit} numberOfLines={1}>
@@ -204,9 +212,7 @@ export function RouteNavigationOverlay({
           <DirectionPads active={guide.directions} accentColor={accentColor} />
         </>
       ) : (
-        <Text style={s.instruction}>
-          Bạn đã đến điểm dừng cuối của lộ trình.
-        </Text>
+        <Text style={s.instruction}>{t('route.finished')}</Text>
       )}
 
       <View style={s.navRow}>
@@ -226,7 +232,7 @@ export function RouteNavigationOverlay({
               safeIndex <= 0 && { color: C.textMuted },
             ]}
           >
-            Trước
+            {t('route.prev')}
           </Text>
         </TouchableOpacity>
 
@@ -240,7 +246,7 @@ export function RouteNavigationOverlay({
           onPress={onNext}
         >
           <Text style={s.navBtnPrimaryText}>
-            {isLast ? 'Hoàn thành' : 'Tiếp theo'}
+            {isLast ? t('route.done') : t('route.next')}
           </Text>
           {!isLast && (
             <MaterialCommunityIcons name="chevron-right" size={22} color={C.onAccent} />

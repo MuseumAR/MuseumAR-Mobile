@@ -421,10 +421,17 @@ export interface TourRouteDto {
   stopCount?: number;
   thumbnailUrl?: string;
   status?: string;
+  translations?: TourRouteTranslationDto[];
   /** Ordered stops from BE TourRouteExhibits */
   stops?: TourRouteStopDto[];
   /** @deprecated legacy alias — prefer stops */
   points?: RoutePointDto[];
+}
+
+export interface TourRouteTranslationDto {
+  languageCode: string;
+  routeName: string;
+  description?: string | null;
 }
 
 /** BE RoomDto — room on a floor map (no X/Y; layout is client-side). */

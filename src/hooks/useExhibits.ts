@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import { apiService } from '../services/apiService';
 import type { ExhibitRecord } from '../data/exhibits';
 import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
@@ -17,6 +18,7 @@ type UseExhibitsOptions = {
  */
 export function useExhibits(options: UseExhibitsOptions = {}) {
   const { categoryId, themeId, tagId, search } = options;
+  const { lang } = useLanguage();
   const [exhibits, setExhibits] = useState<ExhibitRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -33,6 +35,7 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
         mapExhibitDtoToRecord(
           dto,
           dto.categoryId != null ? categoryNameById.get(dto.categoryId) : undefined,
+          lang,
         ),
       );
 
@@ -60,7 +63,7 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [categoryId, themeId, tagId, search, categoryNameById]);
+  }, [categoryId, themeId, tagId, search, categoryNameById, lang]);
 
   useEffect(() => {
     refresh();

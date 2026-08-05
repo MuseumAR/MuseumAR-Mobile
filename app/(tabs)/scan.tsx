@@ -11,11 +11,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { parseQRCode } from '../../src/data/qrData';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
 
 export default function ScanScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const { track } = useTrackAction();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
@@ -48,24 +50,24 @@ export default function ScanScreen() {
       }
 
       Alert.alert(
-        'Mã QR không hợp lệ',
-        `Không nhận diện được nội dung:\n${data.slice(0, 120)}`,
+        t('scan.invalidQr'),
+        `${t('scan.invalidQr')}:\n${data.slice(0, 120)}`,
         [
           {
-            text: 'Quét lại',
+            text: t('scan.rescan'),
             onPress: () => setScanned(false),
           },
         ],
       );
     },
-    [router, track, scanned],
+    [router, track, scanned, t],
   );
 
   if (!permission) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.center}>
-          <Text style={styles.hint}>Đang kiểm tra quyền camera...</Text>
+          <Text style={styles.hint}>{t('scan.checkingPermission')}</Text>
         </View>
       </SafeAreaView>
     );
@@ -75,12 +77,12 @@ export default function ScanScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.center}>
-          <Text style={styles.title}>Cần quyền camera</Text>
+          <Text style={styles.title}>{t('scan.needPermission')}</Text>
           <Text style={styles.subtitle}>
-            MuseumAR cần camera để quét mã QR hiện vật.
+            {t('scan.needPermissionHint')}
           </Text>
           <TouchableOpacity style={styles.scanBtn} onPress={requestPermission}>
-            <Text style={styles.scanBtnText}>Cho phép camera</Text>
+            <Text style={styles.scanBtnText}>{t('scan.allowCamera')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -90,9 +92,9 @@ export default function ScanScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.container}>
-        <Text style={styles.title}>Quét mã QR</Text>
+        <Text style={styles.title}>{t('scan.title')}</Text>
         <Text style={styles.subtitle}>
-          Hướng camera vào mã QR trên hiện vật để mở chi tiết
+          {t('scan.subtitle')}
         </Text>
 
         <View style={styles.cameraWrap}>
@@ -105,8 +107,8 @@ export default function ScanScreen() {
             />
           ) : (
             <View style={styles.cameraOff}>
-              <Text style={styles.cameraHint}>Camera đang tắt</Text>
-              <Text style={styles.cameraSubHint}>Nhấn nút bên dưới để bắt đầu quét</Text>
+              <Text style={styles.cameraHint}>{t('scan.cameraOff')}</Text>
+              <Text style={styles.cameraSubHint}>{t('scan.cameraOffHint')}</Text>
             </View>
           )}
 
@@ -126,12 +128,12 @@ export default function ScanScreen() {
           }}
         >
           <Text style={styles.scanBtnText}>
-            {scanning ? 'Tắt camera' : 'Bật camera quét QR'}
+            {scanning ? t('scan.stop') : t('scan.start')}
           </Text>
         </TouchableOpacity>
 
         <Text style={styles.tip}>
-          Mẹo: Đủ ánh sáng, giữ máy ổn định. Thử QR dạng museumar://exhibit/1
+          {t('scan.tip')}
         </Text>
       </View>
     </SafeAreaView>

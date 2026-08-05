@@ -1,6 +1,7 @@
 import Constants from 'expo-constants';
 import { apiService } from './apiService';
 import { getOrCreateDeviceId } from './deviceId';
+import { getStoredLanguage } from './languagePrefs';
 import { getSession } from './sessionStorage';
 import { getToken } from './tokenStorage';
 import { getDeviceModel, getDeviceType } from '../utils/deviceInfo';
@@ -17,12 +18,13 @@ export async function ensureVisitorSynced(): Promise<void> {
 
   const session = await getSession();
   const deviceId = await getOrCreateDeviceId();
+  const preferredLang = await getStoredLanguage();
 
   await apiService.syncVisitor({
     deviceId,
     displayName: session?.fullName,
     email: session?.email,
-    preferredLang: 'vi',
+    preferredLang,
     deviceType: getDeviceType(),
     deviceModel: getDeviceModel(),
     appVersion: Constants.expoConfig?.version ?? '1.0.0',

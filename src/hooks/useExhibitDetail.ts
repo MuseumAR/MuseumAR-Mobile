@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import { apiService } from '../services/apiService';
 import { getExhibitById, type ExhibitRecord } from '../data/exhibits';
 import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
@@ -8,6 +9,7 @@ import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
  * (GET /Content/exhibits/{id} rồi /translations vì BE thường trả translations rỗng).
  */
 export function useExhibitDetail(routeId: string | undefined) {
+  const { lang } = useLanguage();
   const numericId = routeId ? parseInt(routeId.replace(/^m/i, ''), 10) : NaN;
   const [exhibit, setExhibit] = useState<ExhibitRecord | null>(
     routeId ? getExhibitById(routeId) ?? null : null,
@@ -27,7 +29,7 @@ export function useExhibitDetail(routeId: string | undefined) {
       const response = await apiService.getExhibitDetail(numericId);
       if (response.data) {
         const enriched = await apiService.enrichExhibit(response.data);
-        setExhibit(mapExhibitDtoToRecord(enriched));
+        setExhibit(mapExhibitDtoToRecord(enriched, undefined, lang));
       } else {
         setExhibit(getExhibitById(String(numericId)) ?? null);
       }
@@ -41,7 +43,7 @@ export function useExhibitDetail(routeId: string | undefined) {
     } finally {
       setLoading(false);
     }
-  }, [numericId, routeId]);
+  }, [numericId, routeId, lang]);
 
   useEffect(() => {
     refresh();

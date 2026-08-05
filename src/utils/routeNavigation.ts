@@ -156,17 +156,11 @@ function inventCellFromCode(
   };
 }
 
-export function roomLabel(stop: TourRouteStopDto): string {
-  if (stop.roomCode) return `Phòng ${stop.roomCode}`;
-  if (stop.roomName) return stop.roomName;
-  if (stop.exhibitName) return stop.exhibitName;
-  return `Điểm ${stop.stopOrder}`;
-}
-
 export function buildRouteStepGuide(
   from: TourRouteStopDto,
   to: TourRouteStopDto,
   allRooms: RoomDto[],
+  lang: 'vi' | 'en' = 'vi',
 ): RouteStepGuide {
   const { direction, directions, floorChange } = computeDirectionBetweenRooms(
     from,
@@ -174,22 +168,41 @@ export function buildRouteStepGuide(
     allRooms,
   );
   const sameFloor = floorChange === 0;
-  const fromLabel = roomLabel(from);
-  const toLabel = roomLabel(to);
-  const primary = VERB[direction];
+  const fromLabel = roomLabel(from, lang);
+  const toLabel = roomLabel(to, lang);
+  const en = lang === 'en';
+
+  const VERB_EN: Record<CardinalDirection, string> = {
+    up: 'Go up',
+    down: 'Go down',
+    left: 'Turn left',
+    right: 'Turn right',
+  };
+  const primary = en ? VERB_EN[direction] : VERB[direction];
   const arrow = ARROW[direction];
 
   let detail: string;
   if (!sameFloor) {
-    detail = `${primary} ${arrow} lên tầng ${to.floorNumber ?? '?'} đến ${toLabel}`;
+    detail = en
+      ? `${primary} ${arrow} to floor ${to.floorNumber ?? '?'} to ${toLabel}`
+      : `${primary} ${arrow} lên tầng ${to.floorNumber ?? '?'} đến ${toLabel}`;
   } else if (directions.length > 1) {
     const secondary = directions[1];
-    detail = `${primary} ${arrow} rồi ${VERB[secondary].toLowerCase()} ${ARROW[secondary]} đến ${toLabel}`;
+    const secVerb = en
+      ? VERB_EN[secondary].toLowerCase()
+      : VERB[secondary].toLowerCase();
+    detail = en
+      ? `${primary} ${arrow} then ${secVerb} ${ARROW[secondary]} to ${toLabel}`
+      : `${primary} ${arrow} rồi ${secVerb} ${ARROW[secondary]} đến ${toLabel}`;
   } else {
-    detail = `${primary} ${arrow} đi qua hành lang đến ${toLabel}`;
+    detail = en
+      ? `${primary} ${arrow} through the corridor to ${toLabel}`
+      : `${primary} ${arrow} đi qua hành lang đến ${toLabel}`;
   }
 
-  const instructionVi = `Đi từ ${fromLabel} ➔ ${toLabel}: ${detail}`;
+  const instructionVi = en
+    ? `From ${fromLabel} ➔ ${toLabel}: ${detail}`
+    : `Đi từ ${fromLabel} ➔ ${toLabel}: ${detail}`;
   const instructionShort = `${fromLabel} ➔ ${toLabel}: ${primary} ${arrow}`;
 
   return {
@@ -202,6 +215,15 @@ export function buildRouteStepGuide(
     sameFloor,
     floorChange,
   };
+}
+
+export function roomLabel(stop: TourRouteStopDto, lang: 'vi' | 'en' = 'vi'): string {
+  if (stop.roomCode) {
+    return lang === 'en' ? `Room ${stop.roomCode}` : `Phòng ${stop.roomCode}`;
+  }
+  if (stop.roomName) return stop.roomName;
+  if (stop.exhibitName) return stop.exhibitName;
+  return lang === 'en' ? `Stop ${stop.stopOrder}` : `Điểm ${stop.stopOrder}`;
 }
 
 export function sortStops(stops: TourRouteStopDto[]): TourRouteStopDto[] {
