@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,10 +12,15 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getExhibitById } from '../../src/data/exhibits';
+import { ARPackCard } from '../../src/components/ARPackCard';
+import { useARPacks } from '../../src/hooks/useARPacks';
 import { useBookmarks } from '../../src/hooks/useBookmarks';
+import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
+import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
+import { usePackages } from '../../src/hooks/usePackages';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
 
@@ -30,9 +36,16 @@ type ActionItem = {
 export default function ExhibitDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const exhibit = getExhibitById(id ?? '1');
+  const { lang, t } = useLanguage();
+  const { exhibit, loading: exhibitLoading } = useExhibitDetail(id);
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(exhibit?.museumId);
+  const { hasAr, hasAudio, audioAsset } = useExhibitArAssets(exhibitId);
+  const arAvailable = hasAr || Boolean(exhibit?.arAvailable);
+  const audioAvailable =
+    hasAudio || Boolean(audioAsset?.url) || Boolean(exhibit?.audioUrl?.trim());
+  const { packs, loading: packsLoading } = usePackages();
+  const { downloadPack, deletePack, getState } = useARPacks();
 
   const {
     isBookmarked,
@@ -44,6 +57,11 @@ export default function ExhibitDetailScreen() {
   const { recordVisit } = useVisitedExhibits();
   const { track } = useTrackAction();
   const mountTimeRef = useRef(Date.now());
+
+  const exhibitPacks = useMemo(() => {
+    if (museumId == null) return packs;
+    return packs.filter((p) => !p.museumId || p.museumId === String(museumId));
+  }, [packs, museumId]);
 
   const bookmarked = exhibitId != null && isBookmarked(exhibitId);
   const bookmarkBusy = exhibitId != null && togglingId === exhibitId;
@@ -62,13 +80,13 @@ export default function ExhibitDetailScreen() {
       actionType: 'ViewExhibit',
       exhibitId,
       museumId,
-      languageUsed: 'vi',
+      languageUsed: lang,
     });
     return () => {
       const seconds = Math.round((Date.now() - mountTimeRef.current) / 1000);
       recordVisit(exhibitId, seconds);
     };
-  }, [exhibitId, museumId, track, recordVisit]);
+  }, [exhibitId, museumId, track, recordVisit, lang]);
 
   const handleToggleBookmark = useCallback(async () => {
     if (exhibitId == null) return;
@@ -76,15 +94,15 @@ export default function ExhibitDetailScreen() {
     const result = await toggleBookmark(exhibitId);
 
     if (result === 'auth_required') {
-      Alert.alert('Đăng nhập cần thiết', 'Vui lòng đăng nhập để lưu hiện vật.', [
-        { text: 'Huỷ', style: 'cancel' },
-        { text: 'Đăng nhập', onPress: () => router.push('/(auth)/login') },
+      Alert.alert(t('auth.loginRequired'), t('auth.loginRequiredBookmark'), [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.login'), onPress: () => router.push('/(auth)/login') },
       ]);
       return;
     }
 
     if (result === 'failed') {
-      Alert.alert('Lỗi', 'Không thể cập nhật bookmark. Vui lòng thử lại.');
+      Alert.alert(t('exhibit.error'), t('exhibit.bookmarkError'));
       return;
     }
 
@@ -93,13 +111,17 @@ export default function ExhibitDetailScreen() {
     } else if (result === 'removed') {
       track({ actionType: 'Unbookmark', exhibitId, museumId });
     }
-  }, [exhibitId, museumId, toggleBookmark, track, router]);
+  }, [exhibitId, museumId, toggleBookmark, track, router, t]);
 
   if (!exhibit) {
     return (
       <SafeAreaView style={styles.safe} edges={['bottom']}>
         <View style={styles.notFound}>
-          <Text style={styles.notFoundText}>Không tìm thấy hiện vật</Text>
+          {exhibitLoading ? (
+            <ActivityIndicator color={C.accent} />
+          ) : (
+            <Text style={styles.notFoundText}>{t('exhibit.notFound')}</Text>
+          )}
         </View>
       </SafeAreaView>
     );
@@ -108,17 +130,17 @@ export default function ExhibitDetailScreen() {
   const actions: ActionItem[] = [
     {
       icon: 'ticket-outline',
-      label: 'Ticket',
+      label: t('exhibit.ticket'),
       onPress: () => router.push('/(tabs)/ticket'),
     },
     {
-      icon: 'yin-yang',
-      label: 'Artifact',
+      icon: 'line-scan',
+      label: t('exhibit.arScan'),
       onPress: () => router.push('/(tabs)/scan'),
     },
     {
       icon: bookmarked ? 'heart' : 'heart-outline',
-      label: 'Favorite',
+      label: t('exhibit.favorite'),
       onPress: handleToggleBookmark,
       active: bookmarked,
       activeColor: '#EF4444',
@@ -126,7 +148,7 @@ export default function ExhibitDetailScreen() {
     },
     {
       icon: 'package-variant-closed',
-      label: 'Package',
+      label: t('exhibit.package'),
       onPress: () => router.push('/ar-packs'),
     },
   ];
@@ -134,9 +156,24 @@ export default function ExhibitDetailScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.hero}>
-          <Text style={styles.heroCategory}>{exhibit.category}</Text>
-          <Text style={styles.heroHint}>Hình ảnh hiện vật</Text>
+        <View style={[styles.hero, { backgroundColor: exhibit.color + '18' }]}>
+          {exhibit.thumbnailUrl ? (
+            <Image
+              source={{ uri: exhibit.thumbnailUrl }}
+              style={StyleSheet.absoluteFill}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.heroFallback}>
+              <Text style={styles.heroEmoji}>{exhibit.emoji || '🏺'}</Text>
+              <Text style={styles.heroHint}>{t('exhibit.noImage')}</Text>
+            </View>
+          )}
+          {exhibit.category ? (
+            <View style={styles.heroCategoryBadge}>
+              <Text style={styles.heroCategory}>{exhibit.category}</Text>
+            </View>
+          ) : null}
         </View>
 
         <View style={styles.content}>
@@ -167,30 +204,56 @@ export default function ExhibitDetailScreen() {
             ))}
           </View>
 
-          {exhibit.arAvailable && (
-            <TouchableOpacity
-              style={styles.arBtn}
-              onPress={() => router.push('/(tabs)/scan')}
-            >
-              <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
-              <Text style={styles.arBtnText}>Xem mô hình AR 3D</Text>
-            </TouchableOpacity>
+          {(arAvailable || audioAvailable) && (
+            <View style={styles.ctaColumn}>
+              {audioAvailable && (
+                <TouchableOpacity
+                  style={styles.audioBtn}
+                  onPress={() => router.push(`/ar-view/${id}`)}
+                >
+                  <MaterialCommunityIcons name="headphones" size={22} color={C.onAccent} />
+                  <Text style={styles.arBtnText}>{t('exhibit.audioGuide')}</Text>
+                </TouchableOpacity>
+              )}
+              {arAvailable && (
+                <TouchableOpacity
+                  style={styles.arBtn}
+                  onPress={() => router.push(`/ar-model/${id}`)}
+                >
+                  <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
+                  <Text style={styles.arBtnText}>{t('exhibit.viewArModel')}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           )}
 
-          <View style={styles.infoGrid}>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Nguồn gốc</Text>
-              <Text style={styles.infoValue}>{exhibit.origin}</Text>
-            </View>
-            <View style={styles.infoItem}>
-              <Text style={styles.infoLabel}>Chất liệu</Text>
-              <Text style={styles.infoValue}>{exhibit.material}</Text>
-            </View>
+          <View style={styles.descSection}>
+            <Text style={styles.descTitle}>{t('exhibit.about')}</Text>
+            <Text style={styles.descText}>{exhibit.description}</Text>
           </View>
 
-          <View style={styles.descSection}>
-            <Text style={styles.descTitle}>Giới thiệu</Text>
-            <Text style={styles.descText}>{exhibit.description}</Text>
+          <View style={styles.packSection}>
+            <View style={styles.packHeader}>
+              <Text style={styles.descTitle}>{t('exhibit.arPacks')}</Text>
+              <TouchableOpacity onPress={() => router.push('/ar-packs')}>
+                <Text style={styles.seeAll}>{t('exhibit.seeAll')}</Text>
+              </TouchableOpacity>
+            </View>
+            {packsLoading ? (
+              <ActivityIndicator color={C.accent} style={{ marginVertical: 12 }} />
+            ) : exhibitPacks.length === 0 ? (
+              <Text style={styles.packEmpty}>{t('exhibit.noPacks')}</Text>
+            ) : (
+              exhibitPacks.map((pack) => (
+                <ARPackCard
+                  key={pack.id}
+                  pack={pack}
+                  state={getState(pack.id)}
+                  onDownload={() => downloadPack(pack.id)}
+                  onDelete={() => deletePack(pack.id)}
+                />
+              ))
+            )}
           </View>
         </View>
       </ScrollView>
@@ -209,14 +272,30 @@ const styles = StyleSheet.create({
     backgroundColor: C.bgSurface,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  heroFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  heroEmoji: { fontSize: 64 },
+  heroCategoryBadge: {
+    position: 'absolute',
+    left: 16,
+    bottom: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: 'rgba(43,29,14,0.55)',
   },
   heroCategory: {
     fontSize: 12,
     fontWeight: '700',
-    color: C.accent,
+    color: '#FFFDF8',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 8,
   },
   heroHint: { color: C.textMuted, fontSize: 14 },
   content: { padding: 24 },
@@ -249,22 +328,29 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 14,
     paddingHorizontal: 20,
-    marginBottom: 20,
     gap: 10,
   },
-  arBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 16 },
-  infoGrid: { flexDirection: 'row', gap: 12, marginBottom: 20 },
-  infoItem: {
-    flex: 1,
-    backgroundColor: C.bgSurface,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: C.border,
+  audioBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: C.accent,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    gap: 10,
   },
-  infoLabel: { fontSize: 11, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase' },
-  infoValue: { fontSize: 15, fontWeight: '700', color: C.textPrimary, marginTop: 6 },
+  ctaColumn: { gap: 10, marginBottom: 20 },
+  arBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 16 },
   descSection: { marginTop: 4 },
   descTitle: { fontSize: 18, fontWeight: '700', color: C.textPrimary, marginBottom: 12 },
   descText: { fontSize: 15, color: C.textSecondary, lineHeight: 26 },
+  packSection: { marginTop: 28 },
+  packHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  seeAll: { fontSize: 13, fontWeight: '600', color: C.accent, marginBottom: 12 },
+  packEmpty: { fontSize: 14, color: C.textMuted, lineHeight: 22, marginTop: 4 },
 });

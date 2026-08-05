@@ -4,6 +4,10 @@ import { getToken } from '../services/tokenStorage';
 import { isIgnorableVisitorError } from '../utils/visitorErrors';
 import { uniqueVisitedExhibits } from '../utils/visitorLists';
 
+/**
+ * Visited exhibits — GET/POST /Visitor/visited-exhibits (JWT).
+ * Requires Visitor linked via POST /Visitor/sync after login.
+ */
 export function useVisitedExhibits() {
   const [visited, setVisited] = useState<VisitedExhibitDto[]>([]);
   const [loading, setLoading] = useState(false);

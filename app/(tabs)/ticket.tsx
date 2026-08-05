@@ -1,6 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -8,28 +11,107 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CURRENT_MUSEUM } from '../../src/data/museums';
+import { useCreateOrder, useTicketTypes } from '../../src/hooks/useTicketing';
+import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
+import { useLanguage } from '../../src/i18n/LanguageContext';
+import { TicketTypeDto } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
 
-const TICKET_TYPES = [
-  { id: 'adult', label: 'Người lớn', desc: 'Từ 18 tuổi trở lên', multiplier: 1 },
-  { id: 'student', label: 'Học sinh / SV', desc: 'Xuất trình thẻ học sinh', multiplier: 0.5 },
-  { id: 'child', label: 'Trẻ em', desc: 'Dưới 15 tuổi', multiplier: 0 },
-  { id: 'senior', label: 'Người cao tuổi', desc: 'Từ 60 tuổi trở lên', multiplier: 0.5 },
-];
+const WEEKDAYS_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+type DayOption = { iso: string; weekday: string; dayMonth: string };
+
+function nextDays(count: number, lang: 'vi' | 'en'): DayOption[] {
+  const out: DayOption[] = [];
+  const now = new Date();
+  const weekdays = lang === 'en' ? WEEKDAYS_EN : WEEKDAYS_VI;
+  for (let i = 0; i < count; i += 1) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + i);
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    out.push({
+      iso,
+      weekday: i === 0 ? (lang === 'en' ? 'Today' : 'Hôm nay') : weekdays[d.getDay()],
+      dayMonth: `${d.getDate()}/${d.getMonth() + 1}`,
+    });
+  }
+  return out;
+}
 
 export default function TicketScreen() {
-  const museum = CURRENT_MUSEUM;
-  const [selectedType, setSelectedType] = useState(TICKET_TYPES[0]);
-  const [quantity, setQuantity] = useState(1);
+  const router = useRouter();
+  const { t, lang } = useLanguage();
+  const { museum } = useMuseumProfile();
+  const { types, loading: typesLoading, error: typesError } = useTicketTypes();
+  const { submit, submitting } = useCreateOrder();
 
-  const total = museum.ticketPriceVnd * selectedType.multiplier * quantity;
+  const days = useMemo(() => nextDays(7, lang), [lang]);
+  const [selectedType, setSelectedType] = useState<TicketTypeDto | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [selectedDate, setSelectedDate] = useState<string>(days[0].iso);
+
+  useEffect(() => {
+    if (!selectedType && types.length > 0) {
+      setSelectedType(types[0]);
+    }
+  }, [types, selectedType]);
+
+  const total = (selectedType?.price ?? 0) * quantity;
+
+  const handleConfirm = async () => {
+    if (!selectedType) {
+      Alert.alert(t('ticket.selectType'), t('ticket.selectTypeHint'));
+      return;
+    }
+    const result = await submit({
+      ticketTypeId: selectedType.id,
+      quantity,
+    });
+
+    if (result.ok) {
+      const status =
+        result.browserOutcome === 'success'
+          ? 'success'
+          : result.browserOutcome === 'cancel'
+            ? 'cancel'
+            : 'pending';
+      router.replace({
+        pathname: '/payment-result',
+        params: {
+          status,
+          orderCode: result.order.orderCode ?? '',
+          paidBefore: String(result.paidCountBefore),
+          checkoutUrl: result.order.checkoutUrl || result.order.paymentUrl || '',
+        },
+      });
+      return;
+    }
+
+    if (result.authRequired) {
+      Alert.alert(t('auth.loginRequired'), result.message, [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.login'), onPress: () => router.push('/(auth)/login') },
+      ]);
+      return;
+    }
+
+    Alert.alert(t('exhibit.error'), result.message);
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        <Text style={styles.pageTitle}>Mua vé</Text>
-        <Text style={styles.pageSubtitle}>Đặt vé tham quan trực tuyến</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.pageTitle}>{t('ticket.title')}</Text>
+            <Text style={styles.pageSubtitle}>{t('ticket.onlineHint')}</Text>
+          </View>
+          <TouchableOpacity style={styles.myTicketsBtn} onPress={() => router.push('/my-tickets')}>
+            <MaterialCommunityIcons name="ticket-account" size={18} color={C.accent} />
+            <Text style={styles.myTicketsText}>Vé của tôi</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Museum (fixed) */}
         <View style={styles.section}>
@@ -45,9 +127,6 @@ export default function TicketScreen() {
               <Text style={styles.museumName}>{museum.name}</Text>
               <Text style={styles.museumCity}>{museum.city}</Text>
             </View>
-            <Text style={styles.museumPrice}>
-              {museum.ticketPriceVnd.toLocaleString('vi-VN')}đ
-            </Text>
           </View>
         </View>
 
@@ -57,28 +136,39 @@ export default function TicketScreen() {
             <View style={styles.stepBadge}>
               <Text style={styles.stepNum}>2</Text>
             </View>
-            <Text style={styles.sectionTitle}>Loại vé</Text>
+            <Text style={styles.sectionTitle}>{t('ticket.type')}</Text>
           </View>
-          <View style={styles.typeGrid}>
-            {TICKET_TYPES.map((t) => (
-              <TouchableOpacity
-                key={t.id}
-                style={[styles.typeCard, selectedType.id === t.id && styles.typeCardActive]}
-                onPress={() => setSelectedType(t)}
-              >
-                <Text style={[styles.typeLabel, selectedType.id === t.id && styles.typeLabelActive]}>
-                  {t.label}
-                </Text>
-                <Text style={[styles.typeDesc, selectedType.id === t.id && styles.typeDescActive]}>
-                  {t.multiplier === 0
-                    ? 'Miễn phí'
-                    : t.multiplier === 1
-                    ? 'Giá gốc'
-                    : 'Giảm 50%'}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+
+          {typesLoading ? (
+            <ActivityIndicator color={C.accent} style={{ paddingVertical: 20 }} />
+          ) : typesError ? (
+            <Text style={styles.errorText}>{typesError}</Text>
+          ) : types.length === 0 ? (
+            <Text style={styles.emptyText}>Chưa có loại vé nào.</Text>
+          ) : (
+            <View style={styles.typeGrid}>
+              {types.map((t) => {
+                const active = selectedType?.id === t.id;
+                return (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={[styles.typeCard, active && styles.typeCardActive]}
+                    onPress={() => setSelectedType(t)}
+                  >
+                    <Text style={[styles.typeLabel, active && styles.typeLabelActive]}>{t.name}</Text>
+                    {t.description ? (
+                      <Text style={[styles.typeDesc, active && styles.typeDescActive]} numberOfLines={2}>
+                        {t.description}
+                      </Text>
+                    ) : null}
+                    <Text style={[styles.typePrice, active && styles.typeLabelActive]}>
+                      {t.price === 0 ? 'Miễn phí' : `${t.price.toLocaleString('vi-VN')}đ`}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
         </View>
 
         {/* Quantity */}
@@ -87,7 +177,7 @@ export default function TicketScreen() {
             <View style={styles.stepBadge}>
               <Text style={styles.stepNum}>3</Text>
             </View>
-            <Text style={styles.sectionTitle}>Số lượng vé</Text>
+            <Text style={styles.sectionTitle}>{t('ticket.quantity')}</Text>
           </View>
           <View style={styles.quantityRow}>
             <TouchableOpacity
@@ -115,10 +205,21 @@ export default function TicketScreen() {
             </View>
             <Text style={styles.sectionTitle}>Ngày tham quan</Text>
           </View>
-          <TouchableOpacity style={styles.dateBtn}>
-            <MaterialCommunityIcons name="calendar-outline" size={20} color={C.textMuted} />
-            <Text style={styles.dateBtnText}>Chọn ngày</Text>
-          </TouchableOpacity>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
+            {days.map((d) => {
+              const active = selectedDate === d.iso;
+              return (
+                <TouchableOpacity
+                  key={d.iso}
+                  style={[styles.dayChip, active && styles.dayChipActive]}
+                  onPress={() => setSelectedDate(d.iso)}
+                >
+                  <Text style={[styles.dayWeekday, active && styles.dayTextActive]}>{d.weekday}</Text>
+                  <Text style={[styles.dayNum, active && styles.dayTextActive]}>{d.dayMonth}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
         </View>
 
         {/* Summary */}
@@ -128,29 +229,41 @@ export default function TicketScreen() {
             <Text style={styles.summaryValue} numberOfLines={1}>{museum.name}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Loại vé</Text>
-            <Text style={styles.summaryValue}>{selectedType.label}</Text>
+            <Text style={styles.summaryLabel}>{t('ticket.type')}</Text>
+            <Text style={styles.summaryValue}>{selectedType?.name ?? '—'}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Số lượng</Text>
+            <Text style={styles.summaryLabel}>{t('ticket.qty')}</Text>
             <Text style={styles.summaryValue}>{quantity} vé</Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.summaryRow}>
-            <Text style={styles.totalLabel}>Tổng cộng</Text>
+            <Text style={styles.totalLabel}>{t('ticket.total')}</Text>
             <Text style={styles.totalValue}>
               {total === 0 ? 'Miễn phí' : `${total.toLocaleString('vi-VN')}đ`}
             </Text>
           </View>
         </View>
 
-        <TouchableOpacity style={styles.buyBtn}>
-          <MaterialCommunityIcons name="ticket-confirmation-outline" size={22} color={C.onAccent} />
-          <Text style={styles.buyBtnText}>Xác nhận đặt vé</Text>
+        <TouchableOpacity
+          style={[styles.buyBtn, (submitting || !selectedType) && styles.buyBtnDisabled]}
+          onPress={handleConfirm}
+          disabled={submitting || !selectedType}
+        >
+          {submitting ? (
+            <ActivityIndicator color={C.onAccent} size="small" />
+          ) : (
+            <>
+              <MaterialCommunityIcons name="credit-card-outline" size={22} color={C.onAccent} />
+              <Text style={styles.buyBtnText}>
+                {submitting ? t('ticket.booking') : t('ticket.confirm')}
+              </Text>
+            </>
+          )}
         </TouchableOpacity>
 
         <Text style={styles.note}>
-          * Vé điện tử sẽ được gửi qua email sau khi thanh toán thành công
+          * Sau thanh toán, app mở màn hình kết quả và kiểm tra vé. Vé Paid chỉ xuất hiện khi webhook PayOS tới server.
         </Text>
       </ScrollView>
     </SafeAreaView>
@@ -160,8 +273,20 @@ export default function TicketScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bgPrimary },
   scroll: { padding: 20, paddingBottom: 40 },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 24 },
   pageTitle: { fontSize: 28, fontWeight: '800', color: C.textPrimary },
-  pageSubtitle: { fontSize: 14, color: C.textSecondary, marginTop: 4, marginBottom: 24 },
+  pageSubtitle: { fontSize: 14, color: C.textSecondary, marginTop: 4 },
+  myTicketsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+    borderColor: C.accent,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  myTicketsText: { color: C.accent, fontSize: 13, fontWeight: '700' },
 
   section: {
     backgroundColor: C.bgSurface,
@@ -198,7 +323,6 @@ const styles = StyleSheet.create({
   museumInfo: { flex: 1 },
   museumName: { fontSize: 13, fontWeight: '700', color: C.textPrimary },
   museumCity: { fontSize: 11, color: C.textMuted, marginTop: 2 },
-  museumPrice: { fontSize: 13, fontWeight: '700', color: C.accent },
 
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   typeCard: {
@@ -210,10 +334,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   typeCardActive: { borderColor: C.accent, backgroundColor: C.accentMuted },
-  typeLabel: { fontSize: 13, fontWeight: '700', color: C.textSecondary },
+  typeLabel: { fontSize: 13, fontWeight: '700', color: C.textSecondary, textAlign: 'center' },
   typeLabelActive: { color: C.accent },
-  typeDesc: { fontSize: 11, color: C.textMuted, marginTop: 4 },
+  typeDesc: { fontSize: 11, color: C.textMuted, marginTop: 4, textAlign: 'center' },
   typeDescActive: { color: C.accent },
+  typePrice: { fontSize: 13, fontWeight: '800', color: C.textPrimary, marginTop: 8 },
 
   quantityRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   qtyBtn: {
@@ -229,18 +354,24 @@ const styles = StyleSheet.create({
   qtyValue: { fontSize: 22, fontWeight: '800', color: C.textPrimary, minWidth: 30, textAlign: 'center' },
   qtyNote: { fontSize: 12, color: C.textMuted, flex: 1 },
 
-  dateBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
+  dayRow: { gap: 10, paddingVertical: 2 },
+  dayChip: {
+    minWidth: 64,
     borderWidth: 1.5,
     borderColor: C.border,
     borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    alignItems: 'center',
     backgroundColor: C.bgElevated,
   },
-  dateBtnText: { fontSize: 15, color: C.textMuted },
+  dayChipActive: { borderColor: C.accent, backgroundColor: C.accentMuted },
+  dayWeekday: { fontSize: 11, color: C.textMuted, fontWeight: '600' },
+  dayNum: { fontSize: 14, color: C.textPrimary, fontWeight: '700', marginTop: 4 },
+  dayTextActive: { color: C.accent },
+
+  errorText: { color: C.danger, fontSize: 13, paddingVertical: 8 },
+  emptyText: { color: C.textMuted, fontSize: 13, paddingVertical: 8 },
 
   summary: {
     backgroundColor: C.bgSurface,
@@ -266,7 +397,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
     marginBottom: 14,
+    minHeight: 54,
   },
+  buyBtnDisabled: { opacity: 0.5 },
   buyBtnText: { color: C.onAccent, fontSize: 17, fontWeight: '700' },
   note: { fontSize: 12, color: C.textMuted, textAlign: 'center', lineHeight: 18 },
 });

@@ -1,13 +1,30 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useWindowDimensions } from 'react-native';
 import { ARPackCard } from '../../src/components/ARPackCard';
-import { getPacksByMuseum } from '../../src/data/arPacks';
-import { CURRENT_MUSEUM, type MuseumRecord, type MuseumZone } from '../../src/data/museums';
-import { useARPacks } from '../../src/hooks/useARPacks';
-import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
 import {
+  FloorPlanDirectionArrows,
+  RouteNavigationOverlay,
+} from '../../src/components/RouteNavigationOverlay';
+import { type MuseumZone } from '../../src/data/museums';
+import { useARPacks } from '../../src/hooks/useARPacks';
+import { useMaps } from '../../src/hooks/useMaps';
+import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
+import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
+import { usePackages } from '../../src/hooks/usePackages';
+import { useRooms } from '../../src/hooks/useRooms';
+import { useRoutes } from '../../src/hooks/useRoutes';
+import { useLanguage } from '../../src/i18n/LanguageContext';
+import type {
+  MuseumMapDto,
+  RoomDto,
+  TourRouteDto,
+  TourRouteStopDto,
+} from '../../src/services/apiService';
+import {
+  ActivityIndicator,
   Animated,
   Image,
   ScrollView,
@@ -18,8 +35,11 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../src/theme/colors';
-import { apiService } from '../../src/services/apiService';
-import { parseNumericId } from '../../src/utils/parseId';
+import {
+  buildRouteStepGuide,
+  sortRoomsForLayout,
+  sortStops,
+} from '../../src/utils/routeNavigation';
 
 // ─── Pulsing dot (user location in floor plan) ────────────────────────────────
 
@@ -55,37 +75,100 @@ const dotS = StyleSheet.create({
   core: { width: 9,  height: 9,  borderRadius: 5, backgroundColor: C.success },
 });
 
-// ─── Floor plan component (dynamic, driven by museum.zones) ───────────────────
+// ─── Floor plan (zones fallback OR BE rooms + route mode) ─────────────────────
 
 type FloorPlanProps = {
-  zones:          MuseumZone[];
-  accentColor:    string;
-  selectedZone:   string | null;
-  onSelectZone:   (name: string) => void;
+  zones: MuseumZone[];
+  rooms: RoomDto[];
+  accentColor: string;
+  selectedZone: string | null;
+  onSelectZone: (name: string) => void;
+  currentStop?: TourRouteStopDto | null;
+  nextStop?: TourRouteStopDto | null;
+  routeMode?: boolean;
 };
 
-function FloorPlan({ zones, accentColor, selectedZone, onSelectZone }: FloorPlanProps) {
-  // Unique indoor floors only (exclude outdoor)
-  const floors = [
-    ...new Set(
-      zones
-        .filter((z) => !z.floor.toLowerCase().includes('ngoài'))
-        .map((z) => z.floor)
-    ),
-  ];
+function FloorPlan({
+  zones,
+  rooms,
+  accentColor,
+  selectedZone,
+  onSelectZone,
+  currentStop,
+  nextStop,
+  routeMode = false,
+}: FloorPlanProps) {
+  const { t, lang } = useLanguage();
+  const useRoomsLayout = rooms.length > 0;
+  const sortedRooms = useMemo(() => sortRoomsForLayout(rooms), [rooms]);
+
+  const floors = useMemo(() => {
+    if (useRoomsLayout) {
+      return [...new Set(sortedRooms.map((r) => `${t('museum.floor')} ${r.floorNumber}`))];
+    }
+    return [
+      ...new Set(
+        zones
+          .filter((z) => !z.floor.toLowerCase().includes('ngoài'))
+          .map((z) => z.floor),
+      ),
+    ];
+  }, [useRoomsLayout, sortedRooms, zones, t]);
 
   const [activeFloor, setActiveFloor] = useState(floors[0] ?? '');
-  const floorZones = zones.filter((z) => z.floor === activeFloor);
 
-  // Pair zones into rows of 2 for layout
-  const rows: MuseumZone[][] = [];
+  useEffect(() => {
+    if (routeMode && currentStop?.floorNumber != null) {
+      setActiveFloor(`${t('museum.floor')} ${currentStop.floorNumber}`);
+      return;
+    }
+    if (floors.length > 0 && !floors.includes(activeFloor)) {
+      setActiveFloor(floors[0]);
+    }
+  }, [floors, activeFloor, routeMode, currentStop?.floorNumber, t]);
+
+  const floorNumMatch = activeFloor.match(/\d+/);
+  const activeFloorNum = floorNumMatch ? Number(floorNumMatch[0]) : 1;
+
+  const floorRooms = useRoomsLayout
+    ? sortedRooms.filter((r) => r.floorNumber === activeFloorNum)
+    : [];
+
+  const floorZones = zones.filter((z) => z.floor === activeFloor);
+  const zoneRows: MuseumZone[][] = [];
   for (let i = 0; i < floorZones.length; i += 2) {
-    rows.push(floorZones.slice(i, i + 2));
+    zoneRows.push(floorZones.slice(i, i + 2));
   }
+
+  const roomRows: RoomDto[][] = [];
+  for (let i = 0; i < floorRooms.length; i += 2) {
+    roomRows.push(floorRooms.slice(i, i + 2));
+  }
+
+  const stepGuide =
+    routeMode && currentStop && nextStop
+      ? buildRouteStepGuide(currentStop, nextStop, rooms, lang)
+      : null;
+
+  const matchStop = (room: RoomDto, stop?: TourRouteStopDto | null) => {
+    if (!stop) return false;
+    if (stop.roomId != null && stop.roomId === room.id) return true;
+    if (
+      stop.roomCode &&
+      stop.roomCode.trim().toLowerCase() === room.roomCode.trim().toLowerCase()
+    ) {
+      return true;
+    }
+    return false;
+  };
+
+  const showArrowOnFloor =
+    Boolean(stepGuide) &&
+    (currentStop?.floorNumber == null ||
+      currentStop.floorNumber === activeFloorNum);
 
   return (
     <View>
-      {/* Floor tabs */}
       {floors.length > 1 && (
         <View style={fpS.floorRow}>
           {floors.map((f) => {
@@ -102,98 +185,241 @@ function FloorPlan({ zones, accentColor, selectedZone, onSelectZone }: FloorPlan
                     style={StyleSheet.absoluteFill}
                   />
                 )}
-                <MaterialCommunityIcons name="layers-outline" size={12} color={active ? accentColor : C.textMuted} />
-                <Text style={[fpS.floorTabText, active && { color: accentColor, fontWeight: '700' }]}>{f}</Text>
+                <MaterialCommunityIcons
+                  name="layers-outline"
+                  size={12}
+                  color={active ? accentColor : C.textMuted}
+                />
+                <Text
+                  style={[
+                    fpS.floorTabText,
+                    active && { color: accentColor, fontWeight: '700' },
+                  ]}
+                >
+                  {f}
+                </Text>
               </TouchableOpacity>
             );
           })}
         </View>
       )}
 
-      {/* Floor plan canvas */}
       <View style={fpS.canvas}>
-        {/* Outer wall */}
         <View style={fpS.outerWall} />
 
-        {/* Room rows */}
+        {showArrowOnFloor && stepGuide ? (
+          <FloorPlanDirectionArrows
+            direction={stepGuide.direction}
+            accentColor={accentColor}
+          />
+        ) : null}
+
         <View style={fpS.roomsWrap}>
-          {rows.map((row, ri) => (
-            <View key={ri} style={fpS.roomRow}>
-              {row.map((zone) => {
-                const sel = selectedZone === zone.name;
-                return (
-                  <TouchableOpacity
-                    key={zone.name}
-                    style={[
-                      fpS.room,
-                      {
-                        borderColor:     sel ? accentColor : accentColor + '45',
-                        backgroundColor: sel ? accentColor + '18' : accentColor + '08',
-                      },
-                    ]}
-                    activeOpacity={0.75}
-                    onPress={() => onSelectZone(zone.name)}
-                  >
-                    {sel && (
-                      <LinearGradient
-                        colors={[accentColor + '20', 'transparent']}
-                        style={StyleSheet.absoluteFill}
-                      />
-                    )}
-                    {/* Exhibit dot */}
-                    <View style={[fpS.dot, { backgroundColor: accentColor, opacity: sel ? 1 : 0.55 }]} />
-                    <Text
-                      style={[fpS.roomLabel, { color: sel ? accentColor : accentColor + 'AA' }]}
-                      numberOfLines={2}
-                    >
-                      {zone.name}
-                    </Text>
-                    <Text style={[fpS.roomCount, { color: sel ? accentColor : C.textMuted }]}>
-                      {zone.items} artifacts
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          ))}
+          {useRoomsLayout
+            ? roomRows.map((row, ri) => (
+                <View key={`r-${ri}`} style={fpS.roomRow}>
+                  {row.map((room) => {
+                    const isHere = matchStop(room, currentStop);
+                    const isNext = matchStop(room, nextStop);
+                    const sel =
+                      selectedZone === room.roomName || isHere || isNext;
+                    const border = isHere
+                      ? C.success
+                      : isNext
+                        ? accentColor
+                        : sel
+                          ? accentColor
+                          : accentColor + '45';
+                    const bg = isHere
+                      ? C.success + '22'
+                      : isNext
+                        ? accentColor + '22'
+                        : sel
+                          ? accentColor + '18'
+                          : accentColor + '08';
+                    return (
+                      <TouchableOpacity
+                        key={room.id}
+                        style={[
+                          fpS.room,
+                          { borderColor: border, backgroundColor: bg },
+                          (isHere || isNext) && { borderWidth: 2 },
+                        ]}
+                        activeOpacity={0.75}
+                        onPress={() => onSelectZone(room.roomName)}
+                      >
+                        {isHere && (
+                          <View style={fpS.badgeHere}>
+                            <PulsingDot />
+                            <Text style={fpS.badgeHereText}>{t('museum.hereBadge')}</Text>
+                          </View>
+                        )}
+                        {isNext && !isHere && (
+                          <Text style={[fpS.badgeNext, { color: accentColor }]}>
+                            {t('museum.nextBadge')}
+                          </Text>
+                        )}
+                        <View
+                          style={[
+                            fpS.dot,
+                            {
+                              backgroundColor: isHere ? C.success : accentColor,
+                              opacity: sel ? 1 : 0.55,
+                            },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            fpS.roomLabel,
+                            {
+                              color: isHere
+                                ? C.success
+                                : sel
+                                  ? accentColor
+                                  : accentColor + 'AA',
+                            },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {room.roomCode
+                            ? `${t('museum.room')} ${room.roomCode}`
+                            : room.roomName}
+                        </Text>
+                        <Text
+                          style={[
+                            fpS.roomCount,
+                            { color: sel ? accentColor : C.textMuted },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {room.roomName}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {row.length === 1 ? <View style={{ flex: 1 }} /> : null}
+                </View>
+              ))
+            : zoneRows.map((row, ri) => (
+                <View key={ri} style={fpS.roomRow}>
+                  {row.map((zone) => {
+                    const sel = selectedZone === zone.name;
+                    return (
+                      <TouchableOpacity
+                        key={zone.name}
+                        style={[
+                          fpS.room,
+                          {
+                            borderColor: sel ? accentColor : accentColor + '45',
+                            backgroundColor: sel
+                              ? accentColor + '18'
+                              : accentColor + '08',
+                          },
+                        ]}
+                        activeOpacity={0.75}
+                        onPress={() => onSelectZone(zone.name)}
+                      >
+                        {sel && (
+                          <LinearGradient
+                            colors={[accentColor + '20', 'transparent']}
+                            style={StyleSheet.absoluteFill}
+                          />
+                        )}
+                        <View
+                          style={[
+                            fpS.dot,
+                            {
+                              backgroundColor: accentColor,
+                              opacity: sel ? 1 : 0.55,
+                            },
+                          ]}
+                        />
+                        <Text
+                          style={[
+                            fpS.roomLabel,
+                            { color: sel ? accentColor : accentColor + 'AA' },
+                          ]}
+                          numberOfLines={2}
+                        >
+                          {zone.name}
+                        </Text>
+                        <Text
+                          style={[
+                            fpS.roomCount,
+                            { color: sel ? accentColor : C.textMuted },
+                          ]}
+                        >
+                          {zone.items} {t('museum.artifactsCount')}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ))}
         </View>
 
-        {/* Corridor */}
+        {!useRoomsLayout && floorZones.length === 0 ? (
+          <Text style={fpS.emptyHint}>{t('museum.noZones')}</Text>
+        ) : null}
+        {useRoomsLayout && floorRooms.length === 0 ? (
+          <Text style={fpS.emptyHint}>{t('museum.noRoomsOnFloor')}</Text>
+        ) : null}
+
         <View style={fpS.corridor} />
 
-        {/* Entrance + user location */}
         <View style={fpS.entranceRow}>
           <View style={fpS.entrance}>
-            <View style={[fpS.entranceDoor, { backgroundColor: accentColor + '50' }]} />
-            <Text style={fpS.entranceLabel}>ENTRANCE</Text>
+            <View
+              style={[fpS.entranceDoor, { backgroundColor: accentColor + '50' }]}
+            />
+            <Text style={fpS.entranceLabel}>{t('museum.entrance')}</Text>
           </View>
-          <View style={fpS.userWrap}>
-            <PulsingDot />
-            <Text style={fpS.youLabel}>YOU</Text>
-          </View>
+          {!routeMode && (
+            <View style={fpS.userWrap}>
+              <PulsingDot />
+              <Text style={fpS.youLabel}>{t('museum.you')}</Text>
+            </View>
+          )}
         </View>
       </View>
 
-      {/* Outdoor zones (if any) */}
-      {zones.filter((z) => z.floor.toLowerCase().includes('ngoài')).map((z) => (
-        <TouchableOpacity
-          key={z.name}
-          style={[fpS.outdoorZone, selectedZone === z.name && { borderColor: accentColor + '70' }]}
-          onPress={() => onSelectZone(z.name)}
-        >
-          <MaterialCommunityIcons name="tree-outline" size={14} color={accentColor} />
-          <Text style={fpS.outdoorLabel}>{z.name}</Text>
-          <Text style={fpS.outdoorCount}>{z.items} artifacts · Outdoor</Text>
-        </TouchableOpacity>
-      ))}
+      {!useRoomsLayout &&
+        zones
+          .filter((z) => z.floor.toLowerCase().includes('ngoài'))
+          .map((z) => (
+            <TouchableOpacity
+              key={z.name}
+              style={[
+                fpS.outdoorZone,
+                selectedZone === z.name && { borderColor: accentColor + '70' },
+              ]}
+              onPress={() => onSelectZone(z.name)}
+            >
+              <MaterialCommunityIcons
+                name="tree-outline"
+                size={14}
+                color={accentColor}
+              />
+              <Text style={fpS.outdoorLabel}>{z.name}</Text>
+              <Text style={fpS.outdoorCount}>
+                {z.items} {t('museum.artifactsCount')} · {t('museum.outdoor')}
+              </Text>
+            </TouchableOpacity>
+          ))}
 
-      {/* Legend */}
       <View style={fpS.legend}>
-        {[
-          { color: C.success, label: 'You are here' },
-          { color: accentColor, label: 'Exhibit marker' },
-          { color: accentColor + '45', label: 'Zone (tap to select)' },
-        ].map((item) => (
+        {(routeMode
+          ? [
+              { color: C.success, label: t('museum.youAreHere') },
+              { color: accentColor, label: t('museum.nextStop') },
+              { color: accentColor + '45', label: t('museum.otherRooms') },
+            ]
+          : [
+              { color: C.success, label: t('museum.youAreHere') },
+              { color: accentColor, label: t('content.exhibit') },
+              { color: accentColor + '45', label: t('museum.rooms') },
+            ]
+        ).map((item) => (
           <View key={item.label} style={fpS.legendItem}>
             <View style={[fpS.legendDot, { backgroundColor: item.color }]} />
             <Text style={fpS.legendText}>{item.label}</Text>
@@ -235,6 +461,30 @@ const fpS = StyleSheet.create({
   dot: { width: 6, height: 6, borderRadius: 3, marginBottom: 4 },
   roomLabel: { fontSize: 11, fontWeight: '700', lineHeight: 15 },
   roomCount: { fontSize: 10 },
+  badgeHere: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  badgeHereText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: C.success,
+    letterSpacing: 0.2,
+  },
+  badgeNext: {
+    fontSize: 9,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  emptyHint: {
+    textAlign: 'center',
+    color: C.textMuted,
+    fontSize: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 12,
+  },
 
   corridor: {
     marginHorizontal: 10, height: 8,
@@ -264,59 +514,241 @@ const fpS = StyleSheet.create({
   legendText: { fontSize: 11, color: C.textMuted },
 });
 
+// ─── API map image viewer (when MuseumMaps have MapImageUrl) ─────────────────
+
+type MuseumMapImagesProps = {
+  maps: MuseumMapDto[];
+  accentColor: string;
+};
+
+/** Horizontal padding of the screen content — page width must exclude it. */
+const CONTENT_PADDING = 20;
+
+function MuseumMapImages({ maps, accentColor }: MuseumMapImagesProps) {
+  const { width: windowWidth } = useWindowDimensions();
+  const pageWidth = Math.max(1, windowWidth - CONTENT_PADDING * 2);
+  const pagerRef = useRef<ScrollView | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const safeIndex = Math.min(activeIndex, maps.length - 1);
+  const active = maps[safeIndex];
+
+  useEffect(() => {
+    if (activeIndex > maps.length - 1) setActiveIndex(0);
+  }, [maps.length, activeIndex]);
+
+  const goToIndex = (index: number) => {
+    setActiveIndex(index);
+    pagerRef.current?.scrollTo({ x: index * pageWidth, animated: true });
+  };
+
+  if (!active?.imageUrl) return null;
+
+  return (
+    <View>
+      {maps.length > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={fpS.floorRow}
+        >
+          {maps.map((m, index) => {
+            const activeTab = index === safeIndex;
+            return (
+              <TouchableOpacity
+                key={m.id}
+                style={[fpS.floorTab, activeTab && { borderColor: accentColor + '70' }]}
+                onPress={() => goToIndex(index)}
+              >
+                {activeTab && (
+                  <LinearGradient
+                    colors={[accentColor + '28', accentColor + '08']}
+                    style={StyleSheet.absoluteFill}
+                  />
+                )}
+                <MaterialCommunityIcons
+                  name="map-outline"
+                  size={12}
+                  color={activeTab ? accentColor : C.textMuted}
+                />
+                <Text
+                  style={[fpS.floorTabText, activeTab && { color: accentColor, fontWeight: '700' }]}
+                >
+                  {m.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      <ScrollView
+        ref={pagerRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={(e) => {
+          const index = Math.round(e.nativeEvent.contentOffset.x / pageWidth);
+          setActiveIndex(Math.max(0, Math.min(index, maps.length - 1)));
+        }}
+      >
+        {maps.map((m) => (
+          <View key={m.id} style={[mapImgS.frame, { width: pageWidth }]}>
+            <Image
+              source={{ uri: m.imageUrl }}
+              style={mapImgS.image}
+              resizeMode="contain"
+            />
+          </View>
+        ))}
+      </ScrollView>
+
+      <View style={mapImgS.footer}>
+        {active.label ? <Text style={mapImgS.caption}>{active.label}</Text> : null}
+        {maps.length > 1 && (
+          <View style={mapImgS.dots}>
+            {maps.map((m, index) => (
+              <View
+                key={m.id}
+                style={[
+                  mapImgS.dot,
+                  {
+                    backgroundColor:
+                      index === safeIndex ? accentColor : C.border,
+                    width: index === safeIndex ? 18 : 6,
+                  },
+                ]}
+              />
+            ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const mapImgS = StyleSheet.create({
+  frame: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: C.bgElevated,
+    borderWidth: 1,
+    borderColor: C.border,
+    minHeight: 220,
+  },
+  image: {
+    width: '100%',
+    height: 280,
+  },
+  footer: { marginTop: 8, alignItems: 'center', gap: 8 },
+  caption: {
+    fontSize: 12,
+    color: C.textMuted,
+    textAlign: 'center',
+  },
+  dots: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  dot: { height: 6, borderRadius: 3 },
+});
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function MuseumDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const [museum, setMuseum] = useState<MuseumRecord>(CURRENT_MUSEUM);
+  const { t, lang } = useLanguage();
+  const { museum } = useMuseumProfile();
+  const museumId = Number(museum.id) || 0;
   const [favorited, setFavorited] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
   const { checkSync } = useMuseumSyncCheck();
-  const museumIdParam = id ?? CURRENT_MUSEUM.id;
-  const arPacks = getPacksByMuseum(museumIdParam);
+  const { packs: arPacks } = usePackages();
+  const { routes, loading: routesLoading, error: routesError, loadRouteDetail } =
+    useRoutes();
+  const { maps, loading: mapsLoading } = useMaps();
+  const { rooms } = useRooms(museumId > 0 ? museumId : null);
+
+  const [activeRoute, setActiveRoute] = useState<TourRouteDto | null>(null);
+  const [stopIndex, setStopIndex] = useState(0);
+  const [startingRouteId, setStartingRouteId] = useState<number | null>(null);
+
+  const routeStops = useMemo(
+    () => sortStops(activeRoute?.stops ?? []),
+    [activeRoute],
+  );
+  const routeMode = routeStops.length > 0;
+  const currentStop = routeMode ? routeStops[stopIndex] ?? null : null;
+  const nextStop =
+    routeMode && stopIndex < routeStops.length - 1
+      ? routeStops[stopIndex + 1]
+      : null;
+
+  const mapsWithImage = useMemo(
+    () =>
+      maps
+        .filter((m) => Boolean(m.imageUrl))
+        .sort((a, b) => {
+          const fa = a.floorNumber;
+          const fb = b.floorNumber;
+          if (fa != null && fb != null && fa !== fb) return fa - fb;
+          if (fa != null && fb == null) return -1;
+          if (fa == null && fb != null) return 1;
+          return a.id - b.id;
+        }),
+    [maps],
+  );
+  const hasMapImage = mapsWithImage.length > 0;
+  // Map images when available; switch to interactive room plan in route mode (or no images).
+  const showInteractivePlan = routeMode || !hasMapImage;
+
+  /** Rooms for layout — fall back to unique rooms inferred from active route stops. */
+  const layoutRooms = useMemo(() => {
+    if (rooms.length > 0) return rooms;
+    if (!routeMode) return [];
+    const byKey = new Map<string, RoomDto>();
+    for (const s of routeStops) {
+      const code = (s.roomCode || `E${s.exhibitId}`).trim();
+      const key = `${s.floorNumber ?? 1}:${code}`;
+      if (byKey.has(key)) continue;
+      byKey.set(key, {
+        id: s.roomId ?? s.exhibitId,
+        museumId,
+        mapId: s.mapId ?? null,
+        roomCode: code,
+        roomName: s.roomName || s.exhibitName || code,
+        floorNumber: s.floorNumber ?? 1,
+      });
+    }
+    return [...byKey.values()];
+  }, [rooms, routeMode, routeStops, museumId]);
 
   useEffect(() => {
-    // Base on CURRENT_MUSEUM; enrich from API when available
-    setMuseum(CURRENT_MUSEUM);
-
-    async function loadRealDetails() {
-      try {
-        const response = await apiService.getMuseums();
-        if (response.data && response.data.length > 0) {
-          const apiMuseum = response.data.find(
-            (m) =>
-              m.id.toString() === museumIdParam ||
-              `m${m.id}` === museumIdParam ||
-              m.name.toLowerCase() === CURRENT_MUSEUM.name.toLowerCase()
-          );
-          if (apiMuseum) {
-            const merged: MuseumRecord = {
-              ...CURRENT_MUSEUM,
-              id: apiMuseum.id.toString(),
-              name: apiMuseum.name,
-              city: apiMuseum.city || CURRENT_MUSEUM.city,
-              address: apiMuseum.address || CURRENT_MUSEUM.address,
-              description: apiMuseum.description || CURRENT_MUSEUM.description,
-              thumbnailUrl: apiMuseum.thumbnailUrl,
-            };
-            setMuseum(merged);
-          }
-        }
-      } catch (error) {
-        console.warn('Không thể tải chi tiết bảo tàng từ backend:', error);
-      }
-    }
-    loadRealDetails();
-
-    const museumId = parseNumericId(museumIdParam);
-    if (museumId != null) {
-      checkSync(museumId);
-    }
-  }, [museumIdParam, checkSync]);
+    checkSync();
+  }, [checkSync]);
 
   const selectedZoneData = museum.zones.find((z) => z.name === selectedZone);
+
+  const startRoute = async (route: TourRouteDto) => {
+    setStartingRouteId(route.id);
+    try {
+      const loaded = await loadRouteDetail(route.id);
+      const detail = loaded ?? route;
+      const stops = sortStops(detail.stops ?? []);
+      if (stops.length === 0) {
+        setActiveRoute(null);
+        setStopIndex(0);
+        return;
+      }
+      setActiveRoute({ ...detail, stops });
+      setStopIndex(0);
+    } finally {
+      setStartingRouteId(null);
+    }
+  };
+
+  const exitRoute = () => {
+    setActiveRoute(null);
+    setStopIndex(0);
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -336,9 +768,6 @@ export default function MuseumDetailScreen() {
               <Text style={styles.heroEmoji}>🏛</Text>
             </View>
           )}
-          <View style={[styles.heroTag, { borderColor: museum.color + '60' }]}>
-            <Text style={[styles.heroTagText, { color: museum.color }]}>{museum.tag}</Text>
-          </View>
         </View>
 
         <View style={styles.content}>
@@ -347,18 +776,21 @@ export default function MuseumDetailScreen() {
           <Text style={styles.name}>{museum.name}</Text>
           <View style={styles.locationRow}>
             <MaterialCommunityIcons name="map-marker-outline" size={14} color={C.textSecondary} />
-            <Text style={styles.city}>{museum.city} · Est. {museum.founded}</Text>
+            <Text style={styles.city}>
+              {museum.city}
+              {museum.founded ? ` · ${t('museum.est')} ${museum.founded}` : ''}
+            </Text>
           </View>
 
           {/* ── Action buttons ──────────────────────────────────────────── */}
           <View style={styles.actionGrid}>
             <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(tabs)/scan')}>
               <MaterialCommunityIcons name="line-scan" size={26} color={museum.color} />
-              <Text style={styles.actionLabel}>AR Scan</Text>
+              <Text style={styles.actionLabel}>{t('museum.arScan')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(tabs)/explore')}>
               <MaterialCommunityIcons name="headphones" size={26} color={museum.color} />
-              <Text style={styles.actionLabel}>Audio Tour</Text>
+              <Text style={styles.actionLabel}>{t('museum.audioTour')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionCard} onPress={() => setFavorited((v) => !v)}>
               <MaterialCommunityIcons
@@ -367,12 +799,12 @@ export default function MuseumDetailScreen() {
                 color={favorited ? '#EF4444' : museum.color}
               />
               <Text style={[styles.actionLabel, favorited && { color: '#EF4444' }]}>
-                {favorited ? 'Saved' : 'Save'}
+                {favorited ? t('museum.saved') : t('museum.save')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/ar-packs')}>
               <MaterialCommunityIcons name="package-variant-closed" size={26} color={museum.color} />
-              <Text style={styles.actionLabel}>AR Packs</Text>
+              <Text style={styles.actionLabel}>{t('museum.arPacks')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -380,29 +812,38 @@ export default function MuseumDetailScreen() {
           <View style={styles.statsRow}>
             <View style={styles.statBox}>
               <Text style={[styles.statValue, { color: museum.color }]}>
-                {museum.exhibits.toLocaleString('vi-VN')}
+                {museum.exhibits.toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')}
               </Text>
-              <Text style={styles.statLabel}>Artifacts</Text>
+              <Text style={styles.statLabel}>{t('museum.artifacts')}</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statBox}>
-              <Text style={[styles.statValue, { color: museum.color }]}>{museum.zones.length}</Text>
-              <Text style={styles.statLabel}>Zones</Text>
+              <Text style={[styles.statValue, { color: museum.color }]}>
+                {museum.zones.length > 0 ? museum.zones.length : '—'}
+              </Text>
+              <Text style={styles.statLabel}>{t('museum.zonesCount')}</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statBox}>
               <Text style={[styles.statValue, { color: museum.color }]}>AR</Text>
-              <Text style={styles.statLabel}>Supported</Text>
+              <Text style={styles.statLabel}>{t('museum.arSupported')}</Text>
             </View>
           </View>
 
           {/* ── Info grid ───────────────────────────────────────────────── */}
           <View style={styles.infoGrid}>
             {[
-              { icon: '📍', label: 'Address',   value: museum.address },
-              { icon: '⏰', label: 'Hours',     value: museum.openHours, note: `Closed: ${museum.closedDay}` },
-              { icon: '🎫', label: 'Ticket',    value: museum.ticketPrice },
-              { icon: '📞', label: 'Contact',   value: museum.phone },
+              { icon: '📍', label: t('museum.address'), value: museum.address },
+              {
+                icon: '⏰',
+                label: t('museum.hours'),
+                value: museum.openHours,
+                note: museum.closedDay
+                  ? `${t('museum.closed')}: ${museum.closedDay}`
+                  : undefined,
+              },
+              { icon: '🎫', label: t('museum.ticket'), value: museum.ticketPrice },
+              { icon: '📞', label: t('museum.contact'), value: museum.phone },
             ].map((item) => (
               <View key={item.label} style={styles.infoCard}>
                 <Text style={styles.infoIcon}>{item.icon}</Text>
@@ -414,41 +855,80 @@ export default function MuseumDetailScreen() {
           </View>
 
           {/* ── Description ─────────────────────────────────────────────── */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>About</Text>
-            <Text style={styles.description}>{museum.description}</Text>
-          </View>
+          {museum.description ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{t('museum.aboutSection')}</Text>
+              <Text style={styles.description}>{museum.description}</Text>
+            </View>
+          ) : null}
 
           {/* ── Highlights ──────────────────────────────────────────────── */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Highlights</Text>
-            {museum.highlights.map((item, i) => (
-              <View key={i} style={styles.highlightRow}>
-                <View style={[styles.highlightDot, { backgroundColor: museum.color }]} />
-                <Text style={styles.highlightText}>{item}</Text>
-              </View>
-            ))}
-          </View>
+          {museum.highlights.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>{t('museum.mustSee')}</Text>
+              {museum.highlights.map((item, i) => (
+                <View key={i} style={styles.highlightRow}>
+                  <View style={[styles.highlightDot, { backgroundColor: museum.color }]} />
+                  <Text style={styles.highlightText}>{item}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
-          {/* ── Floor Plan ──────────────────────────────────────────────── */}
+          {/* ── Floor Plan / Map image ──────────────────────────────────── */}
           <View style={styles.section}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>Floor Plan</Text>
+              <Text style={styles.sectionTitle}>{t('museum.floorPlan')}</Text>
               <View style={[styles.livePill, { borderColor: C.success + '40' }]}>
                 <View style={styles.liveDot} />
-                <Text style={styles.liveText}>Interactive</Text>
+                <Text style={styles.liveText}>
+                  {routeMode
+                    ? t('museum.routeMode')
+                    : hasMapImage
+                      ? t('museum.mapImage')
+                      : rooms.length > 0
+                        ? t('museum.rooms')
+                        : t('museum.interactive')}
+                </Text>
               </View>
             </View>
 
-            <FloorPlan
-              zones={museum.zones}
-              accentColor={museum.color}
-              selectedZone={selectedZone}
-              onSelectZone={(name) => setSelectedZone((prev) => (prev === name ? null : name))}
-            />
+            {mapsLoading ? (
+              <ActivityIndicator color={museum.color} style={{ marginVertical: 16 }} />
+            ) : showInteractivePlan ? (
+              <FloorPlan
+                zones={museum.zones}
+                rooms={layoutRooms}
+                accentColor={museum.color}
+                selectedZone={selectedZone}
+                onSelectZone={(name) =>
+                  setSelectedZone((prev) => (prev === name ? null : name))
+                }
+                routeMode={routeMode}
+                currentStop={currentStop}
+                nextStop={nextStop}
+              />
+            ) : (
+              <MuseumMapImages maps={mapsWithImage} accentColor={museum.color} />
+            )}
 
-            {/* Selected zone info card */}
-            {selectedZoneData && (
+            {routeMode && activeRoute ? (
+              <RouteNavigationOverlay
+                stops={routeStops}
+                stopIndex={stopIndex}
+                rooms={layoutRooms}
+                accentColor={museum.color}
+                routeName={activeRoute.name}
+                onPrev={() => setStopIndex((i) => Math.max(0, i - 1))}
+                onNext={() =>
+                  setStopIndex((i) => Math.min(routeStops.length - 1, i + 1))
+                }
+                onExit={exitRoute}
+              />
+            ) : null}
+
+            {/* Selected zone info card — only when not in route mode */}
+            {!routeMode && selectedZoneData && !hasMapImage ? (
               <View style={[styles.zoneInfoCard, { borderColor: museum.color + '50' }]}>
                 <LinearGradient
                   colors={[museum.color + '10', 'transparent']}
@@ -459,27 +939,46 @@ export default function MuseumDetailScreen() {
                     {selectedZoneData.name}
                   </Text>
                   <Text style={styles.zoneInfoMeta}>
-                    {selectedZoneData.floor} · {selectedZoneData.items} artifacts
+                    {selectedZoneData.floor} · {selectedZoneData.items}{' '}
+                    {t('museum.artifactsCount')}
                   </Text>
                 </View>
                 <TouchableOpacity
-                  style={[styles.navigateBtn, { backgroundColor: museum.color + '20', borderColor: museum.color + '50' }]}
+                  style={[
+                    styles.navigateBtn,
+                    {
+                      backgroundColor: museum.color + '20',
+                      borderColor: museum.color + '50',
+                    },
+                  ]}
                   onPress={() => router.push('/(tabs)/scan')}
                 >
-                  <MaterialCommunityIcons name="navigation-variant-outline" size={16} color={museum.color} />
-                  <Text style={[styles.navigateBtnText, { color: museum.color }]}>Go</Text>
+                  <MaterialCommunityIcons
+                    name="navigation-variant-outline"
+                    size={16}
+                    color={museum.color}
+                  />
+                  <Text style={[styles.navigateBtnText, { color: museum.color }]}>
+                    {t('museum.go')}
+                  </Text>
                 </TouchableOpacity>
               </View>
-            )}
+            ) : null}
+
+            {!routeMode && hasMapImage ? (
+              <Text style={[styles.routeMeta, { marginTop: 8 }]}>
+                {t('museum.pickTourHint')}
+              </Text>
+            ) : null}
           </View>
 
           {/* ── AR Packs ────────────────────────────────────────────────── */}
           {arPacks.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
-                <Text style={styles.sectionTitle}>AR Packs</Text>
+                <Text style={styles.sectionTitle}>{t('museum.arPacks')}</Text>
                 <TouchableOpacity onPress={() => router.push('/ar-packs')}>
-                  <Text style={styles.seeAll}>View all</Text>
+                  <Text style={styles.seeAll}>{t('home.seeAll')}</Text>
                 </TouchableOpacity>
               </View>
               {arPacks.map((pack) => (
@@ -494,6 +993,91 @@ export default function MuseumDetailScreen() {
             </View>
           )}
 
+          {/* ── Tour routes ─────────────────────────────────────────────── */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>{t('content.tour')}</Text>
+            {routesLoading ? (
+              <Text style={styles.routeMeta}>{t('content.loadingRoutes')}</Text>
+            ) : routes.length === 0 ? (
+              <Text style={styles.routeMeta}>
+                {routesError ?? t('content.noRoutes')}
+              </Text>
+            ) : (
+              routes.map((r) => {
+                const active = activeRoute?.id === r.id;
+                const loadingThis = startingRouteId === r.id;
+                const stopLabel =
+                  r.stopCount ??
+                  (Array.isArray(r.stops) && r.stops.length > 0
+                    ? r.stops.length
+                    : null);
+                return (
+                  <TouchableOpacity
+                    key={r.id}
+                    style={[
+                      styles.routeRow,
+                      active && {
+                        borderColor: museum.color,
+                        backgroundColor: museum.color + '12',
+                      },
+                    ]}
+                    activeOpacity={0.85}
+                    disabled={loadingThis}
+                    onPress={() => {
+                      if (active) exitRoute();
+                      else void startRoute(r);
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.routeIcon,
+                        {
+                          backgroundColor: museum.color + '18',
+                          borderColor: museum.color + '40',
+                        },
+                      ]}
+                    >
+                      {loadingThis ? (
+                        <ActivityIndicator size="small" color={museum.color} />
+                      ) : (
+                        <MaterialCommunityIcons
+                          name={active ? 'navigation-variant' : 'map-marker-path'}
+                          size={18}
+                          color={museum.color}
+                        />
+                      )}
+                    </View>
+                    <View style={styles.routeInfo}>
+                      <Text style={styles.routeName} numberOfLines={1}>
+                        {r.name || `Tour #${r.id}`}
+                      </Text>
+                      <Text style={styles.routeMeta}>
+                        {[
+                          r.durationMinutes != null
+                            ? `${r.durationMinutes} ${t('common.minutes')}`
+                            : null,
+                          stopLabel != null
+                            ? `${stopLabel} ${t('common.stops')}`
+                            : null,
+                          active
+                            ? t('content.stopRoute')
+                            : t('content.startRoute'),
+                        ]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </Text>
+                    </View>
+                    <MaterialCommunityIcons
+                      name={active ? 'close-circle-outline' : 'chevron-right'}
+                      size={20}
+                      color={active ? museum.color : C.textMuted}
+                    />
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </View>
+
           {/* ── CTA: Start AR ───────────────────────────────────────────── */}
           <TouchableOpacity
             style={styles.arBtn}
@@ -507,7 +1091,7 @@ export default function MuseumDetailScreen() {
               style={styles.arBtnGradient}
             >
               <MaterialCommunityIcons name="line-scan" size={20} color={C.onAccent} />
-              <Text style={styles.arBtnText}>Start AR Experience</Text>
+              <Text style={styles.arBtnText}>{t('museum.startAr')}</Text>
             </LinearGradient>
           </TouchableOpacity>
 
@@ -535,12 +1119,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: 12,
   },
   heroEmoji: { fontSize: 38 },
-  heroTag: {
-    paddingHorizontal: 12, paddingVertical: 5,
-    borderRadius: 8, borderWidth: 1,
-    backgroundColor: 'rgba(43,29,14,0.08)',
-  },
-  heroTagText: { fontSize: 13, fontWeight: '700' },
 
   content: { paddingHorizontal: 20, paddingTop: 4 },
   name:    { fontSize: 24, fontWeight: '800', color: C.textPrimary, lineHeight: 32 },
@@ -612,6 +1190,21 @@ const styles = StyleSheet.create({
     borderRadius: 10, borderWidth: 1,
   },
   navigateBtnText: { fontSize: 13, fontWeight: '700' },
+
+  // Tour routes
+  routeRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.bgSurface, borderRadius: 12,
+    padding: 12, marginBottom: 8,
+    borderWidth: 1, borderColor: C.border,
+  },
+  routeIcon: {
+    width: 38, height: 38, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
+  },
+  routeInfo: { flex: 1 },
+  routeName: { fontSize: 14, fontWeight: '700', color: C.textPrimary },
+  routeMeta: { fontSize: 12, color: C.textSecondary, marginTop: 2 },
 
   // AR button
   arBtn: { marginTop: 28, borderRadius: 16, overflow: 'hidden' },

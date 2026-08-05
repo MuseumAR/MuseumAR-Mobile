@@ -26,13 +26,23 @@ export type ExhibitRecord = {
   title: string;
   era: string;
   category: string;
+  /** ID danh mục backend (để lọc Explore). */
+  categoryId?: number;
+  /** ID chủ đề backend (nếu có). */
+  themeId?: number;
+  /** ID tag backend (nếu có). */
+  tagIds?: number[];
   /** Nguồn gốc địa lý */
   origin: string;
   /** Chất liệu chế tác */
   material: string;
   description: string;
-  /** Có hỗ trợ xem AR 3D không */
+  /** Có hỗ trợ xem AR (2D overlay và/hoặc 3D model) */
   arAvailable: boolean;
+  /** URL ảnh overlay 2D (nếu backend gắn trên exhibit) */
+  arOverlayUrl?: string;
+  /** URL marker Vuforia / tracking (nếu có) */
+  arMarkerUrl?: string;
 
   // ── Thuyết minh / AR view ──────────────────
   /** Emoji đại diện hiện vật (hiển thị trên AR view) */
@@ -47,6 +57,8 @@ export type ExhibitRecord = {
   transcript: string[];
   /** Thông tin nổi bật (kích thước, năm, nơi phát hiện...) */
   highlights: string[];
+  /** Ảnh đại diện (khi lấy từ backend); mock không có */
+  thumbnailUrl?: string;
 };
 
 // ─────────────────────────────────────────────

@@ -1,14 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CURRENT_MUSEUM } from '../../src/data/museums';
+import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
 
 export default function MuseumAboutScreen() {
   const router = useRouter();
-  const museum = CURRENT_MUSEUM;
+  const { t } = useLanguage();
+  const { museum } = useMuseumProfile();
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -17,8 +19,8 @@ export default function MuseumAboutScreen() {
         {/* ── Header ───────────────────────────────────────────────────── */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.headerLabel}>ABOUT</Text>
-            <Text style={styles.title}>Museum</Text>
+            <Text style={styles.headerLabel}>{t('museum.about')}</Text>
+            <Text style={styles.title}>{t('museum.title')}</Text>
             <Text style={styles.subtitle}>{museum.city}</Text>
           </View>
           <View style={[styles.headerIcon, { backgroundColor: C.accentDark, borderColor: C.accent + '40' }]}>
@@ -29,29 +31,48 @@ export default function MuseumAboutScreen() {
         {/* ── Hero card ────────────────────────────────────────────────── */}
         <View style={styles.heroCard}>
           <View style={[styles.heroVisual, { backgroundColor: museum.color + '18' }]}>
-            <Text style={styles.heroEmoji}>🏛</Text>
+            {museum.thumbnailUrl ? (
+              <Image
+                source={{ uri: museum.thumbnailUrl }}
+                style={StyleSheet.absoluteFill}
+                resizeMode="cover"
+              />
+            ) : (
+              <Text style={styles.heroEmoji}>🏛</Text>
+            )}
             <LinearGradient
               colors={['transparent', 'rgba(247,242,233,0.95)']}
               style={styles.heroGradient}
             />
-            <View style={[styles.tagBadge, { borderColor: museum.color + '60' }]}>
-              <Text style={[styles.tagText, { color: museum.color }]}>{museum.tag}</Text>
-            </View>
+            {museum.tag ? (
+              <View style={[styles.tagBadge, { borderColor: museum.color + '60' }]}>
+                <Text style={[styles.tagText, { color: museum.color }]}>{museum.tag}</Text>
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.heroBody}>
             <Text style={styles.museumName}>{museum.name}</Text>
-            <Text style={styles.description}>{museum.description}</Text>
+            {museum.description ? (
+              <Text style={styles.description}>{museum.description}</Text>
+            ) : null}
           </View>
         </View>
 
         {/* ── Info rows ────────────────────────────────────────────────── */}
         <View style={styles.infoSection}>
           {[
-            { icon: 'clock-outline' as const, label: 'Hours', value: museum.openHours, note: `Closed: ${museum.closedDay}` },
-            { icon: 'ticket-outline' as const, label: 'Ticket', value: museum.ticketPrice },
-            { icon: 'map-marker-outline' as const, label: 'Address', value: museum.address },
-            { icon: 'phone-outline' as const, label: 'Contact', value: museum.phone },
+            {
+              icon: 'clock-outline' as const,
+              label: t('museum.hours'),
+              value: museum.openHours,
+              note: museum.closedDay
+                ? `${t('museum.closed')}: ${museum.closedDay}`
+                : undefined,
+            },
+            { icon: 'ticket-outline' as const, label: t('museum.ticket'), value: museum.ticketPrice },
+            { icon: 'map-marker-outline' as const, label: t('museum.address'), value: museum.address },
+            { icon: 'phone-outline' as const, label: t('museum.contact'), value: museum.phone },
           ].map((item) => (
             <View key={item.label} style={styles.infoRow}>
               <View style={styles.infoIconWrap}>
@@ -67,33 +88,37 @@ export default function MuseumAboutScreen() {
         </View>
 
         {/* ── Highlights ───────────────────────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>HIGHLIGHTS</Text>
-          <Text style={styles.sectionTitle}>Must-see</Text>
-          {museum.highlights.map((item, i) => (
-            <View key={i} style={styles.highlightRow}>
-              <View style={[styles.highlightDot, { backgroundColor: museum.color }]} />
-              <Text style={styles.highlightText}>{item}</Text>
-            </View>
-          ))}
-        </View>
+        {museum.highlights.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>{t('museum.highlights')}</Text>
+            <Text style={styles.sectionTitle}>{t('museum.mustSee')}</Text>
+            {museum.highlights.map((item, i) => (
+              <View key={i} style={styles.highlightRow}>
+                <View style={[styles.highlightDot, { backgroundColor: museum.color }]} />
+                <Text style={styles.highlightText}>{item}</Text>
+              </View>
+            ))}
+          </View>
+        ) : null}
 
         {/* ── Zones ────────────────────────────────────────────────────── */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>SPACES</Text>
-          <Text style={styles.sectionTitle}>Exhibition Zones</Text>
-          {museum.zones.map((zone) => (
-            <View key={zone.name} style={styles.zoneRow}>
-              <View style={[styles.zoneIcon, { backgroundColor: museum.color + '18', borderColor: museum.color + '40' }]}>
-                <MaterialCommunityIcons name="layers-outline" size={16} color={museum.color} />
+        {museum.zones.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>{t('museum.zones')}</Text>
+            <Text style={styles.sectionTitle}>{t('museum.zones')}</Text>
+            {museum.zones.map((zone) => (
+              <View key={zone.name} style={styles.zoneRow}>
+                <View style={[styles.zoneIcon, { backgroundColor: museum.color + '18', borderColor: museum.color + '40' }]}>
+                  <MaterialCommunityIcons name="layers-outline" size={16} color={museum.color} />
+                </View>
+                <View style={styles.zoneInfo}>
+                  <Text style={styles.zoneName}>{zone.name}</Text>
+                  <Text style={styles.zoneMeta}>{zone.floor} · {zone.items} items</Text>
+                </View>
               </View>
-              <View style={styles.zoneInfo}>
-                <Text style={styles.zoneName}>{zone.name}</Text>
-                <Text style={styles.zoneMeta}>{zone.floor} · {zone.items} items</Text>
-              </View>
-            </View>
-          ))}
-        </View>
+            ))}
+          </View>
+        ) : null}
 
         {/* ── CTA ──────────────────────────────────────────────────────── */}
         <TouchableOpacity
@@ -107,7 +132,7 @@ export default function MuseumAboutScreen() {
             end={{ x: 1, y: 0 }}
             style={styles.ctaGradient}
           >
-            <Text style={styles.ctaText}>View full details</Text>
+            <Text style={styles.ctaText}>{t('museum.viewDetail')}</Text>
             <MaterialCommunityIcons name="arrow-right" size={16} color={C.onAccent} />
           </LinearGradient>
         </TouchableOpacity>

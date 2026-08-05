@@ -2,10 +2,12 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text } from 'react-native';
 import { useNetworkStatus } from '../hooks/useNetworkStatus';
+import { useLanguage } from '../i18n/LanguageContext';
 import { C } from '../theme/colors';
 
 export function OfflineBanner() {
   const { isOffline } = useNetworkStatus();
+  const { t } = useLanguage();
   const translateY = useRef(new Animated.Value(-60)).current;
 
   useEffect(() => {
@@ -14,15 +16,14 @@ export function OfflineBanner() {
       duration: 300,
       useNativeDriver: true,
     }).start();
-  }, [isOffline]);
+  }, [isOffline, translateY]);
 
-  // Chưa xác định trạng thái mạng → không render
   if (isOffline === null || isOffline === false) return null;
 
   return (
     <Animated.View style={[styles.banner, { transform: [{ translateY }] }]}>
       <MaterialCommunityIcons name="wifi-off" size={16} color={C.danger} />
-      <Text style={styles.text}>Không có kết nối mạng — Đang dùng dữ liệu offline</Text>
+      <Text style={styles.text}>{t('common.offline')}</Text>
     </Animated.View>
   );
 }

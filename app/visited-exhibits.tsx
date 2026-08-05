@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ExhibitListItem } from '../src/components/ExhibitListItem';
+import { useExhibits } from '../src/hooks/useExhibits';
 import { useVisitedExhibits } from '../src/hooks/useVisitedExhibits';
 import { C } from '../src/theme/colors';
 import { formatVisitorDate } from '../src/utils/visitorLists';
@@ -17,12 +18,21 @@ import { formatVisitorDate } from '../src/utils/visitorLists';
 export default function VisitedExhibitsScreen() {
   const router = useRouter();
   const { visited, loading, refresh } = useVisitedExhibits();
+  const { exhibits, loading: exhibitsLoading, refresh: refreshExhibits } = useExhibits();
+
+  const exhibitById = useMemo(
+    () => new Map(exhibits.map((e) => [Number(e.id), e])),
+    [exhibits],
+  );
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-    }, [refresh]),
+      refreshExhibits();
+    }, [refresh, refreshExhibits]),
   );
+
+  const listLoading = loading || exhibitsLoading;
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -36,7 +46,7 @@ export default function VisitedExhibitsScreen() {
           </Text>
         }
         ListEmptyComponent={
-          loading ? (
+          listLoading ? (
             <View style={styles.center}>
               <ActivityIndicator color={C.accent} />
             </View>
@@ -58,6 +68,7 @@ export default function VisitedExhibitsScreen() {
         renderItem={({ item }) => (
           <ExhibitListItem
             exhibitId={item.exhibitId}
+            exhibit={exhibitById.get(item.exhibitId)}
             subtitle={`Xem lần cuối: ${formatVisitorDate(item.visitedAt)}${
               item.timeSpentSeconds != null ? ` · ${item.timeSpentSeconds}s` : ''
             }`}

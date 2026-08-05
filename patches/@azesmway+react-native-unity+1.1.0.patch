@@ -1,0 +1,55 @@
+diff --git a/node_modules/@azesmway/react-native-unity/android/build.gradle b/node_modules/@azesmway/react-native-unity/android/build.gradle
+index a10543a..e0f1645 100644
+--- a/node_modules/@azesmway/react-native-unity/android/build.gradle
++++ b/node_modules/@azesmway/react-native-unity/android/build.gradle
+@@ -98,7 +98,6 @@ repositories {
+   }
+   google()
+   mavenCentral()
+-  jcenter()
+ }
+ 
+ 
+diff --git a/node_modules/@azesmway/react-native-unity/android/src/main/java/com/azesmwayreactnativeunity/ReactNativeUnityViewManager.java b/node_modules/@azesmway/react-native-unity/android/src/main/java/com/azesmwayreactnativeunity/ReactNativeUnityViewManager.java
+index 1fdf04b..c15a141 100644
+--- a/node_modules/@azesmway/react-native-unity/android/src/main/java/com/azesmwayreactnativeunity/ReactNativeUnityViewManager.java
++++ b/node_modules/@azesmway/react-native-unity/android/src/main/java/com/azesmwayreactnativeunity/ReactNativeUnityViewManager.java
+@@ -62,18 +62,34 @@ public class ReactNativeUnityViewManager extends ReactNativeUnityViewManagerSpec
+ 
+               @Override
+               public void onUnload() {
++                // View may already be dropped (static view cleared) before Unity's
++                // async unload callback runs — guard to avoid NPE crash on close.
++                ReactNativeUnityView current = view;
++                if (current == null) {
++                  return;
++                }
+                 WritableMap data = Arguments.createMap();
+                 data.putString("message", "MyMessage");
+-                ReactContext reactContext = (ReactContext) view.getContext();
+-                reactContext.getJSModule(RCTEventEmitter.class).receiveEvent(view.getId(), "onPlayerUnload", data);
++                ReactContext reactContext = (ReactContext) current.getContext();
++                if (reactContext == null) {
++                  return;
++                }
++                reactContext.getJSModule(RCTEventEmitter.class).receiveEvent(current.getId(), "onPlayerUnload", data);
+               }
+ 
+               @Override
+               public void onQuit() {
++                ReactNativeUnityView current = view;
++                if (current == null) {
++                  return;
++                }
+                 WritableMap data = Arguments.createMap();
+                 data.putString("message", "MyMessage");
+-                ReactContext reactContext = (ReactContext) view.getContext();
+-                reactContext.getJSModule(RCTEventEmitter.class).receiveEvent(view.getId(), "onPlayerQuit", data);
++                ReactContext reactContext = (ReactContext) current.getContext();
++                if (reactContext == null) {
++                  return;
++                }
++                reactContext.getJSModule(RCTEventEmitter.class).receiveEvent(current.getId(), "onPlayerQuit", data);
+               }
+             });
+         } catch (InvocationTargetException | NoSuchMethodException | IllegalAccessException e) {}

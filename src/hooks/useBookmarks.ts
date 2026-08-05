@@ -3,6 +3,10 @@ import { apiService, BookmarkDto } from '../services/apiService';
 import { getToken } from '../services/tokenStorage';
 import { uniqueBookmarks } from '../utils/visitorLists';
 
+/**
+ * Bookmarks — GET/POST/DELETE /Visitor/bookmarks (JWT).
+ * Requires Visitor linked via POST /Visitor/sync after login.
+ */
 export function useBookmarks() {
   const [bookmarks, setBookmarks] = useState<BookmarkDto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -88,12 +92,10 @@ export function useBookmarks() {
     if (!token) return 'auth_required';
 
     const wasBookmarked = bookmarkIdsRef.current.has(exhibitId);
-
     if (wasBookmarked) {
       const ok = await removeBookmark(exhibitId);
       return ok ? 'removed' : 'failed';
     }
-
     const ok = await addBookmark(exhibitId);
     return ok ? 'added' : 'failed';
   }, [addBookmark, removeBookmark]);

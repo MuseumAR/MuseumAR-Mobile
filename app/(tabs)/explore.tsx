@@ -1,8 +1,9 @@
-import { useRouter } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { C } from '../../src/theme/colors';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -11,16 +12,53 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { EXHIBITS, EXHIBIT_CATEGORIES } from '../../src/data/exhibits';
+import { useCategories } from '../../src/hooks/useCategories';
+import { useExhibits } from '../../src/hooks/useExhibits';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
+import { useLanguage } from '../../src/i18n/LanguageContext';
+import type { TaxonomyChip } from '../../src/services/apiService';
+import { C } from '../../src/theme/colors';
+import { parseNumericId } from '../../src/utils/parseId';
+
+type SelectedFilter =
+  | { kind: 'all' }
+  | { kind: 'category' | 'theme' | 'tag'; id: number; name: string };
+
+function chipMatches(filter: SelectedFilter, chip: TaxonomyChip): boolean {
+  if (filter.kind === 'all') return false;
+  return filter.kind === chip.kind && filter.id === chip.id;
+}
 
 export default function ExploreScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
+  const params = useLocalSearchParams<{ categoryId?: string; themeId?: string }>();
+  const paramCategoryId = parseNumericId(params.categoryId);
+  const paramThemeId = parseNumericId(params.themeId);
+
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('Tất cả');
+  const [selected, setSelected] = useState<SelectedFilter>({ kind: 'all' });
   const { track } = useTrackAction();
   const searchTrackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const CATEGORIES = EXHIBIT_CATEGORIES;
+  const { filterChips, categories, themes, ALL_LABEL } = useCategories();
+  const { exhibits, loading, error, refresh } = useExhibits();
+
+  // Deep-link from Home: explore by category / theme
+  useEffect(() => {
+    if (paramCategoryId != null) {
+      const cat = categories.find((c) => c.id === paramCategoryId);
+      if (cat?.name) {
+        setSelected({ kind: 'category', id: cat.id, name: cat.name });
+        return;
+      }
+    }
+    if (paramThemeId != null) {
+      const theme = themes.find((t) => t.id === paramThemeId);
+      if (theme) {
+        setSelected({ kind: 'theme', id: theme.id, name: theme.name });
+      }
+    }
+  }, [paramCategoryId, paramThemeId, categories, themes]);
 
   useEffect(() => {
     if (searchTrackTimer.current) clearTimeout(searchTrackTimer.current);
@@ -33,71 +71,114 @@ export default function ExploreScreen() {
     };
   }, [search, track]);
 
-  const filtered = EXHIBITS.filter((e) => {
-    const matchCategory =
-      selectedCategory === 'Tất cả' || e.category === selectedCategory;
-    const matchSearch = e.title.toLowerCase().includes(search.toLowerCase());
-    return matchCategory && matchSearch;
-  });
+  const filtered = useMemo(
+    () =>
+      exhibits.filter((e) => {
+        let matchTaxonomy = true;
+        if (selected.kind === 'category') {
+          matchTaxonomy = e.categoryId === selected.id || e.category === selected.name;
+        } else if (selected.kind === 'theme') {
+          matchTaxonomy = e.themeId === selected.id;
+        } else if (selected.kind === 'tag') {
+          matchTaxonomy = (e.tagIds ?? []).includes(selected.id);
+        }
+        const matchSearch = e.title.toLowerCase().includes(search.toLowerCase());
+        return matchTaxonomy && matchSearch;
+      }),
+    [exhibits, selected, search],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Khám phá</Text>
+        <Text style={styles.title}>{t('explore.title')}</Text>
         <TextInput
           style={styles.search}
-          placeholder="Tìm kiếm hiện vật..."
+          placeholder={t('explore.search')}
           placeholderTextColor={C.textPlaceholder}
           value={search}
           onChangeText={setSearch}
         />
       </View>
 
-      {/* Category filter — dùng ScrollView ngang thay FlatList để tránh lỗi chiều cao */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.categories}
         style={styles.categoriesScroll}
       >
-        {CATEGORIES.map((item) => (
-          <TouchableOpacity
-            key={item}
-            style={[styles.categoryChip, selectedCategory === item && styles.categoryChipActive]}
-            onPress={() => setSelectedCategory(item)}
+        <TouchableOpacity
+          style={[styles.categoryChip, selected.kind === 'all' && styles.categoryChipActive]}
+          onPress={() => setSelected({ kind: 'all' })}
+        >
+          <Text
+            style={[styles.categoryText, selected.kind === 'all' && styles.categoryTextActive]}
           >
-            <Text style={[styles.categoryText, selectedCategory === item && styles.categoryTextActive]}>
-              {item}
-            </Text>
-          </TouchableOpacity>
-        ))}
+            {ALL_LABEL}
+          </Text>
+        </TouchableOpacity>
+        {filterChips.map((chip) => {
+          const active = chipMatches(selected, chip);
+          return (
+            <TouchableOpacity
+              key={chip.key}
+              style={[styles.categoryChip, active && styles.categoryChipActive]}
+              onPress={() =>
+                setSelected({ kind: chip.kind, id: chip.id, name: chip.name })
+              }
+            >
+              <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
+                {chip.name}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
-      {/* Exhibit grid */}
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
         contentContainerStyle={styles.list}
         numColumns={2}
         columnWrapperStyle={styles.row}
+        onRefresh={refresh}
+        refreshing={loading}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.gridCard}
             onPress={() => router.push(`/exhibit/${item.id}`)}
           >
-            <View style={styles.gridThumb} />
+            {item.thumbnailUrl ? (
+              <Image source={{ uri: item.thumbnailUrl }} style={styles.gridThumb} resizeMode="cover" />
+            ) : (
+              <View
+                style={[
+                  styles.gridThumb,
+                  { backgroundColor: item.color + '22', alignItems: 'center', justifyContent: 'center' },
+                ]}
+              >
+                <Text style={{ fontSize: 34 }}>{item.emoji}</Text>
+              </View>
+            )}
             <View style={styles.gridContent}>
               <Text style={styles.gridCategory}>{item.category}</Text>
-              <Text style={styles.gridTitle} numberOfLines={2}>{item.title}</Text>
-              <Text style={styles.gridEra}>{item.era}</Text>
+              <Text style={styles.gridTitle} numberOfLines={2}>
+                {item.title}
+              </Text>
+              {item.era ? <Text style={styles.gridEra}>{item.era}</Text> : null}
             </View>
           </TouchableOpacity>
         )}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyText}>Không tìm thấy hiện vật</Text>
-          </View>
+          loading ? (
+            <View style={styles.empty}>
+              <ActivityIndicator color={C.accent} />
+            </View>
+          ) : (
+            <View style={styles.empty}>
+              <Text style={styles.emptyText}>{error ?? t('explore.empty')}</Text>
+            </View>
+          )
         }
       />
     </SafeAreaView>
