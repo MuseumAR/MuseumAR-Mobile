@@ -4,10 +4,11 @@
  * Supported formats:
  *   museumar://exhibit/<id>
  *   museumar://museum/<id>
- *   https://... or plain exhibit id digits (fallback)
+ *   MUSEUM_EX_<id>_<CODE>  (BE auto-generated QrcodeData)
+ *   https://.../exhibits/123
+ *   plain numeric exhibit id
  *
- * Create test QR at: https://www.qr-code-generator.com
- * Example: museumar://exhibit/1
+ * Example: museumar://exhibit/1  |  MUSEUM_EX_12_EX-M1-12
  */
 
 export type QRTarget =
@@ -24,6 +25,12 @@ export function parseQRCode(data: string): QRTarget {
     return { type: kind, id: deepLink[2] };
   }
 
+  // BE ContentService auto QR: MUSEUM_EX_{id}_{EXHIBITCODE}
+  const museumEx = trimmed.match(/^MUSEUM_EX_(\d+)_/i);
+  if (museumEx) {
+    return { type: 'exhibit', id: museumEx[1] };
+  }
+
   // Backend qrCodeData may be a URL ending with /exhibits/123
   const urlExhibit = trimmed.match(/\/exhibits?\/(\d+)/i);
   if (urlExhibit) {
@@ -35,5 +42,5 @@ export function parseQRCode(data: string): QRTarget {
     return { type: 'exhibit', id: trimmed };
   }
 
-  return { type: 'unknown', raw: trimmed };
+  return { type: 'unknown'; raw: trimmed };
 }

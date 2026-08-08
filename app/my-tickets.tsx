@@ -11,9 +11,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { openPayOsCheckout, useMyTickets } from '../src/hooks/useTicketing';
+import {
+  openPayOsCheckout,
+  useMyTickets,
+  usePendingOrder,
+} from '../src/hooks/useTicketing';
 import { useLanguage } from '../src/i18n/LanguageContext';
-import { apiService, MyTicketDto } from '../src/services/apiService';
+import { apiService, MyTicketDto, PendingOrderDto } from '../src/services/apiService';
 import { C } from '../src/theme/colors';
 import { formatVisitorDate } from '../src/utils/visitorLists';
 
@@ -31,21 +35,82 @@ function statusStyle(
   return { color: C.textMuted, label: status ?? '—' };
 }
 
-function TicketCard({
-  ticket,
+function PendingOrderCard({
+  pending,
   onResume,
-  resumingId,
+  busy,
 }: {
-  ticket: MyTicketDto;
-  onResume: (ticket: MyTicketDto) => void;
-  resumingId: number | null;
+  pending: PendingOrderDto;
+  onResume: () => void;
+  busy: boolean;
 }) {
   const { t } = useLanguage();
+  const canResume = Boolean(pending.checkoutUrl);
+
+  return (
+    <View style={[styles.card, styles.pendingCard]}>
+      <View style={[styles.accent, { backgroundColor: C.accent }]} />
+      <View style={styles.cardBody}>
+        <View style={styles.cardHeader}>
+          <Text style={styles.ticketName}>
+            {pending.ticketTypeName ?? t('ticket.defaultName')}
+          </Text>
+          <View
+            style={[
+              styles.statusPill,
+              { borderColor: C.accent + '55', backgroundColor: C.accent + '18' },
+            ]}
+          >
+            <Text style={[styles.statusText, { color: C.accent }]}>
+              {t('ticket.statusPending')}
+            </Text>
+          </View>
+        </View>
+
+        <Text style={styles.orderCode}>
+          {t('ticket.title')}: {pending.orderCode}
+        </Text>
+        {pending.quantity != null ? (
+          <Text style={styles.museum}>
+            ×{pending.quantity}
+            {pending.remainingSeconds != null && pending.remainingSeconds > 0
+              ? ` · ${Math.ceil(pending.remainingSeconds / 60)} ${t('ticket.minutesLeft')}`
+              : ''}
+          </Text>
+        ) : null}
+
+        <View style={styles.footerRow}>
+          <Text style={styles.price}>
+            {pending.totalAmount != null
+              ? `${Number(pending.totalAmount).toLocaleString('vi-VN')}đ`
+              : ''}
+          </Text>
+        </View>
+
+        {canResume ? (
+          <TouchableOpacity
+            style={styles.resumeBtn}
+            onPress={onResume}
+            disabled={busy}
+          >
+            {busy ? (
+              <ActivityIndicator size="small" color={C.onAccent} />
+            ) : (
+              <>
+                <MaterialCommunityIcons name="qrcode" size={16} color={C.onAccent} />
+                <Text style={styles.resumeBtnText}>{t('ticket.resumePayos')}</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function TicketCard({ ticket }: { ticket: MyTicketDto }) {
+  const { t } = useLanguage();
   const st = statusStyle(ticket.status, t);
-  const showResume =
-    (ticket.status ?? '').toLowerCase() === 'pending' &&
-    Boolean(ticket.canResumePayment && ticket.checkoutUrl);
-  const busy = resumingId === ticket.id;
 
   return (
     <View style={styles.card}>
@@ -65,11 +130,6 @@ function TicketCard({
           </View>
         </View>
 
-        {ticket.orderCode ? (
-          <Text style={styles.orderCode}>
-            {t('ticket.title')}: {ticket.orderCode}
-          </Text>
-        ) : null}
         {ticket.museumName ? <Text style={styles.museum}>{ticket.museumName}</Text> : null}
 
         <View style={styles.metaRow}>
@@ -79,7 +139,7 @@ function TicketCard({
               <Text style={styles.metaText}>{ticket.ticketCode}</Text>
             </View>
           ) : null}
-          {(ticket.validDate || ticket.visitDate) ? (
+          {ticket.validDate || ticket.visitDate ? (
             <View style={styles.metaItem}>
               <MaterialCommunityIcons name="calendar-outline" size={14} color={C.textMuted} />
               <Text style={styles.metaText}>{ticket.validDate || ticket.visitDate}</Text>
@@ -95,7 +155,7 @@ function TicketCard({
                 : `${Number(ticket.price).toLocaleString('vi-VN')}đ`
               : ''}
           </Text>
-          {(ticket.purchaseDate || ticket.purchasedAt) ? (
+          {ticket.purchaseDate || ticket.purchasedAt ? (
             <Text style={styles.purchased}>
               {formatVisitorDate(ticket.purchaseDate || ticket.purchasedAt || '')}
             </Text>
@@ -104,23 +164,6 @@ function TicketCard({
 
         {ticket.qrCodeUrl && (ticket.status ?? '').toLowerCase() === 'paid' ? (
           <Image source={{ uri: ticket.qrCodeUrl }} style={styles.qr} resizeMode="contain" />
-        ) : null}
-
-        {showResume ? (
-          <TouchableOpacity
-            style={styles.resumeBtn}
-            onPress={() => onResume(ticket)}
-            disabled={busy}
-          >
-            {busy ? (
-              <ActivityIndicator size="small" color={C.onAccent} />
-            ) : (
-              <>
-                <MaterialCommunityIcons name="qrcode" size={16} color={C.onAccent} />
-                <Text style={styles.resumeBtnText}>{t('ticket.resumePayos')}</Text>
-              </>
-            )}
-          </TouchableOpacity>
         ) : null}
       </View>
     </View>
@@ -131,31 +174,57 @@ export default function MyTicketsScreen() {
   const router = useRouter();
   const { t } = useLanguage();
   const { tickets, loading, error, refresh } = useMyTickets();
-  const [resumingId, setResumingId] = useState<number | null>(null);
+  const {
+    pending,
+    loading: pendingLoading,
+    refresh: refreshPending,
+  } = usePendingOrder();
+  const [resuming, setResuming] = useState(false);
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refresh(), refreshPending()]);
+  }, [refresh, refreshPending]);
 
   useFocusEffect(
     useCallback(() => {
-      refresh();
-    }, [refresh]),
+      void refreshAll();
+    }, [refreshAll]),
   );
 
-  const handleResume = async (ticket: MyTicketDto) => {
-    const orderCode = ticket.orderCode;
-    if (!orderCode) return;
+  const handleResumePending = async () => {
+    if (!pending?.checkoutUrl) return;
+    const orderCode = pending.orderCode;
+    const checkoutUrl = pending.checkoutUrl;
+    const paidBefore = tickets.filter(
+      (item) => (item.status ?? '').toLowerCase() === 'paid',
+    ).length;
 
-    setResumingId(ticket.id);
+    setResuming(true);
     try {
-      const check = await apiService.checkPayment(orderCode);
-      const data = check.data;
-      if (!data?.valid || !data.checkoutUrl) {
-        await refresh();
-        return;
+      // Sync PayOS status before opening (may already be paid/cancelled).
+      try {
+        const check = await apiService.checkPayment(orderCode);
+        if (check.data?.isPaid) {
+          await refreshAll();
+          router.push({
+            pathname: '/payment-result',
+            params: {
+              status: 'success',
+              orderCode,
+              paidBefore: String(Math.max(0, paidBefore - 1)),
+            },
+          });
+          return;
+        }
+        if (check.data?.isCancelled) {
+          await refreshAll();
+          return;
+        }
+      } catch {
+        // still try checkout
       }
 
-      const paidBefore = tickets.filter(
-        (t) => (t.status ?? '').toLowerCase() === 'paid',
-      ).length;
-      const outcome = await openPayOsCheckout(data.checkoutUrl);
+      const outcome = await openPayOsCheckout(checkoutUrl);
 
       if (outcome === 'cancel') {
         try {
@@ -163,7 +232,7 @@ export default function MyTicketsScreen() {
         } catch {
           // ignore
         }
-        await refresh();
+        await refreshAll();
         router.push({
           pathname: '/payment-result',
           params: { status: 'cancel', orderCode, paidBefore: String(paidBefore) },
@@ -178,27 +247,29 @@ export default function MyTicketsScreen() {
             status: 'success',
             orderCode,
             paidBefore: String(paidBefore),
-            checkoutUrl: data.checkoutUrl,
+            checkoutUrl,
           },
         });
         return;
       }
 
-      // pending — stayed unpaid
-      await refresh();
+      await refreshAll();
       router.push({
         pathname: '/payment-result',
         params: {
           status: 'pending',
           orderCode,
           paidBefore: String(paidBefore),
-          checkoutUrl: data.checkoutUrl,
+          checkoutUrl,
         },
       });
     } finally {
-      setResumingId(null);
+      setResuming(false);
     }
   };
+
+  const listRefreshing = loading || pendingLoading;
+  const empty = tickets.length === 0 && !pending;
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -206,38 +277,45 @@ export default function MyTicketsScreen() {
         data={tickets}
         keyExtractor={(item) => String(item.id)}
         contentContainerStyle={styles.list}
-        onRefresh={refresh}
-        refreshing={loading}
+        onRefresh={refreshAll}
+        refreshing={listRefreshing}
         ListHeaderComponent={
-          tickets.length > 0 ? (
-            <Text style={styles.headerHint}>
-              {tickets.length} · {t('ticket.statusPaid')} / {t('ticket.statusPending')} /{' '}
-              {t('ticket.statusCancelled')}
-            </Text>
-          ) : null
+          <>
+            {pending ? (
+              <PendingOrderCard
+                pending={pending}
+                onResume={handleResumePending}
+                busy={resuming}
+              />
+            ) : null}
+            {tickets.length > 0 ? (
+              <Text style={styles.headerHint}>
+                {tickets.length} · {t('ticket.statusPaid')}
+              </Text>
+            ) : null}
+          </>
         }
         ListEmptyComponent={
-          loading ? (
+          listRefreshing && empty ? (
             <View style={styles.center}>
               <ActivityIndicator color={C.accent} />
             </View>
-          ) : (
+          ) : empty ? (
             <View style={styles.center}>
               <Text style={styles.emptyTitle}>
                 {error ? t('ticket.loadError') : t('ticket.empty')}
               </Text>
-              <Text style={styles.emptyText}>
-                {error ?? t('ticket.emptyHint')}
-              </Text>
-              <TouchableOpacity style={styles.emptyBtn} onPress={() => router.push('/(tabs)/ticket')}>
+              <Text style={styles.emptyText}>{error ?? t('ticket.emptyHint')}</Text>
+              <TouchableOpacity
+                style={styles.emptyBtn}
+                onPress={() => router.push('/(tabs)/ticket')}
+              >
                 <Text style={styles.emptyBtnText}>{t('ticket.buyMore')}</Text>
               </TouchableOpacity>
             </View>
-          )
+          ) : null
         }
-        renderItem={({ item }) => (
-          <TicketCard ticket={item} onResume={handleResume} resumingId={resumingId} />
-        )}
+        renderItem={({ item }) => <TicketCard ticket={item} />}
       />
     </SafeAreaView>
   );
@@ -256,6 +334,7 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     overflow: 'hidden',
   },
+  pendingCard: { marginBottom: 16 },
   accent: { width: 5 },
   cardBody: { flex: 1, padding: 16 },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

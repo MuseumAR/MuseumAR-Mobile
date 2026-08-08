@@ -115,9 +115,12 @@ const vi: Dict = {
   'scan.cameraOffHint': 'Nhấn nút bên dưới để bắt đầu quét',
   'scan.start': 'Bật camera quét QR',
   'scan.stop': 'Tắt camera',
-  'scan.tip': 'Mẹo: Đủ ánh sáng, giữ máy ổn định. Thử QR dạng museumar://exhibit/1',
+  'scan.tip':
+    'Mẹo: Đủ ánh sáng, giữ máy ổn định. Quét QR hiện vật (MUSEUM_EX_…) để xem chi tiết.',
   'scan.invalidQr': 'Mã QR không hợp lệ',
   'scan.rescan': 'Quét lại',
+  'scan.resolving': 'Đang tìm hiện vật…',
+  'scan.pointCamera': 'Hướng camera vào mã QR',
 
   // Museum about / detail
   'museum.about': 'GIỚI THIỆU',
@@ -200,6 +203,7 @@ const vi: Dict = {
   'ticket.statusPending': 'Chờ thanh toán',
   'ticket.statusCancelled': 'Đã huỷ',
   'ticket.resumePayos': 'Tiếp tục PayOS',
+  'ticket.minutesLeft': 'phút còn lại',
   'ticket.buyMore': 'Mua thêm vé',
   'ticket.onlineHint': 'Đặt vé tham quan trực tuyến',
   'ticket.type': 'Loại vé',
@@ -357,9 +361,12 @@ const en: Dict = {
   'scan.cameraOffHint': 'Tap the button below to start scanning',
   'scan.start': 'Turn on camera',
   'scan.stop': 'Turn off camera',
-  'scan.tip': 'Tip: Good lighting, hold steady. Try museumar://exhibit/1',
+  'scan.tip':
+    'Tip: Good lighting, hold steady. Scan exhibit QR (MUSEUM_EX_…) to open details.',
   'scan.invalidQr': 'Invalid QR code',
   'scan.rescan': 'Scan again',
+  'scan.resolving': 'Looking up exhibit…',
+  'scan.pointCamera': 'Point camera at the QR code',
 
   'museum.about': 'ABOUT',
   'museum.title': 'Museum',
@@ -437,6 +444,7 @@ const en: Dict = {
   'ticket.statusPending': 'Pending',
   'ticket.statusCancelled': 'Cancelled',
   'ticket.resumePayos': 'Continue PayOS',
+  'ticket.minutesLeft': 'min left',
   'ticket.buyMore': 'Buy more tickets',
   'ticket.onlineHint': 'Book visit tickets online',
   'ticket.type': 'Ticket type',
