@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useCreateOrder, useTicketTypes } from '../../src/hooks/useTicketing';
+import { useCreateOrder, usePendingOrder, useTicketTypes } from '../../src/hooks/useTicketing';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { TicketTypeDto } from '../../src/services/apiService';
@@ -45,11 +45,18 @@ export default function TicketScreen() {
   const { museum } = useMuseumProfile();
   const { types, loading: typesLoading, error: typesError } = useTicketTypes();
   const { submit, submitting } = useCreateOrder();
+  const { pending, refresh: refreshPending } = usePendingOrder();
 
   const days = useMemo(() => nextDays(7, lang), [lang]);
   const [selectedType, setSelectedType] = useState<TicketTypeDto | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string>(days[0].iso);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshPending();
+    }, [refreshPending]),
+  );
 
   useEffect(() => {
     if (!selectedType && types.length > 0) {
@@ -64,6 +71,19 @@ export default function TicketScreen() {
       Alert.alert(t('ticket.selectType'), t('ticket.selectTypeHint'));
       return;
     }
+
+    // Newest BE: only one pending order (<15 min). Guide user instead of silent reuse.
+    if (pending?.checkoutUrl) {
+      Alert.alert(t('ticket.statusPending'), t('ticket.pendingExists'), [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('ticket.myTickets'),
+          onPress: () => router.push('/my-tickets'),
+        },
+      ]);
+      return;
+    }
+
     const result = await submit({
       ticketTypeId: selectedType.id,
       quantity,
@@ -109,9 +129,20 @@ export default function TicketScreen() {
           </View>
           <TouchableOpacity style={styles.myTicketsBtn} onPress={() => router.push('/my-tickets')}>
             <MaterialCommunityIcons name="ticket-account" size={18} color={C.accent} />
-            <Text style={styles.myTicketsText}>Vé của tôi</Text>
+            <Text style={styles.myTicketsText}>{t('ticket.myTickets')}</Text>
           </TouchableOpacity>
         </View>
+
+        {pending?.checkoutUrl ? (
+          <TouchableOpacity
+            style={styles.pendingBanner}
+            onPress={() => router.push('/my-tickets')}
+            activeOpacity={0.85}
+          >
+            <MaterialCommunityIcons name="clock-outline" size={18} color={C.accent} />
+            <Text style={styles.pendingBannerText}>{t('ticket.pendingExists')}</Text>
+          </TouchableOpacity>
+        ) : null}
 
         {/* Museum (fixed) */}
         <View style={styles.section}>
@@ -287,6 +318,24 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   myTicketsText: { color: C.accent, fontSize: 13, fontWeight: '700' },
+  pendingBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: C.accent + '14',
+    borderWidth: 1,
+    borderColor: C.accent + '44',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  pendingBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: C.textSecondary,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
 
   section: {
     backgroundColor: C.bgSurface,

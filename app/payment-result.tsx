@@ -74,7 +74,7 @@ export default function PaymentResultScreen() {
     if (statusParam === 'pending') {
       setUiStatus('pending');
       setHint(
-        'Bạn đã đóng PayOS chưa thanh toán. Đơn vẫn Pending — có thể mở lại PayOS hoặc xem Vé của tôi.',
+        'Bạn đã đóng PayOS chưa thanh toán. Đơn vẫn Pending (tối đa 15 phút) — mở lại PayOS hoặc xem Vé của tôi.',
       );
       void resolveResumeCheckout(orderCodeParam || undefined).then((res) => {
         if (res.isPaid) {
@@ -157,6 +157,45 @@ export default function PaymentResultScreen() {
       cancelled = true;
     };
   }, [statusParam, paidBefore, orderCodeParam]);
+
+  // Poll Payment/check-status while pending (matches WebBE 15-min window + webhook lag).
+  useEffect(() => {
+    if (uiStatus !== 'pending') return;
+    const code = orderCode || orderCodeParam;
+    if (!code) return;
+
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const check = await apiService.checkPayment(code);
+        if (cancelled) return;
+        if (check.data?.isPaid) {
+          const list = (await apiService.getMyTickets()).data ?? [];
+          if (cancelled) return;
+          setTickets(list);
+          setUiStatus('paid');
+          setHint('Thanh toán thành công — vé đã sẵn sàng.');
+          return;
+        }
+        if (check.data?.isCancelled) {
+          setCheckoutUrl('');
+          setUiStatus('cancel');
+          setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
+        }
+      } catch {
+        // keep pending
+      }
+    };
+
+    void tick();
+    const id = setInterval(() => {
+      void tick();
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [uiStatus, orderCode, orderCodeParam]);
 
   const handleResume = async () => {
     setResuming(true);

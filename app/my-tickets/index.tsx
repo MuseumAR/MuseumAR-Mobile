@@ -1,10 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
-  Image,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -15,11 +15,11 @@ import {
   openPayOsCheckout,
   useMyTickets,
   usePendingOrder,
-} from '../src/hooks/useTicketing';
-import { useLanguage } from '../src/i18n/LanguageContext';
-import { apiService, MyTicketDto, PendingOrderDto } from '../src/services/apiService';
-import { C } from '../src/theme/colors';
-import { formatVisitorDate } from '../src/utils/visitorLists';
+} from '../../src/hooks/useTicketing';
+import { useLanguage } from '../../src/i18n/LanguageContext';
+import { apiService, MyTicketDto, PendingOrderDto } from '../../src/services/apiService';
+import { C } from '../../src/theme/colors';
+import { formatVisitorDate } from '../../src/utils/visitorLists';
 
 function statusStyle(
   status: string | undefined,
@@ -35,17 +35,43 @@ function statusStyle(
   return { color: C.textMuted, label: status ?? '—' };
 }
 
+function formatCountdown(totalSeconds: number): string {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
 function PendingOrderCard({
   pending,
   onResume,
+  onCancel,
   busy,
 }: {
   pending: PendingOrderDto;
   onResume: () => void;
+  onCancel: () => void;
   busy: boolean;
 }) {
   const { t } = useLanguage();
-  const canResume = Boolean(pending.checkoutUrl);
+  const [secondsLeft, setSecondsLeft] = useState(
+    Math.max(0, pending.remainingSeconds ?? 0),
+  );
+
+  useEffect(() => {
+    setSecondsLeft(Math.max(0, pending.remainingSeconds ?? 0));
+  }, [pending.orderCode, pending.remainingSeconds, pending.expiresAt]);
+
+  useEffect(() => {
+    if (secondsLeft <= 0) return;
+    const id = setInterval(() => {
+      setSecondsLeft((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(id);
+  }, [secondsLeft > 0, pending.orderCode]);
+
+  const canResume = Boolean(pending.checkoutUrl) && secondsLeft > 0;
+  const expired = secondsLeft <= 0;
 
   return (
     <View style={[styles.card, styles.pendingCard]}>
@@ -62,22 +88,20 @@ function PendingOrderCard({
             ]}
           >
             <Text style={[styles.statusText, { color: C.accent }]}>
-              {t('ticket.statusPending')}
+              {expired ? t('ticket.statusCancelled') : t('ticket.statusPending')}
             </Text>
           </View>
         </View>
 
         <Text style={styles.orderCode}>
-          {t('ticket.title')}: {pending.orderCode}
+          {t('ticket.orderCode')}: {pending.orderCode}
         </Text>
-        {pending.quantity != null ? (
-          <Text style={styles.museum}>
-            ×{pending.quantity}
-            {pending.remainingSeconds != null && pending.remainingSeconds > 0
-              ? ` · ${Math.ceil(pending.remainingSeconds / 60)} ${t('ticket.minutesLeft')}`
-              : ''}
-          </Text>
-        ) : null}
+        <Text style={styles.museum}>
+          ×{pending.quantity ?? 1}
+          {!expired
+            ? ` · ${t('ticket.expiresIn')} ${formatCountdown(secondsLeft)}`
+            : ` · ${t('ticket.expiredHint')}`}
+        </Text>
 
         <View style={styles.footerRow}>
           <Text style={styles.price}>
@@ -87,33 +111,51 @@ function PendingOrderCard({
           </Text>
         </View>
 
-        {canResume ? (
-          <TouchableOpacity
-            style={styles.resumeBtn}
-            onPress={onResume}
-            disabled={busy}
-          >
-            {busy ? (
-              <ActivityIndicator size="small" color={C.onAccent} />
-            ) : (
-              <>
-                <MaterialCommunityIcons name="qrcode" size={16} color={C.onAccent} />
-                <Text style={styles.resumeBtnText}>{t('ticket.resumePayos')}</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        ) : null}
+        <View style={styles.pendingActions}>
+          {canResume ? (
+            <TouchableOpacity
+              style={styles.resumeBtn}
+              onPress={onResume}
+              disabled={busy}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color={C.onAccent} />
+              ) : (
+                <>
+                  <MaterialCommunityIcons name="credit-card-outline" size={16} color={C.onAccent} />
+                  <Text style={styles.resumeBtnText}>{t('ticket.resumePayos')}</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : null}
+
+          {!expired ? (
+            <TouchableOpacity
+              style={styles.cancelBtn}
+              onPress={onCancel}
+              disabled={busy}
+            >
+              <Text style={styles.cancelBtnText}>{t('ticket.cancelOrder')}</Text>
+            </TouchableOpacity>
+          ) : null}
+        </View>
       </View>
     </View>
   );
 }
 
-function TicketCard({ ticket }: { ticket: MyTicketDto }) {
+function TicketCard({
+  ticket,
+  onPress,
+}: {
+  ticket: MyTicketDto;
+  onPress: () => void;
+}) {
   const { t } = useLanguage();
   const st = statusStyle(ticket.status, t);
 
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.75}>
       <View style={[styles.accent, { backgroundColor: st.color }]} />
       <View style={styles.cardBody}>
         <View style={styles.cardHeader}>
@@ -129,8 +171,6 @@ function TicketCard({ ticket }: { ticket: MyTicketDto }) {
             <Text style={[styles.statusText, { color: st.color }]}>{st.label}</Text>
           </View>
         </View>
-
-        {ticket.museumName ? <Text style={styles.museum}>{ticket.museumName}</Text> : null}
 
         <View style={styles.metaRow}>
           {ticket.ticketCode ? (
@@ -148,25 +188,18 @@ function TicketCard({ ticket }: { ticket: MyTicketDto }) {
         </View>
 
         <View style={styles.footerRow}>
-          <Text style={styles.price}>
-            {ticket.price != null
-              ? ticket.price === 0
-                ? '—'
-                : `${Number(ticket.price).toLocaleString('vi-VN')}đ`
+          <Text style={styles.purchased}>
+            {ticket.purchaseDate || ticket.purchasedAt
+              ? formatVisitorDate(ticket.purchaseDate || ticket.purchasedAt || '')
               : ''}
           </Text>
-          {ticket.purchaseDate || ticket.purchasedAt ? (
-            <Text style={styles.purchased}>
-              {formatVisitorDate(ticket.purchaseDate || ticket.purchasedAt || '')}
-            </Text>
-          ) : null}
+          <View style={styles.openRow}>
+            <Text style={styles.openText}>{t('ticket.viewDetail')}</Text>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={C.accent} />
+          </View>
         </View>
-
-        {ticket.qrCodeUrl && (ticket.status ?? '').toLowerCase() === 'paid' ? (
-          <Image source={{ uri: ticket.qrCodeUrl }} style={styles.qr} resizeMode="contain" />
-        ) : null}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -179,7 +212,7 @@ export default function MyTicketsScreen() {
     loading: pendingLoading,
     refresh: refreshPending,
   } = usePendingOrder();
-  const [resuming, setResuming] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   const refreshAll = useCallback(async () => {
     await Promise.all([refresh(), refreshPending()]);
@@ -191,6 +224,17 @@ export default function MyTicketsScreen() {
     }, [refreshAll]),
   );
 
+  // When countdown hits 0, re-sync so BE can expire the order.
+  useEffect(() => {
+    if (!pending) return;
+    const sec = pending.remainingSeconds ?? 0;
+    if (sec <= 0) return;
+    const timer = setTimeout(() => {
+      void refreshAll();
+    }, (sec + 1) * 1000);
+    return () => clearTimeout(timer);
+  }, [pending?.orderCode, pending?.remainingSeconds, refreshAll]);
+
   const handleResumePending = async () => {
     if (!pending?.checkoutUrl) return;
     const orderCode = pending.orderCode;
@@ -199,9 +243,8 @@ export default function MyTicketsScreen() {
       (item) => (item.status ?? '').toLowerCase() === 'paid',
     ).length;
 
-    setResuming(true);
+    setBusy(true);
     try {
-      // Sync PayOS status before opening (may already be paid/cancelled).
       try {
         const check = await apiService.checkPayment(orderCode);
         if (check.data?.isPaid) {
@@ -264,8 +307,33 @@ export default function MyTicketsScreen() {
         },
       });
     } finally {
-      setResuming(false);
+      setBusy(false);
     }
+  };
+
+  const handleCancelPending = () => {
+    if (!pending?.orderCode) return;
+    Alert.alert(t('ticket.cancelOrder'), t('ticket.cancelOrderConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('ticket.cancelOrder'),
+        style: 'destructive',
+        onPress: async () => {
+          setBusy(true);
+          try {
+            await apiService.cancelOrder(pending.orderCode);
+            await refreshAll();
+          } catch (err: unknown) {
+            Alert.alert(
+              t('exhibit.error'),
+              err instanceof Error ? err.message : t('ticket.cancelOrderFail'),
+            );
+          } finally {
+            setBusy(false);
+          }
+        },
+      },
+    ]);
   };
 
   const listRefreshing = loading || pendingLoading;
@@ -285,7 +353,8 @@ export default function MyTicketsScreen() {
               <PendingOrderCard
                 pending={pending}
                 onResume={handleResumePending}
-                busy={resuming}
+                onCancel={handleCancelPending}
+                busy={busy}
               />
             ) : null}
             {tickets.length > 0 ? (
@@ -315,7 +384,12 @@ export default function MyTicketsScreen() {
             </View>
           ) : null
         }
-        renderItem={({ item }) => <TicketCard ticket={item} />}
+        renderItem={({ item }) => (
+          <TicketCard
+            ticket={item}
+            onPress={() => router.push(`/my-tickets/${item.id}`)}
+          />
+        )}
       />
     </SafeAreaView>
   );
@@ -354,10 +428,10 @@ const styles = StyleSheet.create({
   },
   price: { fontSize: 16, fontWeight: '800', color: C.accent },
   purchased: { fontSize: 11, color: C.textMuted },
-  qr: { width: 120, height: 120, alignSelf: 'center', marginTop: 14 },
+  openRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  openText: { fontSize: 13, color: C.accent, fontWeight: '600' },
+  pendingActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   resumeBtn: {
-    marginTop: 14,
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -367,6 +441,15 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   resumeBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 13 },
+  cancelBtn: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: C.danger + '66',
+    backgroundColor: C.danger + '12',
+  },
+  cancelBtnText: { color: C.danger, fontWeight: '700', fontSize: 13 },
 
   center: { alignItems: 'center', paddingTop: 48, paddingHorizontal: 24 },
   emptyTitle: { fontSize: 18, fontWeight: '700', color: C.textPrimary, marginBottom: 8 },

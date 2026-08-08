@@ -237,6 +237,40 @@ export interface PendingOrderDto {
   remainingSeconds?: number;
 }
 
+/** GET /Ticketing/my-tickets/{id} */
+export interface TicketDetailDto {
+  id: number;
+  ticketCode: string;
+  status: string;
+  purchaseDate: string;
+  validDate?: string | null;
+  ticketType: {
+    id: number;
+    name: string;
+    price: number;
+    description?: string | null;
+  };
+  museum: {
+    id: number;
+    name: string;
+    address?: string | null;
+  };
+  exhibition?: {
+    id: number;
+    name: string;
+  } | null;
+  order: {
+    orderCode: string;
+    totalAmount: number;
+    currency: string;
+    paymentStatus: string;
+    paymentMethod?: string | null;
+    paidAt?: string | null;
+  };
+  qrCodeData?: string | null;
+  qrCodeImageUrl?: string | null;
+}
+
 /**
  * GET /Payment/check-status/{orderCode}
  * BE: { isPaid, isCancelled, status }
@@ -1035,6 +1069,68 @@ export const apiService = {
   /** Paid tickets only. */
   async getMyTickets(): Promise<ApiResponse<MyTicketDto[]>> {
     return apiFetch<MyTicketDto[]>('Ticketing/my-tickets');
+  },
+
+  /** GET /Ticketing/my-tickets/{id} — paid ticket detail + check-in QR payload. */
+  async getTicketDetail(ticketId: number): Promise<ApiResponse<TicketDetailDto>> {
+    const response = await apiFetch<TicketDetailDto & Record<string, unknown>>(
+      `Ticketing/my-tickets/${ticketId}`,
+    );
+    const raw = response.data;
+    if (!raw) return { ...response, data: undefined };
+
+    const asRecord = (v: unknown) =>
+      v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+
+    const ticketType = asRecord(raw.ticketType ?? raw.TicketType);
+    const museum = asRecord(raw.museum ?? raw.Museum);
+    const exhibition = asRecord(raw.exhibition ?? raw.Exhibition);
+    const order = asRecord(raw.order ?? raw.Order);
+    const hasExhibition = Object.keys(exhibition).length > 0;
+
+    return {
+      ...response,
+      data: {
+        id: Number(raw.id ?? raw.Id ?? ticketId),
+        ticketCode: String(raw.ticketCode ?? raw.TicketCode ?? ''),
+        status: String(raw.status ?? raw.Status ?? ''),
+        purchaseDate: String(raw.purchaseDate ?? raw.PurchaseDate ?? ''),
+        validDate: (raw.validDate ?? raw.ValidDate ?? null) as string | null,
+        ticketType: {
+          id: Number(ticketType.id ?? ticketType.Id ?? 0),
+          name: String(ticketType.name ?? ticketType.Name ?? ''),
+          price: Number(ticketType.price ?? ticketType.Price ?? 0),
+          description: (ticketType.description ?? ticketType.Description ?? null) as
+            | string
+            | null,
+        },
+        museum: {
+          id: Number(museum.id ?? museum.Id ?? 0),
+          name: String(museum.name ?? museum.Name ?? ''),
+          address: (museum.address ?? museum.Address ?? null) as string | null,
+        },
+        exhibition: hasExhibition
+          ? {
+              id: Number(exhibition.id ?? exhibition.Id ?? 0),
+              name: String(exhibition.name ?? exhibition.Name ?? ''),
+            }
+          : null,
+        order: {
+          orderCode: String(order.orderCode ?? order.OrderCode ?? ''),
+          totalAmount: Number(order.totalAmount ?? order.TotalAmount ?? 0),
+          currency: String(order.currency ?? order.Currency ?? 'VND'),
+          paymentStatus: String(order.paymentStatus ?? order.PaymentStatus ?? ''),
+          paymentMethod: (order.paymentMethod ?? order.PaymentMethod ?? null) as
+            | string
+            | null,
+          paidAt: (order.paidAt ?? order.PaidAt ?? null) as string | null,
+        },
+        qrCodeData: (raw.qrCodeData ?? raw.QrCodeData ?? null) as string | null,
+        qrCodeImageUrl: (raw.qrCodeImageUrl ?? raw.QrCodeImageUrl ?? null) as
+          | string
+          | null,
+      },
+    };
   },
 
   /**
