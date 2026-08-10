@@ -62,8 +62,12 @@ function RootStack() {
           options={{ headerShown: true, headerTitle: t('header.bookmarks'), ...headerOpts }}
         />
         <Stack.Screen
-          name="my-tickets"
+          name="my-tickets/index"
           options={{ headerShown: true, headerTitle: t('header.myTickets'), ...headerOpts }}
+        />
+        <Stack.Screen
+          name="my-tickets/[id]"
+          options={{ headerShown: true, headerTitle: t('header.ticketDetail'), ...headerOpts }}
         />
         <Stack.Screen
           name="settings"

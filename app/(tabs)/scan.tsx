@@ -2,6 +2,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   StyleSheet,
   Text,
@@ -12,46 +13,39 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { parseQRCode } from '../../src/data/qrData';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useLanguage } from '../../src/i18n/LanguageContext';
+import { apiService } from '../../src/services/apiService';
+import { getVisitorId } from '../../src/services/sessionStorage';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
 
 export default function ScanScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { track } = useTrackAction();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
+  const [resolving, setResolving] = useState(false);
 
-  const handleBarcodeScanned = useCallback(
-    ({ data }: { data: string }) => {
-      if (scanned) return;
-      setScanned(true);
+  const openExhibit = useCallback(
+    (exhibitId: number) => {
+      track({
+        actionType: 'ScanQR',
+        exhibitId,
+      });
+      setScanning(false);
+      setResolving(false);
+      router.push(`/exhibit/${exhibitId}`);
+    },
+    [router, track],
+  );
 
-      const target = parseQRCode(data);
-
-      if (target.type === 'exhibit') {
-        const exhibitId = parseNumericId(target.id);
-        if (exhibitId != null) {
-          track({
-            actionType: 'ScanQR',
-            exhibitId,
-          });
-        }
-        setScanning(false);
-        router.push(`/exhibit/${target.id}`);
-        return;
-      }
-
-      if (target.type === 'museum') {
-        setScanning(false);
-        router.push(`/museum/${target.id}`);
-        return;
-      }
-
+  const showInvalid = useCallback(
+    (raw: string) => {
+      setResolving(false);
       Alert.alert(
         t('scan.invalidQr'),
-        `${t('scan.invalidQr')}:\n${data.slice(0, 120)}`,
+        `${t('scan.invalidQr')}:\n${raw.slice(0, 120)}`,
         [
           {
             text: t('scan.rescan'),
@@ -60,7 +54,55 @@ export default function ScanScreen() {
         ],
       );
     },
-    [router, track, scanned, t],
+    [t],
+  );
+
+  const handleBarcodeScanned = useCallback(
+    async ({ data }: { data: string }) => {
+      if (scanned || resolving) return;
+      setScanned(true);
+
+      const raw = data.trim();
+      const local = parseQRCode(raw);
+
+      // Museum deep links stay client-side (BE scan-qr is exhibit-only).
+      if (local.type === 'museum') {
+        setScanning(false);
+        router.push(`/museum/${local.id}`);
+        return;
+      }
+
+      setResolving(true);
+      try {
+        // Newest WebBE: GET /Content/exhibits/scan-qr
+        // Matches exact QrcodeData (MUSEUM_EX_…), ExhibitCode, or numeric Id.
+        const visitorId = await getVisitorId();
+        const response = await apiService.scanExhibitQr({
+          qrData: raw,
+          lang,
+          visitorId,
+        });
+        const exhibitId = response.data?.exhibitId;
+        if (exhibitId != null && exhibitId > 0) {
+          openExhibit(exhibitId);
+          return;
+        }
+      } catch {
+        // Fall through to local parse (offline / deep-link payloads).
+      }
+
+      // Offline / deep-link fallback: MUSEUM_EX_{id}_…, museumar://exhibit/…, numeric id
+      if (local.type === 'exhibit') {
+        const exhibitId = parseNumericId(local.id);
+        if (exhibitId != null) {
+          openExhibit(exhibitId);
+          return;
+        }
+      }
+
+      showInvalid(raw);
+    },
+    [scanned, resolving, router, lang, openExhibit, showInvalid],
   );
 
   if (!permission) {
@@ -78,9 +120,7 @@ export default function ScanScreen() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.center}>
           <Text style={styles.title}>{t('scan.needPermission')}</Text>
-          <Text style={styles.subtitle}>
-            {t('scan.needPermissionHint')}
-          </Text>
+          <Text style={styles.subtitle}>{t('scan.needPermissionHint')}</Text>
           <TouchableOpacity style={styles.scanBtn} onPress={requestPermission}>
             <Text style={styles.scanBtnText}>{t('scan.allowCamera')}</Text>
           </TouchableOpacity>
@@ -93,9 +133,7 @@ export default function ScanScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <View style={styles.container}>
         <Text style={styles.title}>{t('scan.title')}</Text>
-        <Text style={styles.subtitle}>
-          {t('scan.subtitle')}
-        </Text>
+        <Text style={styles.subtitle}>{t('scan.subtitle')}</Text>
 
         <View style={styles.cameraWrap}>
           {scanning ? (
@@ -103,7 +141,7 @@ export default function ScanScreen() {
               style={StyleSheet.absoluteFill}
               facing="back"
               barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-              onBarcodeScanned={scanned ? undefined : handleBarcodeScanned}
+              onBarcodeScanned={scanned || resolving ? undefined : handleBarcodeScanned}
             />
           ) : (
             <View style={styles.cameraOff}>
@@ -118,12 +156,21 @@ export default function ScanScreen() {
             <View style={[styles.corner, styles.cornerBL]} />
             <View style={[styles.corner, styles.cornerBR]} />
           </View>
+
+          {resolving ? (
+            <View style={styles.resolvingOverlay} pointerEvents="none">
+              <ActivityIndicator color={C.accent} />
+              <Text style={styles.resolvingText}>{t('scan.resolving')}</Text>
+            </View>
+          ) : null}
         </View>
 
         <TouchableOpacity
           style={[styles.scanBtn, scanning && styles.scanBtnStop]}
+          disabled={resolving}
           onPress={() => {
             setScanned(false);
+            setResolving(false);
             setScanning((v) => !v);
           }}
         >
@@ -132,9 +179,7 @@ export default function ScanScreen() {
           </Text>
         </TouchableOpacity>
 
-        <Text style={styles.tip}>
-          {t('scan.tip')}
-        </Text>
+        <Text style={styles.tip}>{t('scan.tip')}</Text>
       </View>
     </SafeAreaView>
   );
@@ -189,6 +234,14 @@ const styles = StyleSheet.create({
   cornerBR: { bottom: 0, right: 0, borderLeftWidth: 0, borderTopWidth: 0, borderBottomRightRadius: 6 },
   cameraHint: { color: C.textPrimary, fontSize: 16, fontWeight: '600' },
   cameraSubHint: { color: C.textMuted, fontSize: 12, marginTop: 6, textAlign: 'center' },
+  resolvingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    gap: 10,
+  },
+  resolvingText: { color: '#fff', fontWeight: '600', fontSize: 13 },
   scanBtn: {
     marginTop: 28,
     backgroundColor: C.accent,

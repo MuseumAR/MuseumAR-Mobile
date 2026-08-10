@@ -7,8 +7,10 @@ import {
   CreateOrderResponse,
   getAuthErrorMessage,
   MyTicketDto,
+  PendingOrderDto,
   TicketTypeDto,
 } from '../services/apiService';
+import { useLanguage } from '../i18n/LanguageContext';
 import { ensureVisitorSynced } from '../services/ensureVisitorSynced';
 import { getToken } from '../services/tokenStorage';
 
@@ -113,8 +115,9 @@ export async function openPayOsCheckout(
   }
 }
 
-/** Lấy loại vé (GET /Ticketing/types), fallback mock nếu API lỗi. */
+/** Lấy loại vé (GET /Ticketing/types?lang=), fallback mock nếu API lỗi. */
 export function useTicketTypes() {
+  const { lang } = useLanguage();
   const [types, setTypes] = useState<TicketTypeDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -123,7 +126,7 @@ export function useTicketTypes() {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiService.getTicketTypes();
+      const response = await apiService.getTicketTypes(lang);
       const list = (response.data ?? []).filter(
         (t) => !t.status || t.status.toLowerCase() === 'approved' || t.isActive !== false,
       );
@@ -134,7 +137,7 @@ export function useTicketTypes() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     refresh();
@@ -179,6 +182,35 @@ export function useMyTickets() {
   return { tickets, loading, authRequired, error, refresh };
 }
 
+/** Active pending PayOS order — GET /Ticketing/pending-order. */
+export function usePendingOrder() {
+  const [pending, setPending] = useState<PendingOrderDto | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    const token = await getToken();
+    if (!token) {
+      setPending(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await ensureVisitorSynced().catch(() => undefined);
+      const response = await apiService.getPendingOrder();
+      setPending(response.data ?? null);
+    } catch (err: unknown) {
+      setError(getAuthErrorMessage(err, 'Không thể tải đơn chờ thanh toán'));
+      setPending(null);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  return { pending, loading, error, refresh };
+}
+
 export type CreateOrderSubmitResult =
   | {
       ok: true;
@@ -191,16 +223,14 @@ export type CreateOrderSubmitResult =
 
 /**
  * Đặt vé + PayOS:
- * success → Paid screen | cancel → Cancelled | close → Pending (resume later)
+ * success → Paid screen | cancel → Payment/cancel | close → Pending (resume via pending-order)
  */
 export function useCreateOrder() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const submit = useCallback(
-    async (
-      payload: Omit<CreateOrderRequest, 'returnUrl' | 'cancelUrl'>,
-    ): Promise<CreateOrderSubmitResult> => {
+    async (payload: CreateOrderRequest): Promise<CreateOrderSubmitResult> => {
       const token = await getToken();
       if (!token) {
         return { ok: false, authRequired: true, message: 'Vui lòng đăng nhập để đặt vé.' };
@@ -219,13 +249,7 @@ export function useCreateOrder() {
           paidCountBefore = 0;
         }
 
-        const { success: returnUrl, cancel: cancelUrl } = buildPayOsReturnUrls();
-
-        const response = await apiService.createOrder({
-          ...payload,
-          returnUrl,
-          cancelUrl,
-        });
+        const response = await apiService.createOrder(payload);
         const order = response.data;
         if (!order) {
           return { ok: false, message: response.message || 'Đặt vé thất bại.' };
@@ -257,7 +281,7 @@ export function useCreateOrder() {
           try {
             await apiService.cancelOrder(order.orderCode);
           } catch (cancelErr) {
-            console.warn('cancel-order failed:', cancelErr);
+            console.warn('Payment/cancel failed:', cancelErr);
           }
         }
 
@@ -287,14 +311,60 @@ export function countPaidTickets(tickets: MyTicketDto[]): number {
 }
 
 /**
- * Resume an existing Pending PayOS checkout (after check-payment).
+ * Resolve checkout URL for resume: prefer pending-order, optionally verify status.
  */
-export async function resumePayOsPayment(checkoutUrl: string): Promise<PaymentBrowserOutcome> {
-  let outcome = await openPayOsCheckout(checkoutUrl);
-  if (outcome === 'pending') {
-    // Leave as pending — caller shows pending screen
+export async function resolveResumeCheckout(orderCode?: string): Promise<{
+  orderCode?: string;
+  checkoutUrl?: string;
+  isPaid: boolean;
+  isCancelled: boolean;
+}> {
+  if (orderCode) {
+    try {
+      const check = await apiService.checkPayment(orderCode);
+      if (check.data?.isPaid) {
+        return { orderCode, isPaid: true, isCancelled: false };
+      }
+      if (check.data?.isCancelled || check.data?.valid === false) {
+        return { orderCode, isPaid: false, isCancelled: true };
+      }
+    } catch {
+      // continue to pending-order
+    }
   }
-  return outcome;
+
+  try {
+    const pendingRes = await apiService.getPendingOrder();
+    const pending = pendingRes.data;
+    if (pending?.checkoutUrl) {
+      return {
+        orderCode: pending.orderCode,
+        checkoutUrl: pending.checkoutUrl,
+        isPaid: false,
+        isCancelled: false,
+      };
+    }
+    if (pending && !pending.checkoutUrl) {
+      return {
+        orderCode: pending.orderCode,
+        isPaid: false,
+        isCancelled: false,
+      };
+    }
+  } catch {
+    // no pending
+  }
+
+  return {
+    orderCode,
+    isPaid: false,
+    isCancelled: false,
+  };
+}
+
+/** Resume an existing Pending PayOS checkout. */
+export async function resumePayOsPayment(checkoutUrl: string): Promise<PaymentBrowserOutcome> {
+  return openPayOsCheckout(checkoutUrl);
 }
 
 /**

@@ -69,6 +69,35 @@ export interface ExhibitDto {
   translations: ExhibitTranslationDto[];
 }
 
+/** GET /Content/exhibits/scan-qr result (newest WebBE). */
+export interface ExhibitScanArAssetDto {
+  assetId?: number;
+  AssetId?: number;
+  assetType?: string;
+  AssetType?: string;
+  assetUrl?: string;
+  AssetUrl?: string;
+  fileSizeBytes?: number | null;
+  description?: string | null;
+}
+
+export interface ExhibitScanResultDto {
+  exhibitId: number;
+  exhibitCode: string;
+  qrcodeData: string;
+  title: string;
+  description: string;
+  audioUrl?: string | null;
+  languageCode: string;
+  categoryName?: string | null;
+  roomName?: string | null;
+  thumbnailUrl?: string | null;
+  aroverlayUrl?: string | null;
+  armarkerUrl?: string | null;
+  images: string[];
+  arAssets: ExhibitScanArAssetDto[];
+}
+
 export interface TrackActionRequest {
   museumId?: number | null;
   exhibitId?: number | null;
@@ -153,20 +182,14 @@ export interface TicketTypeDto {
 }
 
 export interface CreateOrderRequest {
-  /** Spec: POST /Ticketing/create-order body { ticketTypeId, quantity } */
+  /** POST /Ticketing/create-order body { ticketTypeId, quantity } */
   ticketTypeId: number;
   quantity: number;
-  /**
-   * Optional deep links for PayOS redirect back into the app.
-   * Requires BE to forward these into CreatePaymentLink (ignored if BE DTO lacks fields).
-   */
-  returnUrl?: string;
-  cancelUrl?: string;
 }
 
 /**
  * POST /Ticketing/create-order → PayOS payment payload
- * (PaymentService anonymous object: CheckoutUrl, QrCode, OrderCode, Amount).
+ * (PaymentService: CheckoutUrl, QrCode, OrderCode, Amount).
  */
 export interface CreateOrderResponse {
   checkoutUrl?: string;
@@ -180,6 +203,7 @@ export interface CreateOrderResponse {
   status?: string;
 }
 
+/** GET /Ticketing/my-tickets — Paid tickets only (current BE). */
 export interface MyTicketDto {
   id: number;
   ticketCode?: string;
@@ -187,9 +211,6 @@ export interface MyTicketDto {
   purchaseDate?: string;
   validDate?: string | null;
   status?: string;
-  orderCode?: string;
-  checkoutUrl?: string;
-  canResumePayment?: boolean;
   /** Optional / legacy aliases used in older UI */
   orderId?: number;
   ticketTypeId?: number;
@@ -199,13 +220,69 @@ export interface MyTicketDto {
   visitDate?: string;
   qrCodeUrl?: string;
   purchasedAt?: string;
+  orderCode?: string;
 }
 
+/** GET /Ticketing/pending-order — active unpaid order (&lt; 15 min). */
+export interface PendingOrderDto {
+  orderCode: string;
+  ticketTypeId?: number;
+  ticketTypeName?: string;
+  quantity?: number;
+  totalAmount?: number;
+  checkoutUrl?: string | null;
+  qrCode?: string | null;
+  createdAt?: string;
+  expiresAt?: string;
+  remainingSeconds?: number;
+}
+
+/** GET /Ticketing/my-tickets/{id} */
+export interface TicketDetailDto {
+  id: number;
+  ticketCode: string;
+  status: string;
+  purchaseDate: string;
+  validDate?: string | null;
+  ticketType: {
+    id: number;
+    name: string;
+    price: number;
+    description?: string | null;
+  };
+  museum: {
+    id: number;
+    name: string;
+    address?: string | null;
+  };
+  exhibition?: {
+    id: number;
+    name: string;
+  } | null;
+  order: {
+    orderCode: string;
+    totalAmount: number;
+    currency: string;
+    paymentStatus: string;
+    paymentMethod?: string | null;
+    paidAt?: string | null;
+  };
+  qrCodeData?: string | null;
+  qrCodeImageUrl?: string | null;
+}
+
+/**
+ * GET /Payment/check-status/{orderCode}
+ * BE: { isPaid, isCancelled, status }
+ * `valid` = still pending (can resume PayOS).
+ */
 export interface PaymentCheckDto {
-  valid?: boolean;
+  isPaid?: boolean;
+  isCancelled?: boolean;
   status?: string;
   orderCode?: string;
-  checkoutUrl?: string | null;
+  /** true when payment is still pending (not paid, not cancelled) */
+  valid?: boolean;
 }
 
 // --- CONTENT ---
@@ -805,6 +882,59 @@ export const apiService = {
   },
 
   /**
+   * Resolve exhibit from printed QR payload.
+   * GET /Content/exhibits/scan-qr?qrData=&lang=&visitorId=
+   * BE matches: exact QrcodeData | ExhibitCode | numeric Id.
+   */
+  async scanExhibitQr(options: {
+    qrData: string;
+    lang?: string;
+    visitorId?: number | null;
+  }): Promise<ApiResponse<ExhibitScanResultDto>> {
+    const response = await apiFetch<ExhibitScanResultDto & Record<string, unknown>>(
+      `Content/exhibits/scan-qr${buildQuery({
+        qrData: options.qrData.trim(),
+        lang: options.lang ?? 'vi',
+        visitorId:
+          options.visitorId != null && options.visitorId > 0
+            ? options.visitorId
+            : undefined,
+      })}`,
+    );
+    const raw = response.data;
+    if (!raw) return { ...response, data: undefined };
+
+    const exhibitId = Number(raw.exhibitId ?? raw.ExhibitId ?? 0);
+    if (!Number.isFinite(exhibitId) || exhibitId <= 0) {
+      return { ...response, data: undefined };
+    }
+
+    return {
+      ...response,
+      data: {
+        exhibitId,
+        exhibitCode: String(raw.exhibitCode ?? raw.ExhibitCode ?? ''),
+        qrcodeData: String(raw.qrcodeData ?? raw.QrcodeData ?? options.qrData),
+        title: String(raw.title ?? raw.Title ?? ''),
+        description: String(raw.description ?? raw.Description ?? ''),
+        audioUrl: (raw.audioUrl ?? raw.AudioUrl ?? null) as string | null,
+        languageCode: String(raw.languageCode ?? raw.LanguageCode ?? 'vi'),
+        categoryName: (raw.categoryName ?? raw.CategoryName ?? null) as string | null,
+        roomName: (raw.roomName ?? raw.RoomName ?? null) as string | null,
+        thumbnailUrl: (raw.thumbnailUrl ?? raw.ThumbnailUrl ?? null) as string | null,
+        aroverlayUrl: (raw.aroverlayUrl ?? raw.AroverlayUrl ?? null) as string | null,
+        armarkerUrl: (raw.armarkerUrl ?? raw.ArmarkerUrl ?? null) as string | null,
+        images: Array.isArray(raw.images ?? raw.Images)
+          ? ((raw.images ?? raw.Images) as string[])
+          : [],
+        arAssets: Array.isArray(raw.arAssets ?? raw.ArAssets)
+          ? ((raw.arAssets ?? raw.ArAssets) as ExhibitScanResultDto['arAssets'])
+          : [],
+      },
+    };
+  },
+
+  /**
    * BE GetExhibit sometimes returns empty translations.
    * Prefer this when title/description/audio are needed.
    */
@@ -890,9 +1020,11 @@ export const apiService = {
     return apiFetch<TagDto[]>('Content/tags');
   },
 
-  // --- TICKETING ---
-  async getTicketTypes(): Promise<ApiResponse<TicketTypeDto[]>> {
-    return apiFetch<TicketTypeDto[]>('Ticketing/types');
+  // --- TICKETING / PAYMENT (aligned with current WebBE) ---
+  async getTicketTypes(lang?: string): Promise<ApiResponse<TicketTypeDto[]>> {
+    return apiFetch<TicketTypeDto[]>(
+      `Ticketing/types${buildQuery(lang ? { lang } : undefined)}`,
+    );
   },
 
   async createOrder(payload: CreateOrderRequest): Promise<ApiResponse<CreateOrderResponse>> {
@@ -903,8 +1035,6 @@ export const apiService = {
         body: JSON.stringify({
           ticketTypeId: payload.ticketTypeId,
           quantity: payload.quantity,
-          ...(payload.returnUrl ? { returnUrl: payload.returnUrl } : {}),
-          ...(payload.cancelUrl ? { cancelUrl: payload.cancelUrl } : {}),
         }),
       },
     );
@@ -936,36 +1066,155 @@ export const apiService = {
     };
   },
 
+  /** Paid tickets only. */
   async getMyTickets(): Promise<ApiResponse<MyTicketDto[]>> {
     return apiFetch<MyTicketDto[]>('Ticketing/my-tickets');
   },
 
-  /**
-   * POST /Ticketing/cancel-order?orderCode= — JWT.
-   * Marks Pending tickets Cancelled when user cancels PayOS.
-   */
-  async cancelOrder(orderCode: string): Promise<ApiResponse<unknown>> {
-    return apiFetch<unknown>(
-      `Ticketing/cancel-order${buildQuery({ orderCode })}`,
-      { method: 'POST' },
-    );
-  },
-
-  /** GET /Ticketing/check-payment?orderCode= — sync PayOS status; may expire → Cancelled. */
-  async checkPayment(orderCode: string): Promise<ApiResponse<PaymentCheckDto>> {
-    const response = await apiFetch<PaymentCheckDto & Record<string, unknown>>(
-      `Ticketing/check-payment${buildQuery({ orderCode })}`,
+  /** GET /Ticketing/my-tickets/{id} — paid ticket detail + check-in QR payload. */
+  async getTicketDetail(ticketId: number): Promise<ApiResponse<TicketDetailDto>> {
+    const response = await apiFetch<TicketDetailDto & Record<string, unknown>>(
+      `Ticketing/my-tickets/${ticketId}`,
     );
     const raw = response.data;
     if (!raw) return { ...response, data: undefined };
+
+    const asRecord = (v: unknown) =>
+      v && typeof v === 'object' ? (v as Record<string, unknown>) : {};
+
+    const ticketType = asRecord(raw.ticketType ?? raw.TicketType);
+    const museum = asRecord(raw.museum ?? raw.Museum);
+    const exhibition = asRecord(raw.exhibition ?? raw.Exhibition);
+    const order = asRecord(raw.order ?? raw.Order);
+    const hasExhibition = Object.keys(exhibition).length > 0;
+
     return {
       ...response,
       data: {
-        valid: Boolean(raw.valid ?? raw.Valid),
+        id: Number(raw.id ?? raw.Id ?? ticketId),
+        ticketCode: String(raw.ticketCode ?? raw.TicketCode ?? ''),
         status: String(raw.status ?? raw.Status ?? ''),
-        orderCode: String(raw.orderCode ?? raw.OrderCode ?? orderCode),
-        checkoutUrl:
-          String(raw.checkoutUrl ?? raw.CheckoutUrl ?? '').trim() || null,
+        purchaseDate: String(raw.purchaseDate ?? raw.PurchaseDate ?? ''),
+        validDate: (raw.validDate ?? raw.ValidDate ?? null) as string | null,
+        ticketType: {
+          id: Number(ticketType.id ?? ticketType.Id ?? 0),
+          name: String(ticketType.name ?? ticketType.Name ?? ''),
+          price: Number(ticketType.price ?? ticketType.Price ?? 0),
+          description: (ticketType.description ?? ticketType.Description ?? null) as
+            | string
+            | null,
+        },
+        museum: {
+          id: Number(museum.id ?? museum.Id ?? 0),
+          name: String(museum.name ?? museum.Name ?? ''),
+          address: (museum.address ?? museum.Address ?? null) as string | null,
+        },
+        exhibition: hasExhibition
+          ? {
+              id: Number(exhibition.id ?? exhibition.Id ?? 0),
+              name: String(exhibition.name ?? exhibition.Name ?? ''),
+            }
+          : null,
+        order: {
+          orderCode: String(order.orderCode ?? order.OrderCode ?? ''),
+          totalAmount: Number(order.totalAmount ?? order.TotalAmount ?? 0),
+          currency: String(order.currency ?? order.Currency ?? 'VND'),
+          paymentStatus: String(order.paymentStatus ?? order.PaymentStatus ?? ''),
+          paymentMethod: (order.paymentMethod ?? order.PaymentMethod ?? null) as
+            | string
+            | null,
+          paidAt: (order.paidAt ?? order.PaidAt ?? null) as string | null,
+        },
+        qrCodeData: (raw.qrCodeData ?? raw.QrCodeData ?? null) as string | null,
+        qrCodeImageUrl: (raw.qrCodeImageUrl ?? raw.QrCodeImageUrl ?? null) as
+          | string
+          | null,
+      },
+    };
+  },
+
+  /**
+   * Active unpaid order (&lt; 15 min). Data is null when none.
+   * Also regenerates / returns PayOS CheckoutUrl.
+   */
+  async getPendingOrder(): Promise<ApiResponse<PendingOrderDto | null>> {
+    const response = await apiFetch<PendingOrderDto & Record<string, unknown>>(
+      'Ticketing/pending-order',
+    );
+    const raw = response.data;
+    if (!raw || typeof raw !== 'object') {
+      return { ...response, data: null };
+    }
+    const orderCode = String(raw.orderCode ?? raw.OrderCode ?? '').trim();
+    if (!orderCode) {
+      return { ...response, data: null };
+    }
+    const checkoutUrl =
+      String(raw.checkoutUrl ?? raw.CheckoutUrl ?? '').trim() || null;
+    const amountRaw = raw.totalAmount ?? raw.TotalAmount ?? raw.amount;
+    return {
+      ...response,
+      data: {
+        orderCode,
+        ticketTypeId: Number(raw.ticketTypeId ?? raw.TicketTypeId ?? 0) || undefined,
+        ticketTypeName: String(
+          raw.ticketTypeName ?? raw.TicketTypeName ?? '',
+        ).trim() || undefined,
+        quantity: Number(raw.quantity ?? raw.Quantity ?? 0) || undefined,
+        totalAmount:
+          amountRaw != null && Number.isFinite(Number(amountRaw))
+            ? Number(amountRaw)
+            : undefined,
+        checkoutUrl,
+        qrCode: String(raw.qrCode ?? raw.QrCode ?? '').trim() || null,
+        createdAt: String(raw.createdAt ?? raw.CreatedAt ?? '') || undefined,
+        expiresAt: String(raw.expiresAt ?? raw.ExpiresAt ?? '') || undefined,
+        remainingSeconds: Number(
+          raw.remainingSeconds ?? raw.RemainingSeconds ?? 0,
+        ),
+      },
+    };
+  },
+
+  /** POST /Payment/cancel/{orderCode} */
+  async cancelOrder(orderCode: string): Promise<ApiResponse<unknown>> {
+    return apiFetch<unknown>(`Payment/cancel/${encodeURIComponent(orderCode)}`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  /** GET /Payment/check-status/{orderCode} → { isPaid, isCancelled, status } */
+  async checkPayment(orderCode: string): Promise<ApiResponse<PaymentCheckDto>> {
+    const response = await apiFetch<PaymentCheckDto & Record<string, unknown>>(
+      `Payment/check-status/${encodeURIComponent(orderCode)}`,
+    );
+    const raw = response.data;
+    if (!raw) return { ...response, data: undefined };
+
+    const isPaid = Boolean(raw.isPaid ?? raw.IsPaid);
+    const isCancelled = Boolean(raw.isCancelled ?? raw.IsCancelled);
+    const status = String(raw.status ?? raw.Status ?? '').trim();
+    const statusLower = status.toLowerCase();
+    const paid =
+      isPaid ||
+      statusLower === 'completed' ||
+      statusLower === 'paid';
+    const cancelled =
+      isCancelled ||
+      statusLower === 'cancelled' ||
+      statusLower === 'canceled' ||
+      statusLower === 'expired';
+
+    return {
+      ...response,
+      data: {
+        isPaid: paid,
+        isCancelled: cancelled,
+        status,
+        orderCode,
+        // Still pending → can resume PayOS
+        valid: !paid && !cancelled,
       },
     };
   },
