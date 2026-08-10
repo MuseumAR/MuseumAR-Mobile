@@ -21,8 +21,11 @@ export function parseQRCode(data: string): QRTarget {
 
   const deepLink = trimmed.match(/museumar:\/\/(exhibit|museum)\/([A-Za-z0-9_-]+)/i);
   if (deepLink) {
-    const kind = deepLink[1].toLowerCase() as 'exhibit' | 'museum';
-    return { type: kind, id: deepLink[2] };
+    const kind = deepLink[1].toLowerCase();
+    if (kind === 'museum') {
+      return { type: 'museum', id: deepLink[2] };
+    }
+    return { type: 'exhibit', id: deepLink[2] };
   }
 
   // BE ContentService auto QR: MUSEUM_EX_{id}_{EXHIBITCODE}
@@ -42,5 +45,5 @@ export function parseQRCode(data: string): QRTarget {
     return { type: 'exhibit', id: trimmed };
   }
 
-  return { type: 'unknown'; raw: trimmed };
+  return { type: 'unknown', raw: trimmed };
 }
