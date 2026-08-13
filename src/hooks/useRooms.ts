@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useLanguage } from '../i18n/LanguageContext';
 import { apiService, RoomDto } from '../services/apiService';
 
-/** Phòng bảo tàng — GET /Content/rooms/museum/{museumId}. */
+/** Phòng bảo tàng — GET /Content/rooms/museum/{museumId}?lang=. */
 export function useRooms(museumId: number | null | undefined) {
+  const { lang } = useLanguage();
   const [rooms, setRooms] = useState<RoomDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +19,7 @@ export function useRooms(museumId: number | null | undefined) {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiService.getRoomsByMuseum(id);
+      const response = await apiService.getRoomsByMuseum(id, lang);
       setRooms(Array.isArray(response.data) ? response.data : []);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Không thể tải danh sách phòng');
@@ -25,7 +27,7 @@ export function useRooms(museumId: number | null | undefined) {
     } finally {
       setLoading(false);
     }
-  }, [museumId]);
+  }, [museumId, lang]);
 
   useEffect(() => {
     refresh();

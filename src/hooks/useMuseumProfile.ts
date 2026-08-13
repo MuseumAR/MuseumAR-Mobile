@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiService, MuseumProfileDto } from '../services/apiService';
 import { setCachedMuseumId } from '../services/museumContext';
 import { type MuseumRecord } from '../data/museums';
+import { useLanguage } from '../i18n/LanguageContext';
 import { C } from '../theme/colors';
 
 /** Brand accent only — not mock museum content. */
@@ -84,6 +85,7 @@ const EMPTY_MUSEUM: MuseumRecord = {
  * Bổ sung số hiện vật (Content/exhibits) và giá vé thấp nhất (Ticketing/types).
  */
 export function useMuseumProfile() {
+  const { lang } = useLanguage();
   const [profile, setProfile] = useState<MuseumProfileDto | null>(null);
   const [extras, setExtras] = useState<ProfileExtras>({
     exhibitCount: 0,
@@ -96,7 +98,7 @@ export function useMuseumProfile() {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiService.getMuseumProfile();
+      const response = await apiService.getMuseumProfile(lang);
       const data = response.data ?? null;
       setProfile(data);
 
@@ -105,7 +107,7 @@ export function useMuseumProfile() {
 
         const [exhibitsResult, ticketsResult] = await Promise.allSettled([
           apiService.getExhibits(data.id),
-          apiService.getTicketTypes(),
+          apiService.getTicketTypes(lang),
         ]);
 
         let exhibitCount = data.exhibitCount ?? 0;
@@ -134,7 +136,7 @@ export function useMuseumProfile() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     refresh();

@@ -522,6 +522,53 @@ export interface RoomDto {
   description?: string | null;
 }
 
+/** BE NavigationRouteResponseDto — GET Navigation/route */
+export interface NavigationInstructionDto {
+  stepIndex: number;
+  instruction: string;
+  action: string;
+  distance: number;
+  floorNumber: number;
+  waypointId: string;
+}
+
+export interface NavigationRouteResponseDto {
+  fromRoomId: number;
+  fromRoomName: string;
+  toRoomId: number;
+  toRoomName: string;
+  totalDistance: number;
+  instructions: NavigationInstructionDto[];
+}
+
+export function normalizeNavigationRoute(
+  raw: Partial<NavigationRouteResponseDto> & Record<string, unknown>,
+): NavigationRouteResponseDto {
+  const instructionsRaw = Array.isArray(raw.instructions)
+    ? raw.instructions
+    : Array.isArray(raw.Instructions)
+      ? (raw.Instructions as unknown[])
+      : [];
+  return {
+    fromRoomId: Number(raw.fromRoomId ?? raw.FromRoomId) || 0,
+    fromRoomName: String(raw.fromRoomName ?? raw.FromRoomName ?? ''),
+    toRoomId: Number(raw.toRoomId ?? raw.ToRoomId) || 0,
+    toRoomName: String(raw.toRoomName ?? raw.ToRoomName ?? ''),
+    totalDistance: Number(raw.totalDistance ?? raw.TotalDistance) || 0,
+    instructions: instructionsRaw.map((item, i) => {
+      const o = (item ?? {}) as Record<string, unknown>;
+      return {
+        stepIndex: Number(o.stepIndex ?? o.StepIndex ?? i) || i,
+        instruction: String(o.instruction ?? o.Instruction ?? ''),
+        action: String(o.action ?? o.Action ?? 'STRAIGHT'),
+        distance: Number(o.distance ?? o.Distance) || 0,
+        floorNumber: Number(o.floorNumber ?? o.FloorNumber) || 1,
+        waypointId: String(o.waypointId ?? o.WaypointId ?? ''),
+      };
+    }),
+  };
+}
+
 export function normalizeTourRouteStop(
   raw: Partial<TourRouteStopDto> & Record<string, unknown>,
 ): TourRouteStopDto {
@@ -847,8 +894,8 @@ export const apiService = {
    * @deprecated BE no longer has Admin/museums list.
    * Use getMuseumProfile() (GET /Admin/museum-profile) instead.
    */
-  async getMuseums(): Promise<ApiResponse<MuseumDto[]>> {
-    const profile = await apiService.getMuseumProfile();
+  async getMuseums(lang?: string): Promise<ApiResponse<MuseumDto[]>> {
+    const profile = await apiService.getMuseumProfile(lang);
     const m = profile.data;
     if (!m) return { ...profile, data: [] };
     return {
@@ -994,14 +1041,45 @@ export const apiService = {
     return apiFetch<TourRouteDto>(`Content/routes/${id}`);
   },
 
-  /** Phòng theo museum — GET Content/rooms/museum/{museumId}. */
-  async getRoomsByMuseum(museumId: number): Promise<ApiResponse<RoomDto[]>> {
-    const response = await apiFetch<RoomDto[]>(`Content/rooms/museum/${museumId}`);
+  /** Phòng theo museum — GET Content/rooms/museum/{museumId}?lang=. */
+  async getRoomsByMuseum(
+    museumId: number,
+    lang?: string,
+  ): Promise<ApiResponse<RoomDto[]>> {
+    const response = await apiFetch<RoomDto[]>(
+      `Content/rooms/museum/${museumId}${buildQuery(lang ? { lang } : undefined)}`,
+    );
     return {
       ...response,
       data: (response.data ?? []).map((item) =>
         normalizeRoomDto(item as Partial<RoomDto> & Record<string, unknown>),
       ),
+    };
+  },
+
+  /**
+   * Room-to-room path + spoken instructions —
+   * GET Navigation/route?fromRoomId=&toRoomId=&lang=
+   */
+  async getNavigationRoute(
+    fromRoomId: number,
+    toRoomId: number,
+    lang?: string,
+  ): Promise<ApiResponse<NavigationRouteResponseDto>> {
+    const response = await apiFetch<
+      NavigationRouteResponseDto & Record<string, unknown>
+    >(
+      `Navigation/route${buildQuery({
+        fromRoomId,
+        toRoomId,
+        lang: lang || undefined,
+      })}`,
+    );
+    return {
+      ...response,
+      data: response.data
+        ? normalizeNavigationRoute(response.data)
+        : (null as unknown as NavigationRouteResponseDto),
     };
   },
 
@@ -1220,9 +1298,11 @@ export const apiService = {
   },
 
   // --- ADMIN ---
-  /** Hồ sơ bảo tàng (single museum) — Public. */
-  async getMuseumProfile(): Promise<ApiResponse<MuseumProfileDto>> {
-    const response = await apiFetch<MuseumProfileDto>('Admin/museum-profile');
+  /** Hồ sơ bảo tàng (single museum) — Public. GET Admin/museum-profile?lang= */
+  async getMuseumProfile(lang?: string): Promise<ApiResponse<MuseumProfileDto>> {
+    const response = await apiFetch<MuseumProfileDto>(
+      `Admin/museum-profile${buildQuery(lang ? { lang } : undefined)}`,
+    );
     const normalized = normalizeMuseumProfile(response.data);
     return {
       ...response,

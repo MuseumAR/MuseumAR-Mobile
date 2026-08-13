@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import type { TourRouteStopDto } from '../services/apiService';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useNavigationRoute } from '../hooks/useNavigationRoute';
 import { C } from '../theme/colors';
 import {
   arrowIconName,
@@ -140,10 +141,17 @@ export function RouteNavigationOverlay({
   const next = stops[safeIndex + 1];
   const isLast = safeIndex >= stops.length - 1;
 
+  const { instructionText: beInstruction } = useNavigationRoute(
+    current?.roomId,
+    next?.roomId,
+  );
+
   let guide: RouteStepGuide | null = null;
   if (current && next) {
     guide = buildRouteStepGuide(current, next, rooms, lang);
   }
+
+  const instructionDisplay = beInstruction || guide?.instructionVi || null;
 
   return (
     <View style={[s.wrap, { borderColor: accentColor + '55' }]}>
@@ -206,10 +214,12 @@ export function RouteNavigationOverlay({
         </View>
       </View>
 
-      {guide ? (
+      {instructionDisplay ? (
         <>
-          <Text style={s.instruction}>{guide.instructionVi}</Text>
-          <DirectionPads active={guide.directions} accentColor={accentColor} />
+          <Text style={s.instruction}>{instructionDisplay}</Text>
+          {guide ? (
+            <DirectionPads active={guide.directions} accentColor={accentColor} />
+          ) : null}
         </>
       ) : (
         <Text style={s.instruction}>{t('route.finished')}</Text>
