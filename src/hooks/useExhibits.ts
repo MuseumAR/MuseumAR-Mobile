@@ -28,7 +28,7 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
     setLoading(true);
     setError(null);
     try {
-      const response = await apiService.getContentExhibits();
+      const response = await apiService.getContentExhibits(lang);
       const raw = response.data ?? [];
       const enriched = await Promise.all(raw.map((dto) => apiService.enrichExhibit(dto)));
       let list = enriched.map((dto) =>

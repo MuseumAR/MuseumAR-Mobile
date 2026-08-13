@@ -3,6 +3,7 @@ import { apiService, MuseumProfileDto } from '../services/apiService';
 import { setCachedMuseumId } from '../services/museumContext';
 import { type MuseumRecord } from '../data/museums';
 import { useLanguage } from '../i18n/LanguageContext';
+import type { AppLanguage } from '../services/languagePrefs';
 import { C } from '../theme/colors';
 
 /** Brand accent only — not mock museum content. */
@@ -17,9 +18,20 @@ type ProfileExtras = {
  * Map BE museum profile → UI record.
  * Does not merge National History Museum mock content.
  */
+function formatTicketPrice(amount: number, lang: AppLanguage): string {
+  if (!(amount > 0)) {
+    return lang === 'en' ? 'Contact for price' : 'Liên hệ';
+  }
+  if (lang === 'en') {
+    return `${amount.toLocaleString('en-US')} VND/person`;
+  }
+  return `${amount.toLocaleString('vi-VN')} đ/người`;
+}
+
 function mapProfileFromApi(
   profile: MuseumProfileDto,
-  extras?: Partial<ProfileExtras>,
+  extras: Partial<ProfileExtras> | undefined,
+  lang: AppLanguage,
 ): MuseumRecord {
   const ticketPriceVnd =
     extras?.ticketPriceVnd ??
@@ -28,7 +40,17 @@ function mapProfileFromApi(
   const cityParts = [profile.city, profile.province].filter(Boolean);
   const city = cityParts.join(', ');
 
-  const openHours = (profile.openingHours || profile.openHours || '').trim();
+  const hoursFromLang = profile.translations
+    ?.find((row) => row.languageCode?.toLowerCase() === lang)
+    ?.openingHours?.trim();
+  const hoursFromVi = profile.translations
+    ?.find((row) => row.languageCode?.toLowerCase() === 'vi')
+    ?.openingHours?.trim();
+  const openHours = (
+    (lang === 'en'
+      ? hoursFromLang || profile.openingHoursEn || profile.openingHours || profile.openHours || hoursFromVi
+      : profile.openingHours || profile.openHours || hoursFromVi || hoursFromLang) || ''
+  ).trim();
   const phone = (profile.contactPhone || profile.phone || '').trim();
   const founded =
     profile.foundedYear != null && String(profile.foundedYear).trim()
@@ -37,7 +59,7 @@ function mapProfileFromApi(
 
   return {
     id: String(profile.id),
-    name: profile.name?.trim() || 'Bảo tàng',
+    name: profile.name?.trim() || (lang === 'en' ? 'Museum' : 'Bảo tàng'),
     city: city || '—',
     tag: '',
     color: UI_ACCENT,
@@ -46,10 +68,7 @@ function mapProfileFromApi(
     openHours: openHours || '—',
     closedDay: profile.closedDay?.trim() || '',
     ticketPriceVnd,
-    ticketPrice:
-      ticketPriceVnd > 0
-        ? `${ticketPriceVnd.toLocaleString('vi-VN')} đ / người`
-        : 'Liên hệ',
+    ticketPrice: formatTicketPrice(ticketPriceVnd, lang),
     exhibits: extras?.exhibitCount ?? profile.exhibitCount ?? 0,
     founded,
     description: profile.description?.trim() || '',
@@ -99,7 +118,26 @@ export function useMuseumProfile() {
     setError(null);
     try {
       const response = await apiService.getMuseumProfile(lang);
-      const data = response.data ?? null;
+      let data = response.data ?? null;
+
+      // EN translation may overwrite hours with empty; refill from canonical profile.
+      const hasHours = Boolean(
+        data?.openingHours?.trim() ||
+          data?.openHours?.trim() ||
+          data?.openingHoursEn?.trim() ||
+          data?.translations?.some((row) => row.openingHours?.trim()),
+      );
+      if (data && !hasHours) {
+        const fallback = await apiService.getMuseumProfile();
+        const hours =
+          fallback.data?.openingHours?.trim() ||
+          fallback.data?.openHours?.trim() ||
+          '';
+        if (hours) {
+          data = { ...data, openingHours: hours, openHours: hours };
+        }
+      }
+
       setProfile(data);
 
       if (data?.id != null) {
@@ -144,8 +182,8 @@ export function useMuseumProfile() {
 
   const museum = useMemo(() => {
     if (!profile) return EMPTY_MUSEUM;
-    return mapProfileFromApi(profile, extras);
-  }, [profile, extras]);
+    return mapProfileFromApi(profile, extras, lang);
+  }, [profile, extras, lang]);
 
   return { profile, museum, loading, error, refresh };
 }

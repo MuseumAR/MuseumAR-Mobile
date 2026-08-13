@@ -15,6 +15,7 @@ type Props = {
 export function ARPackCard({ pack, state, onDownload, onDelete }: Props) {
   const isDownloaded  = state.status === 'downloaded';
   const isDownloading = state.status === 'downloading';
+  const isError = state.status === 'error';
 
   return (
     <View style={styles.card}>
@@ -95,6 +96,11 @@ export function ARPackCard({ pack, state, onDownload, onDelete }: Props) {
             <MaterialCommunityIcons name="download" size={16} color={C.textMuted} />
             <Text style={styles.btnDisabledText}>Downloading… {state.progress}%</Text>
           </View>
+        ) : isError ? (
+          <TouchableOpacity style={styles.btnDownload} onPress={onDownload} activeOpacity={0.85}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={16} color={C.accent} />
+            <Text style={styles.btnDownloadText}>Retry download</Text>
+          </TouchableOpacity>
         ) : (
           <TouchableOpacity style={styles.btnDownload} onPress={onDownload} activeOpacity={0.85}>
             <MaterialCommunityIcons name="download" size={16} color={C.accent} />

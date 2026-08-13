@@ -10,6 +10,7 @@ import {
 } from '../../src/components/RouteNavigationOverlay';
 import { type MuseumZone } from '../../src/data/museums';
 import { useARPacks } from '../../src/hooks/useARPacks';
+import { useExhibitions } from '../../src/hooks/useExhibitions';
 import { useMaps } from '../../src/hooks/useMaps';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
@@ -35,6 +36,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../src/theme/colors';
+import { formatExhibitionDates } from '../../src/utils/exhibitionDates';
 import {
   buildRouteStepGuide,
   sortRoomsForLayout,
@@ -666,6 +668,9 @@ export default function MuseumDetailScreen() {
     useRoutes();
   const { maps, loading: mapsLoading } = useMaps();
   const { rooms } = useRooms(museumId > 0 ? museumId : null);
+  const { exhibitions, loading: exhibitionsLoading } = useExhibitions(
+    museumId > 0 ? museumId : null,
+  );
 
   const [activeRoute, setActiveRoute] = useState<TourRouteDto | null>(null);
   const [stopIndex, setStopIndex] = useState(0);
@@ -842,13 +847,27 @@ export default function MuseumDetailScreen() {
                   ? `${t('museum.closed')}: ${museum.closedDay}`
                   : undefined,
               },
-              { icon: '🎫', label: t('museum.ticket'), value: museum.ticketPrice },
+              {
+                icon: '🎫',
+                label: t('museum.ticket'),
+                value: museum.ticketPrice,
+                keepCase: true,
+              },
               { icon: '📞', label: t('museum.contact'), value: museum.phone },
             ].map((item) => (
               <View key={item.label} style={styles.infoCard}>
                 <Text style={styles.infoIcon}>{item.icon}</Text>
-                <Text style={styles.infoLabel}>{item.label}</Text>
-                <Text style={styles.infoValue}>{item.value}</Text>
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    item.keepCase && styles.infoLabelSentence,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+                {item.value ? (
+                  <Text style={styles.infoValue}>{item.value}</Text>
+                ) : null}
                 {item.note && <Text style={styles.infoNote}>{item.note}</Text>}
               </View>
             ))}
@@ -874,6 +893,54 @@ export default function MuseumDetailScreen() {
               ))}
             </View>
           ) : null}
+
+          {/* ── Exhibitions ─────────────────────────────────────────────── */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={styles.sectionTitle}>{t('home.exhibitions')}</Text>
+              {exhibitions.length > 0 ? (
+                <TouchableOpacity onPress={() => router.push('/exhibitions')}>
+                  <Text style={styles.seeAll}>{t('home.seeAll')} →</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {exhibitionsLoading ? (
+              <ActivityIndicator color={museum.color} style={{ marginVertical: 12 }} />
+            ) : exhibitions.length === 0 ? (
+              <Text style={styles.description}>{t('home.noExhibitions')}</Text>
+            ) : (
+              exhibitions.slice(0, 3).map((item) => {
+                const dates = formatExhibitionDates(item, lang);
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    style={styles.exhibitionRow}
+                    activeOpacity={0.85}
+                    onPress={() => router.push(`/exhibition/${item.id}`)}
+                  >
+                    {item.thumbnailUrl ? (
+                      <Image
+                        source={{ uri: item.thumbnailUrl }}
+                        style={styles.exhibitionThumb}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={[styles.exhibitionThumb, styles.exhibitionThumbFallback]}>
+                        <Text style={{ fontSize: 22 }}>🏛️</Text>
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.exhibitionName} numberOfLines={2}>
+                        {item.name || `Exhibition #${item.id}`}
+                      </Text>
+                      {dates ? <Text style={styles.exhibitionDates}>{dates}</Text> : null}
+                    </View>
+                    <MaterialCommunityIcons name="chevron-right" size={18} color={C.textMuted} />
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </View>
 
           {/* ── Floor Plan / Map image ──────────────────────────────────── */}
           <View style={styles.section}>
@@ -986,7 +1053,7 @@ export default function MuseumDetailScreen() {
                   key={pack.id}
                   pack={pack}
                   state={getState(pack.id)}
-                  onDownload={() => downloadPack(pack.id)}
+                  onDownload={() => downloadPack(pack)}
                   onDelete={() => deletePack(pack.id)}
                 />
               ))}
@@ -1152,6 +1219,13 @@ const styles = StyleSheet.create({
   },
   infoIcon:  { fontSize: 18, marginBottom: 7 },
   infoLabel: { fontSize: 11, color: C.textMuted, fontWeight: '600', textTransform: 'uppercase' },
+  infoLabelSentence: {
+    textTransform: 'none',
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.textPrimary,
+    lineHeight: 18,
+  },
   infoValue: { fontSize: 13, fontWeight: '700', color: C.textPrimary, marginTop: 4, lineHeight: 18 },
   infoNote:  { fontSize: 11, color: C.danger, marginTop: 4 },
 
@@ -1170,6 +1244,26 @@ const styles = StyleSheet.create({
   liveText: { fontSize: 11, fontWeight: '700', color: C.success },
 
   description:  { fontSize: 15, color: C.textSecondary, lineHeight: 26 },
+  exhibitionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: C.bgSurface,
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  exhibitionThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: 10,
+    backgroundColor: C.bgElevated,
+  },
+  exhibitionThumbFallback: { alignItems: 'center', justifyContent: 'center' },
+  exhibitionName: { fontSize: 15, fontWeight: '700', color: C.textPrimary },
+  exhibitionDates: { fontSize: 12, color: C.textMuted, marginTop: 4 },
   highlightRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
   highlightDot: { width: 7, height: 7, borderRadius: 4, marginTop: 7, marginRight: 12 },
   highlightText:{ flex: 1, fontSize: 15, color: C.textSecondary, lineHeight: 22 },

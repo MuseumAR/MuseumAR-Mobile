@@ -5,10 +5,12 @@ import { useMemo } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCategories } from '../../src/hooks/useCategories';
+import { useExhibitions } from '../../src/hooks/useExhibitions';
 import { useExhibits } from '../../src/hooks/useExhibits';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
+import { formatExhibitionDates } from '../../src/utils/exhibitionDates';
 
 const TAXONOMY_COLORS = ['#C89B3C', '#A67C2D', '#0369A1', '#047857', '#9A6F1F', '#B45309'];
 const CATEGORY_ICONS = [
@@ -28,9 +30,13 @@ const THEME_ICONS = [
 
 export default function HomeScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const { featured: featuredExhibits } = useExhibits();
   const { museum } = useMuseumProfile();
+  const museumId = Number(museum.id) || 0;
+  const { featured: featuredExhibitions, exhibitions } = useExhibitions(
+    museumId > 0 ? museumId : null,
+  );
   const { categories, themes } = useCategories();
 
   const quickActions = [
@@ -180,6 +186,59 @@ export default function HomeScreen() {
             </View>
           </View>
         </TouchableOpacity>
+
+        {/* ── Museum exhibitions ─────────────────────────────────────────── */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionLabel}>{t('content.exhibition').toUpperCase()}</Text>
+              <Text style={styles.sectionTitle}>{t('home.exhibitions')}</Text>
+            </View>
+            {exhibitions.length > 0 ? (
+              <TouchableOpacity onPress={() => router.push('/exhibitions')}>
+                <Text style={styles.seeAll}>{t('home.seeAll')} →</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          {featuredExhibitions.length === 0 ? (
+            <Text style={styles.taxonomyEmpty}>{t('home.noExhibitions')}</Text>
+          ) : (
+            featuredExhibitions.map((item) => {
+              const dates = formatExhibitionDates(item, lang);
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.artifactRow}
+                  activeOpacity={0.85}
+                  onPress={() => router.push(`/exhibition/${item.id}`)}
+                >
+                  <View style={[styles.artifactThumb, { backgroundColor: C.accent + '18' }]}>
+                    {item.thumbnailUrl ? (
+                      <Image
+                        source={{ uri: item.thumbnailUrl }}
+                        style={styles.artifactThumbImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <Text style={styles.artifactEmoji}>🏛️</Text>
+                    )}
+                  </View>
+                  <View style={styles.artifactInfo}>
+                    <Text style={styles.artifactCategory}>{t('content.exhibition')}</Text>
+                    <Text style={styles.artifactTitle} numberOfLines={1}>
+                      {item.name || `Exhibition #${item.id}`}
+                    </Text>
+                    <Text style={styles.artifactEra}>{dates || item.status || ''}</Text>
+                  </View>
+                  <View style={styles.artifactRight}>
+                    <MaterialCommunityIcons name="chevron-right" size={18} color={C.textMuted} />
+                  </View>
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
 
         {/* ── Featured Artifacts ─────────────────────────────────────────── */}
         <View style={styles.section}>

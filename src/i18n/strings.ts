@@ -73,12 +73,28 @@ const vi: Dict = {
   'header.museumDetail': 'Chi tiết bảo tàng',
   'header.arPacks': 'Gói AR',
   'header.exhibitDetail': 'Chi tiết hiện vật',
+  'header.exhibitions': 'Triển lãm',
+  'header.exhibitionDetail': 'Chi tiết triển lãm',
   'header.audioGuide': 'Thuyết minh',
   'header.arModel': 'Mô hình AR 2D/3D',
   'header.visitHistory': 'Lịch sử tham quan',
   'header.bookmarks': 'Hiện vật đã lưu',
   'header.myTickets': 'Vé của tôi',
   'header.ticketDetail': 'Chi tiết vé',
+
+  'visited.countOne': 'hiện vật đã xem',
+  'visited.countMany': 'hiện vật đã xem',
+  'visited.lastViewed': 'Xem lần cuối',
+  'visited.emptyTitle': 'Chưa có lịch sử tham quan',
+  'visited.emptyHint': 'Mở chi tiết hiện vật để bắt đầu lưu lịch sử xem của bạn.',
+  'visited.explore': 'Khám phá hiện vật',
+
+  'bookmarks.countOne': 'hiện vật đã lưu',
+  'bookmarks.countMany': 'hiện vật đã lưu',
+  'bookmarks.savedAt': 'Đã lưu',
+  'bookmarks.emptyTitle': 'Chưa có hiện vật đã lưu',
+  'bookmarks.emptyHint': 'Nhấn biểu tượng trái tim trên trang chi tiết hiện vật để lưu vào danh sách.',
+  'bookmarks.explore': 'Khám phá hiện vật',
 
   // Home
   'home.welcome': 'Chào mừng trở lại',
@@ -99,6 +115,8 @@ const vi: Dict = {
   'home.noThemes': 'Chưa có chủ đề từ API.',
   'home.seeAll': 'Xem tất cả',
   'home.buyTicket': 'Mua vé',
+  'home.exhibitions': 'Triển lãm',
+  'home.noExhibitions': 'Chưa có triển lãm từ API.',
 
   // Explore
   'explore.title': 'Khám phá',
@@ -127,7 +145,7 @@ const vi: Dict = {
   'museum.about': 'GIỚI THIỆU',
   'museum.title': 'Bảo tàng',
   'museum.hours': 'Giờ mở cửa',
-  'museum.ticket': 'Vé',
+  'museum.ticket': 'Giá vé từ',
   'museum.address': 'Địa chỉ',
   'museum.contact': 'Liên hệ',
   'museum.closed': 'Đóng cửa',
@@ -170,6 +188,7 @@ const vi: Dict = {
   'museum.room': 'Phòng',
 
   // Content / tours
+  'content.exhibition': 'Triển lãm',
   'content.exhibit': 'Hiện vật',
   'content.category': 'Danh mục',
   'content.tour': 'Tour tham quan',
@@ -228,6 +247,11 @@ const vi: Dict = {
   'ticket.qty': 'Số lượng',
   'ticket.confirm': 'Xác nhận & thanh toán',
   'ticket.total': 'Tổng cộng',
+  'ticket.free': 'Miễn phí',
+  'ticket.emptyTypes': 'Chưa có loại vé nào.',
+  'ticket.maxQty': 'tối đa 10 vé / lần',
+  'ticket.visitDate': 'Ngày tham quan',
+  'ticket.qtyUnit': 'vé',
 
   // Payment
   'payment.success': 'Thanh toán thành công',
@@ -268,6 +292,14 @@ const vi: Dict = {
   'exhibit.bookmarkError': 'Không thể cập nhật bookmark. Vui lòng thử lại.',
   'exhibit.error': 'Lỗi',
   'exhibit.notFoundGuide': 'Không tìm thấy thuyết minh',
+
+  'exhibition.notFound': 'Không tìm thấy triển lãm',
+  'exhibition.about': 'Giới thiệu',
+  'exhibition.exhibits': 'Hiện vật trong triển lãm',
+  'exhibition.emptyExhibits': 'Chưa có hiện vật trong triển lãm này.',
+  'exhibition.ongoing': 'Đang diễn ra',
+  'exhibition.upcoming': 'Sắp diễn ra',
+  'exhibition.ended': 'Đã kết thúc',
 
   // AR view
   'ar.transcript': 'Nội dung thuyết minh',
@@ -339,12 +371,28 @@ const en: Dict = {
   'header.museumDetail': 'Museum details',
   'header.arPacks': 'AR packs',
   'header.exhibitDetail': 'Exhibit details',
+  'header.exhibitions': 'Exhibitions',
+  'header.exhibitionDetail': 'Exhibition details',
   'header.audioGuide': 'Audio Guide',
   'header.arModel': 'AR 2D/3D model',
   'header.visitHistory': 'Visit history',
   'header.bookmarks': 'Saved exhibits',
   'header.myTickets': 'My tickets',
   'header.ticketDetail': 'Ticket detail',
+
+  'visited.countOne': 'exhibit viewed',
+  'visited.countMany': 'exhibits viewed',
+  'visited.lastViewed': 'Last viewed',
+  'visited.emptyTitle': 'No visit history yet',
+  'visited.emptyHint': 'Open an exhibit to start saving your view history.',
+  'visited.explore': 'Explore exhibits',
+
+  'bookmarks.countOne': 'saved exhibit',
+  'bookmarks.countMany': 'saved exhibits',
+  'bookmarks.savedAt': 'Saved',
+  'bookmarks.emptyTitle': 'No saved exhibits yet',
+  'bookmarks.emptyHint': 'Tap the heart on an exhibit page to save it to this list.',
+  'bookmarks.explore': 'Explore exhibits',
 
   'home.welcome': 'Welcome back',
   'home.brandMuseum': 'Museum',
@@ -364,6 +412,8 @@ const en: Dict = {
   'home.noThemes': 'No themes from API yet.',
   'home.seeAll': 'See all',
   'home.buyTicket': 'Buy ticket',
+  'home.exhibitions': 'Exhibitions',
+  'home.noExhibitions': 'No exhibitions from API yet.',
 
   'explore.title': 'Explore',
   'explore.search': 'Search exhibits...',
@@ -389,7 +439,7 @@ const en: Dict = {
   'museum.about': 'ABOUT',
   'museum.title': 'Museum',
   'museum.hours': 'Hours',
-  'museum.ticket': 'Ticket',
+  'museum.ticket': 'Ticket price from',
   'museum.address': 'Address',
   'museum.contact': 'Contact',
   'museum.closed': 'Closed',
@@ -430,6 +480,7 @@ const en: Dict = {
   'museum.floor': 'Floor',
   'museum.room': 'Room',
 
+  'content.exhibition': 'Exhibition',
   'content.exhibit': 'Exhibit',
   'content.category': 'Category',
   'content.tour': 'Tours',
@@ -484,6 +535,11 @@ const en: Dict = {
   'ticket.type': 'Ticket type',
   'ticket.quantity': 'Quantity',
   'ticket.qty': 'Qty',
+  'ticket.free': 'Free',
+  'ticket.emptyTypes': 'No ticket types yet.',
+  'ticket.maxQty': 'max 10 tickets / order',
+  'ticket.visitDate': 'Visit date',
+  'ticket.qtyUnit': 'tickets',
   'ticket.confirm': 'Confirm & pay',
   'ticket.total': 'Total',
 
@@ -524,6 +580,14 @@ const en: Dict = {
   'exhibit.bookmarkError': 'Could not update bookmark. Please try again.',
   'exhibit.error': 'Error',
   'exhibit.notFoundGuide': 'Audio guide not found',
+
+  'exhibition.notFound': 'Exhibition not found',
+  'exhibition.about': 'About',
+  'exhibition.exhibits': 'Exhibits in this exhibition',
+  'exhibition.emptyExhibits': 'No exhibits in this exhibition yet.',
+  'exhibition.ongoing': 'Ongoing',
+  'exhibition.upcoming': 'Upcoming',
+  'exhibition.ended': 'Ended',
 
   'ar.transcript': 'Transcript',
   'ar.noAudio': 'No audio file yet',

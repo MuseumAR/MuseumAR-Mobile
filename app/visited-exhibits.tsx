@@ -12,13 +12,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ExhibitListItem } from '../src/components/ExhibitListItem';
 import { useExhibits } from '../src/hooks/useExhibits';
 import { useVisitedExhibits } from '../src/hooks/useVisitedExhibits';
+import { useLanguage } from '../src/i18n/LanguageContext';
 import { C } from '../src/theme/colors';
 import { formatVisitorDate } from '../src/utils/visitorLists';
 
 export default function VisitedExhibitsScreen() {
   const router = useRouter();
+  const { t, lang } = useLanguage();
   const { visited, loading, refresh } = useVisitedExhibits();
   const { exhibits, loading: exhibitsLoading, refresh: refreshExhibits } = useExhibits();
+  const dateLocale = lang === 'en' ? 'en-US' : 'vi-VN';
 
   const exhibitById = useMemo(
     () => new Map(exhibits.map((e) => [Number(e.id), e])),
@@ -42,7 +45,8 @@ export default function VisitedExhibitsScreen() {
         contentContainerStyle={styles.list}
         ListHeaderComponent={
           <Text style={styles.headerHint}>
-            {visited.length} hiện vật đã xem
+            {visited.length}{' '}
+            {t(visited.length === 1 ? 'visited.countOne' : 'visited.countMany')}
           </Text>
         }
         ListEmptyComponent={
@@ -52,15 +56,13 @@ export default function VisitedExhibitsScreen() {
             </View>
           ) : (
             <View style={styles.center}>
-              <Text style={styles.emptyTitle}>Chưa có lịch sử tham quan</Text>
-              <Text style={styles.emptyText}>
-                Mở chi tiết hiện vật để bắt đầu lưu lịch sử xem của bạn.
-              </Text>
+              <Text style={styles.emptyTitle}>{t('visited.emptyTitle')}</Text>
+              <Text style={styles.emptyText}>{t('visited.emptyHint')}</Text>
               <TouchableOpacity
                 style={styles.emptyBtn}
                 onPress={() => router.push('/(tabs)/explore')}
               >
-                <Text style={styles.emptyBtnText}>Khám phá hiện vật</Text>
+                <Text style={styles.emptyBtnText}>{t('visited.explore')}</Text>
               </TouchableOpacity>
             </View>
           )
@@ -69,7 +71,7 @@ export default function VisitedExhibitsScreen() {
           <ExhibitListItem
             exhibitId={item.exhibitId}
             exhibit={exhibitById.get(item.exhibitId)}
-            subtitle={`Xem lần cuối: ${formatVisitorDate(item.visitedAt)}${
+            subtitle={`${t('visited.lastViewed')}: ${formatVisitorDate(item.visitedAt, dateLocale)}${
               item.timeSpentSeconds != null ? ` · ${item.timeSpentSeconds}s` : ''
             }`}
             onPress={() => router.push(`/exhibit/${item.exhibitId}`)}

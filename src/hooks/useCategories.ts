@@ -52,20 +52,24 @@ function normalizeCategory(
   return { ...c, id, name, type: 'category' };
 }
 
-function normalizeTheme(entry: unknown): TaxonomyChip | null {
+function normalizeTheme(entry: unknown, lang: AppLanguage): TaxonomyChip | null {
   const t = entry as ThemeDto & { Id?: unknown; ThemeName?: unknown; Name?: unknown };
   const id = asId(t.id) ?? asId(t.Id);
   if (id == null) return null;
-  const name = toLabel(t.themeName ?? t.ThemeName ?? t.name ?? t.Name);
+  const name =
+    pickLocalizedField(t.translations, lang, 'themeName', t.themeName ?? t.name) ??
+    toLabel(t.themeName ?? t.ThemeName ?? t.name ?? t.Name);
   if (name == null) return null;
   return { key: `theme:${id}`, id, name, kind: 'theme' };
 }
 
-function normalizeTag(entry: unknown): TaxonomyChip | null {
+function normalizeTag(entry: unknown, lang: AppLanguage): TaxonomyChip | null {
   const t = entry as TagDto & { Id?: unknown; TagName?: unknown; Name?: unknown };
   const id = asId(t.id) ?? asId(t.Id);
   if (id == null) return null;
-  const name = toLabel(t.tagName ?? t.TagName ?? t.name ?? t.Name);
+  const name =
+    pickLocalizedField(t.translations, lang, 'tagName', t.tagName ?? t.name) ??
+    toLabel(t.tagName ?? t.TagName ?? t.name ?? t.Name);
   if (name == null) return null;
   return { key: `tag:${id}`, id, name, kind: 'tag' };
 }
@@ -88,8 +92,8 @@ export function useCategories() {
     try {
       const [catRes, themeRes, tagRes] = await Promise.all([
         apiService.getCategories(),
-        apiService.getThemes(),
-        apiService.getTags(),
+        apiService.getThemes(lang),
+        apiService.getTags(lang),
       ]);
 
       const catList = Array.isArray(catRes.data) ? catRes.data : [];
@@ -100,10 +104,18 @@ export function useCategories() {
       );
 
       const themeList = Array.isArray(themeRes.data) ? themeRes.data : [];
-      setThemes(themeList.map(normalizeTheme).filter((c): c is TaxonomyChip => c != null));
+      setThemes(
+        themeList
+          .map((item) => normalizeTheme(item, lang))
+          .filter((c): c is TaxonomyChip => c != null),
+      );
 
       const tagList = Array.isArray(tagRes.data) ? tagRes.data : [];
-      setTags(tagList.map(normalizeTag).filter((c): c is TaxonomyChip => c != null));
+      setTags(
+        tagList
+          .map((item) => normalizeTag(item, lang))
+          .filter((c): c is TaxonomyChip => c != null),
+      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Không thể tải danh mục');
     } finally {

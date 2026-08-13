@@ -43,6 +43,9 @@ function getDevHost(): string {
 
 export const API_BASE_URL = `http://${getDevHost()}:${API_PORT}/api`;
 
+/** Origin without `/api` — used for static files like `/uploads/packages/*.zip`. */
+export const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, '');
+
 if (__DEV__) {
   console.log(`[MuseumAR] API_BASE_URL = ${API_BASE_URL}`);
 }

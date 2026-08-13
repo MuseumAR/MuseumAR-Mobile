@@ -24,6 +24,9 @@ function mapPackage(dto: ContentPackageDto, index: number): ARPack {
     category: dto.category ?? 'Nội dung AR',
     color: COLOR_PALETTE[index % COLOR_PALETTE.length],
     artifacts: [],
+    packageUrl: dto.packageUrl ?? dto.downloadUrl,
+    checksum: dto.checksum,
+    versionId: dto.versionId,
   };
 }
 

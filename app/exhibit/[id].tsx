@@ -249,7 +249,7 @@ export default function ExhibitDetailScreen() {
                   key={pack.id}
                   pack={pack}
                   state={getState(pack.id)}
-                  onDownload={() => downloadPack(pack.id)}
+                  onDownload={() => downloadPack(pack)}
                   onDelete={() => deletePack(pack.id)}
                 />
               ))

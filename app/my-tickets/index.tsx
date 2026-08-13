@@ -53,7 +53,7 @@ function PendingOrderCard({
   onCancel: () => void;
   busy: boolean;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [secondsLeft, setSecondsLeft] = useState(
     Math.max(0, pending.remainingSeconds ?? 0),
   );
@@ -106,7 +106,7 @@ function PendingOrderCard({
         <View style={styles.footerRow}>
           <Text style={styles.price}>
             {pending.totalAmount != null
-              ? `${Number(pending.totalAmount).toLocaleString('vi-VN')}đ`
+              ? `${Number(pending.totalAmount).toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')}đ`
               : ''}
           </Text>
         </View>
@@ -151,7 +151,7 @@ function TicketCard({
   ticket: MyTicketDto;
   onPress: () => void;
 }) {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const st = statusStyle(ticket.status, t);
 
   return (
@@ -190,7 +190,10 @@ function TicketCard({
         <View style={styles.footerRow}>
           <Text style={styles.purchased}>
             {ticket.purchaseDate || ticket.purchasedAt
-              ? formatVisitorDate(ticket.purchaseDate || ticket.purchasedAt || '')
+              ? formatVisitorDate(
+                  ticket.purchaseDate || ticket.purchasedAt || '',
+                  lang === 'en' ? 'en-US' : 'vi-VN',
+                )
               : ''}
           </Text>
           <View style={styles.openRow}>

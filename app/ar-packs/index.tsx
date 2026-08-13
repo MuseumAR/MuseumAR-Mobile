@@ -108,7 +108,7 @@ export default function ARPacksScreen() {
                 key={pack.id}
                 pack={pack}
                 state={getState(pack.id)}
-                onDownload={() => downloadPack(pack.id)}
+                onDownload={() => downloadPack(pack)}
                 onDelete={() => deletePack(pack.id)}
               />
             ))

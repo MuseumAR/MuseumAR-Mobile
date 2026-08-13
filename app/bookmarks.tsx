@@ -12,13 +12,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ExhibitListItem } from '../src/components/ExhibitListItem';
 import { useBookmarks } from '../src/hooks/useBookmarks';
 import { useExhibits } from '../src/hooks/useExhibits';
+import { useLanguage } from '../src/i18n/LanguageContext';
 import { C } from '../src/theme/colors';
 import { formatVisitorDate } from '../src/utils/visitorLists';
 
 export default function BookmarksScreen() {
   const router = useRouter();
+  const { t, lang } = useLanguage();
   const { bookmarks, loading, refresh } = useBookmarks();
   const { exhibits, loading: exhibitsLoading, refresh: refreshExhibits } = useExhibits();
+  const dateLocale = lang === 'en' ? 'en-US' : 'vi-VN';
 
   const exhibitById = useMemo(
     () => new Map(exhibits.map((e) => [Number(e.id), e])),
@@ -42,7 +45,8 @@ export default function BookmarksScreen() {
         contentContainerStyle={styles.list}
         ListHeaderComponent={
           <Text style={styles.headerHint}>
-            {bookmarks.length} hiện vật đã lưu
+            {bookmarks.length}{' '}
+            {t(bookmarks.length === 1 ? 'bookmarks.countOne' : 'bookmarks.countMany')}
           </Text>
         }
         ListEmptyComponent={
@@ -52,15 +56,13 @@ export default function BookmarksScreen() {
             </View>
           ) : (
             <View style={styles.center}>
-              <Text style={styles.emptyTitle}>Chưa có hiện vật đã lưu</Text>
-              <Text style={styles.emptyText}>
-                Nhấn biểu tượng trái tim trên trang chi tiết hiện vật để lưu vào danh sách.
-              </Text>
+              <Text style={styles.emptyTitle}>{t('bookmarks.emptyTitle')}</Text>
+              <Text style={styles.emptyText}>{t('bookmarks.emptyHint')}</Text>
               <TouchableOpacity
                 style={styles.emptyBtn}
                 onPress={() => router.push('/(tabs)/explore')}
               >
-                <Text style={styles.emptyBtnText}>Khám phá hiện vật</Text>
+                <Text style={styles.emptyBtnText}>{t('bookmarks.explore')}</Text>
               </TouchableOpacity>
             </View>
           )
@@ -69,7 +71,7 @@ export default function BookmarksScreen() {
           <ExhibitListItem
             exhibitId={item.exhibitId}
             exhibit={exhibitById.get(item.exhibitId)}
-            subtitle={`Đã lưu: ${formatVisitorDate(item.createdAt)}`}
+            subtitle={`${t('bookmarks.savedAt')}: ${formatVisitorDate(item.createdAt, dateLocale)}`}
             onPress={() => router.push(`/exhibit/${item.exhibitId}`)}
           />
         )}

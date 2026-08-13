@@ -70,7 +70,12 @@ export default function MuseumAboutScreen() {
                 ? `${t('museum.closed')}: ${museum.closedDay}`
                 : undefined,
             },
-            { icon: 'ticket-outline' as const, label: t('museum.ticket'), value: museum.ticketPrice },
+            {
+              icon: 'ticket-outline' as const,
+              label: t('museum.ticket'),
+              value: museum.ticketPrice,
+              keepCase: true,
+            },
             { icon: 'map-marker-outline' as const, label: t('museum.address'), value: museum.address },
             { icon: 'phone-outline' as const, label: t('museum.contact'), value: museum.phone },
           ].map((item) => (
@@ -79,8 +84,17 @@ export default function MuseumAboutScreen() {
                 <MaterialCommunityIcons name={item.icon} size={18} color={C.accent} />
               </View>
               <View style={styles.infoContent}>
-                <Text style={styles.infoLabel}>{item.label}</Text>
-                <Text style={styles.infoValue}>{item.value}</Text>
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    'keepCase' in item && item.keepCase && styles.infoLabelSentence,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+                {item.value ? (
+                  <Text style={styles.infoValue}>{item.value}</Text>
+                ) : null}
                 {item.note ? <Text style={styles.infoNote}>{item.note}</Text> : null}
               </View>
             </View>
@@ -197,6 +211,12 @@ const styles = StyleSheet.create({
   },
   infoContent: { flex: 1 },
   infoLabel: { fontSize: 11, fontWeight: '700', color: C.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  infoLabelSentence: {
+    textTransform: 'none',
+    fontSize: 13,
+    color: C.textPrimary,
+    letterSpacing: 0,
+  },
   infoValue: { fontSize: 14, fontWeight: '600', color: C.textPrimary, marginTop: 3, lineHeight: 20 },
   infoNote:  { fontSize: 12, color: C.danger, marginTop: 3 },
 

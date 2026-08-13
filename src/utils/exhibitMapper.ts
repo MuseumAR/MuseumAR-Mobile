@@ -1,6 +1,13 @@
 import { ExhibitDto, ExhibitTranslationDto } from '../services/apiService';
 import type { ExhibitRecord } from '../data/exhibits';
 import type { AppLanguage } from '../services/languagePrefs';
+import {
+  audioLogicalKey,
+  markerLogicalKey,
+  overlayLogicalKey,
+  resolveOfflineUri,
+  thumbLogicalKey,
+} from '../services/offlineMedia';
 import { pickLocalizedRow } from './pickLocalized';
 
 /** Bảng màu chủ đạo dùng khi backend không cung cấp màu cho hiện vật. */
@@ -41,7 +48,10 @@ export function mapExhibitDtoToRecord(
     id: String(dto.id),
     museumId: String(dto.museumId),
     title: tr?.title ?? dto.exhibitCode ?? `Hiện vật #${dto.id}`,
-    era: meta?.era ?? '',
+    era:
+      lang === 'en' && meta?.eraEn?.trim()
+        ? meta.eraEn.trim()
+        : (meta?.era ?? ''),
     category:
       categoryName ??
       (dto.categoryId != null ? `Danh mục ${dto.categoryId}` : 'Hiện vật'),
@@ -52,14 +62,26 @@ export function mapExhibitDtoToRecord(
     material: '',
     description,
     arAvailable: Boolean(dto.arOverlayUrl || dto.arMarkerUrl),
-    arOverlayUrl: dto.arOverlayUrl,
-    arMarkerUrl: dto.arMarkerUrl,
+    arOverlayUrl:
+      resolveOfflineUri(dto.arOverlayUrl, overlayLogicalKey(dto.id)) ?? dto.arOverlayUrl,
+    arMarkerUrl:
+      resolveOfflineUri(dto.arMarkerUrl, markerLogicalKey(dto.id)) ?? dto.arMarkerUrl,
     emoji: '🏺',
     color,
-    audioUrl: tr?.audioUrl ?? '',
+    audioUrl:
+      resolveOfflineUri(tr?.audioUrl, audioLogicalKey(dto.id, String(lang))) ??
+      tr?.audioUrl ??
+      '',
     audioDuration: tr?.audioDuration ?? 0,
     transcript: splitTranscript(description),
-    highlights: meta?.historicalEvent ? [meta.historicalEvent] : [],
-    thumbnailUrl: dto.thumbnailUrl,
+    highlights: (() => {
+      const event =
+        lang === 'en' && meta?.historicalEventEn?.trim()
+          ? meta.historicalEventEn.trim()
+          : meta?.historicalEvent?.trim();
+      return event ? [event] : [];
+    })(),
+    thumbnailUrl:
+      resolveOfflineUri(dto.thumbnailUrl, thumbLogicalKey(dto.id)) ?? dto.thumbnailUrl,
   };
 }
