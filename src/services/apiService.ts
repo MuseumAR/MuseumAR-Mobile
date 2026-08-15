@@ -415,20 +415,31 @@ export interface TagTranslationDto {
 export interface TagDto {
   id: number;
   museumId?: number;
+  tagGroupId?: number;
   tagName?: string;
   name?: string;
   description?: string;
   translations?: TagTranslationDto[];
 }
 
-export type TaxonomyKind = 'category' | 'theme' | 'tag';
+/** GET /Content/tag-groups */
+export interface TagGroupDto {
+  id: number;
+  groupName?: string;
+  name?: string;
+  sortOrder?: number;
+}
 
-/** Chip lọc Explore (category / theme / tag). */
+export type TaxonomyKind = 'category' | 'theme' | 'tagGroup' | 'tag';
+
+/** Chip lọc Explore (category / theme / tag group / tag). */
 export interface TaxonomyChip {
   key: string;
   id: number;
   name: string;
   kind: TaxonomyKind;
+  /** Present on tag chips: parent group for drill-down filter. */
+  tagGroupId?: number;
 }
 
 /**
@@ -544,9 +555,8 @@ function normalizePackageDto(
 }
 
 /**
- * GET /Content/maps → BE MuseumMapDto returns only:
- * { id, museumId, mapImageUrl, mapType }  (mapType = entity MapName ?? "floor").
- * Other entity columns (floorNumber, width, height, isDefault) are not exposed.
+ * GET /Content/maps → BE MuseumMapDto:
+ * { id, museumId, floorNumber, mapName, mapImageUrl, mapType }
  */
 export interface MuseumMapDto {
   id: number;
@@ -555,11 +565,13 @@ export interface MuseumMapDto {
   mapImageUrl?: string;
   /** Normalized alias of mapImageUrl for UI */
   imageUrl?: string;
-  /** BE field — carries the map/floor name */
+  /** BE field — Indoor / Outdoor / … */
   mapType?: string;
-  /** Display label derived from mapType */
+  /** BE MuseumMap.MapName */
+  mapName?: string;
+  /** Display label: mapName, else "Tầng {n}" */
   label?: string;
-  /** Parsed from the label when it contains a number (e.g. "Tầng 2" → 2) */
+  /** BE MuseumMap.FloorNumber */
   floorNumber?: number;
 }
 
@@ -568,28 +580,41 @@ function parseFloorNumber(label: string): number | undefined {
   const match = label.match(/\d+/);
   if (!match) return undefined;
   const n = Number(match[0]);
-  return Number.isFinite(n) ? n : undefined;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 /** Normalize BE museum map payload → mobile shape. */
 export function normalizeMuseumMap(
-  raw: Partial<MuseumMapDto> & { mapImageUrl?: string | null },
+  raw: Partial<MuseumMapDto> & Record<string, unknown>,
 ): MuseumMapDto {
-  const remoteImage = String(raw.imageUrl ?? raw.mapImageUrl ?? '').trim();
-  const mapType = String(raw.mapType ?? '').trim();
-  const id = Number(raw.id) || 0;
-  const label = mapType && mapType.toLowerCase() !== 'floor' ? mapType : '';
+  const id = Number(raw.id ?? raw.Id) || 0;
+  const remoteImage = String(
+    raw.imageUrl ?? raw.mapImageUrl ?? raw.MapImageUrl ?? '',
+  ).trim();
+  const mapType = String(raw.mapType ?? raw.MapType ?? '').trim();
+  const mapName = String(raw.mapName ?? raw.MapName ?? '').trim();
+  const floorRaw = Number(raw.floorNumber ?? raw.FloorNumber);
+  const floorNumber =
+    Number.isFinite(floorRaw) && floorRaw > 0
+      ? floorRaw
+      : parseFloorNumber(mapName) ?? parseFloorNumber(mapType);
   const imageUrl =
     resolveOfflineUri(remoteImage, `map:${id}`) ?? remoteImage;
+  const label =
+    mapName ||
+    (floorNumber != null ? `Tầng ${floorNumber}` : mapType && mapType.toLowerCase() !== 'floor'
+      ? mapType
+      : `Bản đồ ${id}`);
 
   return {
     id,
-    museumId: raw.museumId != null ? Number(raw.museumId) : undefined,
+    museumId: Number(raw.museumId ?? raw.MuseumId) || undefined,
     mapImageUrl: imageUrl || undefined,
     imageUrl: imageUrl || undefined,
     mapType: mapType || undefined,
-    label: label || `Bản đồ ${id}`,
-    floorNumber: label ? parseFloorNumber(label) : undefined,
+    mapName: mapName || undefined,
+    label,
+    floorNumber,
   };
 }
 
@@ -730,7 +755,7 @@ export function normalizeRoomDto(
     mapId: raw.mapId != null ? Number(raw.mapId) : null,
     roomCode: String(raw.roomCode ?? '').trim() || `R${raw.id ?? 0}`,
     roomName: String(raw.roomName ?? '').trim() || String(raw.roomCode ?? 'Phòng'),
-    floorNumber: Number(raw.floorNumber) || 1,
+    floorNumber: Number(raw.floorNumber ?? raw.FloorNumber) || 1,
     description: (raw.description as string | null | undefined) ?? null,
   };
 }
@@ -741,6 +766,7 @@ export interface MuseumProfileDto {
   name: string;
   description?: string;
   address?: string;
+  addressEn?: string;
   city?: string;
   province?: string;
   country?: string;
@@ -780,34 +806,36 @@ export function normalizeMuseumProfile(
   raw: Partial<MuseumProfileDto> | null | undefined,
 ): MuseumProfileDto | null {
   if (!raw || typeof raw !== 'object') return null;
-  const id = Number(raw.id);
+  const row = raw as Partial<MuseumProfileDto> & Record<string, unknown>;
+  const id = Number(row.id ?? row.Id);
   if (!Number.isFinite(id) || id <= 0) return null;
 
   const openingHours = String(
-    raw.openingHours ?? raw.OpeningHours ?? raw.openHours ?? raw.OpenHours ?? '',
+    row.openingHours ?? row.OpeningHours ?? row.openHours ?? row.OpenHours ?? '',
   ).trim();
   const openingHoursEn = String(
-    raw.openingHoursEn ?? raw.OpeningHoursEn ?? '',
+    row.openingHoursEn ?? row.OpeningHoursEn ?? '',
   ).trim();
-  const translationsRaw = Array.isArray(raw.translations)
-    ? raw.translations
-    : Array.isArray(raw.Translations)
-      ? (raw.Translations as unknown[])
+  const translationsRaw = Array.isArray(row.translations)
+    ? row.translations
+    : Array.isArray(row.Translations)
+      ? (row.Translations as unknown[])
       : [];
-  const contactPhone = String(raw.contactPhone ?? raw.phone ?? '').trim();
-  const contactEmail = String(raw.contactEmail ?? raw.email ?? '').trim();
-  const remoteThumb = String(raw.thumbnailUrl ?? raw.logoUrl ?? '').trim();
+  const contactPhone = String(row.contactPhone ?? row.ContactPhone ?? row.phone ?? row.Phone ?? '').trim();
+  const contactEmail = String(row.contactEmail ?? row.ContactEmail ?? row.email ?? row.Email ?? '').trim();
+  const remoteThumb = String(row.thumbnailUrl ?? row.ThumbnailUrl ?? row.logoUrl ?? '').trim();
   const thumbnailUrl =
     resolveOfflineUri(remoteThumb, `museum:${id}`) ?? remoteThumb;
 
   return {
     id,
-    name: String(raw.name ?? '').trim(),
-    description: String(raw.description ?? '').trim() || undefined,
-    address: String(raw.address ?? '').trim() || undefined,
-    city: String(raw.city ?? '').trim() || undefined,
-    province: String(raw.province ?? '').trim() || undefined,
-    country: String(raw.country ?? '').trim() || undefined,
+    name: String(row.name ?? row.Name ?? '').trim(),
+    description: String(row.description ?? row.Description ?? '').trim() || undefined,
+    address: String(row.address ?? row.Address ?? '').trim() || undefined,
+    addressEn: String(row.addressEn ?? row.AddressEn ?? '').trim() || undefined,
+    city: String(row.city ?? row.City ?? '').trim() || undefined,
+    province: String(row.province ?? row.Province ?? '').trim() || undefined,
+    country: String(row.country ?? row.Country ?? '').trim() || undefined,
     contactPhone: contactPhone || undefined,
     phone: contactPhone || undefined,
     contactEmail: contactEmail || undefined,
@@ -825,22 +853,28 @@ export function normalizeMuseumProfile(
         openingHours: String(o.openingHours ?? o.OpeningHours ?? '').trim() || undefined,
       };
     }),
-    closedDay: String(raw.closedDay ?? '').trim() || undefined,
+    closedDay: String(row.closedDay ?? row.ClosedDay ?? '').trim() || undefined,
     ticketPrice:
-      raw.ticketPrice != null && Number.isFinite(Number(raw.ticketPrice))
-        ? Number(raw.ticketPrice)
+      row.ticketPrice != null && Number.isFinite(Number(row.ticketPrice))
+        ? Number(row.ticketPrice)
         : undefined,
-    foundedYear: raw.foundedYear,
+    foundedYear: row.foundedYear ?? row.FoundedYear,
     exhibitCount:
-      raw.exhibitCount != null && Number.isFinite(Number(raw.exhibitCount))
-        ? Number(raw.exhibitCount)
+      row.exhibitCount != null && Number.isFinite(Number(row.exhibitCount))
+        ? Number(row.exhibitCount)
         : undefined,
     thumbnailUrl: thumbnailUrl || undefined,
     logoUrl: thumbnailUrl || undefined,
-    status: String(raw.status ?? '').trim() || undefined,
-    latitude: raw.latitude != null ? Number(raw.latitude) : undefined,
-    longitude: raw.longitude != null ? Number(raw.longitude) : undefined,
-    website: String(raw.website ?? '').trim() || undefined,
+    status: String(row.status ?? row.Status ?? '').trim() || undefined,
+    latitude: (() => {
+      const n = Number(row.latitude ?? row.Latitude);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
+    longitude: (() => {
+      const n = Number(row.longitude ?? row.Longitude);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
+    website: String(row.website ?? row.Website ?? '').trim() || undefined,
   };
 }
 
@@ -1316,6 +1350,31 @@ export const apiService = {
   async getTags(lang?: string): Promise<ApiResponse<TagDto[]>> {
     return apiFetch<TagDto[]>(
       `Content/tags${buildQuery(lang ? { lang } : undefined)}`,
+    );
+  },
+
+  /** Nhóm tag — GET Content/tag-groups */
+  async getTagGroups(): Promise<ApiResponse<TagGroupDto[]>> {
+    return apiFetch<TagGroupDto[]>('Content/tag-groups');
+  },
+
+  /** Tag thuộc một nhóm — GET Content/tag-groups/{id}/tags */
+  async getTagsByGroup(
+    tagGroupId: number,
+    lang?: string,
+  ): Promise<ApiResponse<TagDto[]>> {
+    return apiFetch<TagDto[]>(
+      `Content/tag-groups/${tagGroupId}/tags${buildQuery(lang ? { lang } : undefined)}`,
+    );
+  },
+
+  /** Tag gắn với hiện vật — GET Content/exhibits/{id}/tags */
+  async getExhibitTags(
+    exhibitId: number,
+    lang?: string,
+  ): Promise<ApiResponse<TagDto[]>> {
+    return apiFetch<TagDto[]>(
+      `Content/exhibits/${exhibitId}/tags${buildQuery(lang ? { lang } : undefined)}`,
     );
   },
 

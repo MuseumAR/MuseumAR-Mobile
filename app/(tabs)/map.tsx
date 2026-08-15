@@ -1,16 +1,28 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
+import { useMemo } from 'react';
 import { Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useMaps } from '../../src/hooks/useMaps';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
+import { useRooms } from '../../src/hooks/useRooms';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
+import { collectMuseumFloors } from '../../src/utils/museumFloors';
+import { museumLocationLabel, openMuseumMap } from '../../src/utils/museumLocation';
 
 export default function MuseumAboutScreen() {
   const router = useRouter();
   const { t } = useLanguage();
   const { museum } = useMuseumProfile();
+  const museumId = Number(museum.id) || 0;
+  const { maps } = useMaps();
+  const { rooms } = useRooms(museumId > 0 ? museumId : null);
+  const floors = useMemo(
+    () => collectMuseumFloors(maps, rooms, t('museum.floor')),
+    [maps, rooms, t],
+  );
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -21,7 +33,7 @@ export default function MuseumAboutScreen() {
           <View>
             <Text style={styles.headerLabel}>{t('museum.about')}</Text>
             <Text style={styles.title}>{t('museum.title')}</Text>
-            <Text style={styles.subtitle}>{museum.city}</Text>
+            <Text style={styles.subtitle}>{museumLocationLabel(museum) || museum.city}</Text>
           </View>
           <View style={[styles.headerIcon, { backgroundColor: C.accentDark, borderColor: C.accent + '40' }]}>
             <MaterialCommunityIcons name="bank-outline" size={22} color={C.accent} />
@@ -76,10 +88,18 @@ export default function MuseumAboutScreen() {
               value: museum.ticketPrice,
               keepCase: true,
             },
-            { icon: 'map-marker-outline' as const, label: t('museum.address'), value: museum.address },
+            { icon: 'map-marker-outline' as const, label: t('museum.address'), value: museumLocationLabel(museum) },
             { icon: 'phone-outline' as const, label: t('museum.contact'), value: museum.phone },
-          ].map((item) => (
-            <View key={item.label} style={styles.infoRow}>
+          ].filter((item) => item.value && item.value !== '—').map((item) => {
+            const isAddress = item.label === t('museum.address');
+            return (
+            <TouchableOpacity
+              key={item.label}
+              style={styles.infoRow}
+              activeOpacity={isAddress ? 0.75 : 1}
+              onPress={isAddress ? () => openMuseumMap(museum) : undefined}
+              disabled={!isAddress}
+            >
               <View style={styles.infoIconWrap}>
                 <MaterialCommunityIcons name={item.icon} size={18} color={C.accent} />
               </View>
@@ -97,8 +117,9 @@ export default function MuseumAboutScreen() {
                 ) : null}
                 {item.note ? <Text style={styles.infoNote}>{item.note}</Text> : null}
               </View>
-            </View>
-          ))}
+            </TouchableOpacity>
+            );
+          })}
         </View>
 
         {/* ── Highlights ───────────────────────────────────────────────── */}
@@ -115,19 +136,21 @@ export default function MuseumAboutScreen() {
           </View>
         ) : null}
 
-        {/* ── Zones ────────────────────────────────────────────────────── */}
-        {museum.zones.length > 0 ? (
+        {/* ── Floors ───────────────────────────────────────────────────── */}
+        {floors.length > 0 ? (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>{t('museum.zones')}</Text>
-            <Text style={styles.sectionTitle}>{t('museum.zones')}</Text>
-            {museum.zones.map((zone) => (
-              <View key={zone.name} style={styles.zoneRow}>
+            <Text style={styles.sectionLabel}>{t('museum.floors').toUpperCase()}</Text>
+            <Text style={styles.sectionTitle}>{t('museum.floors')}</Text>
+            {floors.map((floor) => (
+              <View key={floor.floorNumber} style={styles.zoneRow}>
                 <View style={[styles.zoneIcon, { backgroundColor: museum.color + '18', borderColor: museum.color + '40' }]}>
                   <MaterialCommunityIcons name="layers-outline" size={16} color={museum.color} />
                 </View>
                 <View style={styles.zoneInfo}>
-                  <Text style={styles.zoneName}>{zone.name}</Text>
-                  <Text style={styles.zoneMeta}>{zone.floor} · {zone.items} items</Text>
+                  <Text style={styles.zoneName}>{floor.label}</Text>
+                  <Text style={styles.zoneMeta}>
+                    {floor.roomCount} {t('museum.roomsOnFloor')}
+                  </Text>
                 </View>
               </View>
             ))}

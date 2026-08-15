@@ -8,7 +8,7 @@ import {
   FloorPlanDirectionArrows,
   RouteNavigationOverlay,
 } from '../../src/components/RouteNavigationOverlay';
-import { type MuseumZone } from '../../src/data/museums';
+import { collectMuseumFloors, type MuseumFloor } from '../../src/utils/museumFloors';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import { useExhibitions } from '../../src/hooks/useExhibitions';
 import { useMaps } from '../../src/hooks/useMaps';
@@ -39,6 +39,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { C } from '../../src/theme/colors';
 import { formatExhibitionDates } from '../../src/utils/exhibitionDates';
+import {
+  canOpenMuseumMap,
+  museumLocationLabel,
+  openMuseumMap,
+} from '../../src/utils/museumLocation';
 import {
   buildRouteStepGuide,
   sortRoomsForLayout,
@@ -82,7 +87,7 @@ const dotS = StyleSheet.create({
 // ─── Floor plan (zones fallback OR BE rooms + route mode) ─────────────────────
 
 type FloorPlanProps = {
-  zones: MuseumZone[];
+  floors: MuseumFloor[];
   rooms: RoomDto[];
   accentColor: string;
   selectedZone: string | null;
@@ -93,7 +98,7 @@ type FloorPlanProps = {
 };
 
 function FloorPlan({
-  zones,
+  floors: floorList,
   rooms,
   accentColor,
   selectedZone,
@@ -107,42 +112,39 @@ function FloorPlan({
   const sortedRooms = useMemo(() => sortRoomsForLayout(rooms), [rooms]);
 
   const floors = useMemo(() => {
-    if (useRoomsLayout) {
-      return [...new Set(sortedRooms.map((r) => `${t('museum.floor')} ${r.floorNumber}`))];
-    }
-    return [
+    if (floorList.length > 0) return floorList;
+    const nums = [
       ...new Set(
-        zones
-          .filter((z) => !z.floor.toLowerCase().includes('ngoài'))
-          .map((z) => z.floor),
+        sortedRooms
+          .map((r) => Number(r.floorNumber))
+          .filter((n) => Number.isFinite(n) && n > 0),
       ),
-    ];
-  }, [useRoomsLayout, sortedRooms, zones, t]);
+    ].sort((a, b) => a - b);
+    return nums.map((n) => ({
+      floorNumber: n,
+      label: `${t('museum.floor')} ${n}`,
+      roomCount: sortedRooms.filter((r) => r.floorNumber === n).length,
+    }));
+  }, [floorList, sortedRooms, t]);
 
-  const [activeFloor, setActiveFloor] = useState(floors[0] ?? '');
+  const [activeFloorNum, setActiveFloorNum] = useState(
+    floors[0]?.floorNumber ?? 1,
+  );
 
   useEffect(() => {
     if (routeMode && currentStop?.floorNumber != null) {
-      setActiveFloor(`${t('museum.floor')} ${currentStop.floorNumber}`);
+      setActiveFloorNum(currentStop.floorNumber);
       return;
     }
-    if (floors.length > 0 && !floors.includes(activeFloor)) {
-      setActiveFloor(floors[0]);
+    if (
+      floors.length > 0 &&
+      !floors.some((f) => f.floorNumber === activeFloorNum)
+    ) {
+      setActiveFloorNum(floors[0].floorNumber);
     }
-  }, [floors, activeFloor, routeMode, currentStop?.floorNumber, t]);
+  }, [floors, activeFloorNum, routeMode, currentStop?.floorNumber]);
 
-  const floorNumMatch = activeFloor.match(/\d+/);
-  const activeFloorNum = floorNumMatch ? Number(floorNumMatch[0]) : 1;
-
-  const floorRooms = useRoomsLayout
-    ? sortedRooms.filter((r) => r.floorNumber === activeFloorNum)
-    : [];
-
-  const floorZones = zones.filter((z) => z.floor === activeFloor);
-  const zoneRows: MuseumZone[][] = [];
-  for (let i = 0; i < floorZones.length; i += 2) {
-    zoneRows.push(floorZones.slice(i, i + 2));
-  }
+  const floorRooms = sortedRooms.filter((r) => r.floorNumber === activeFloorNum);
 
   const roomRows: RoomDto[][] = [];
   for (let i = 0; i < floorRooms.length; i += 2) {
@@ -173,15 +175,15 @@ function FloorPlan({
 
   return (
     <View>
-      {floors.length > 1 && (
+      {floors.length > 0 && (
         <View style={fpS.floorRow}>
           {floors.map((f) => {
-            const active = f === activeFloor;
+            const active = f.floorNumber === activeFloorNum;
             return (
               <TouchableOpacity
-                key={f}
+                key={f.floorNumber}
                 style={[fpS.floorTab, active && { borderColor: accentColor + '70' }]}
-                onPress={() => setActiveFloor(f)}
+                onPress={() => setActiveFloorNum(f.floorNumber)}
               >
                 {active && (
                   <LinearGradient
@@ -200,7 +202,8 @@ function FloorPlan({
                     active && { color: accentColor, fontWeight: '700' },
                   ]}
                 >
-                  {f}
+                  {f.label}
+                  {f.roomCount > 0 ? ` · ${f.roomCount}` : ''}
                 </Text>
               </TouchableOpacity>
             );
@@ -304,69 +307,13 @@ function FloorPlan({
                   {row.length === 1 ? <View style={{ flex: 1 }} /> : null}
                 </View>
               ))
-            : zoneRows.map((row, ri) => (
-                <View key={ri} style={fpS.roomRow}>
-                  {row.map((zone) => {
-                    const sel = selectedZone === zone.name;
-                    return (
-                      <TouchableOpacity
-                        key={zone.name}
-                        style={[
-                          fpS.room,
-                          {
-                            borderColor: sel ? accentColor : accentColor + '45',
-                            backgroundColor: sel
-                              ? accentColor + '18'
-                              : accentColor + '08',
-                          },
-                        ]}
-                        activeOpacity={0.75}
-                        onPress={() => onSelectZone(zone.name)}
-                      >
-                        {sel && (
-                          <LinearGradient
-                            colors={[accentColor + '20', 'transparent']}
-                            style={StyleSheet.absoluteFill}
-                          />
-                        )}
-                        <View
-                          style={[
-                            fpS.dot,
-                            {
-                              backgroundColor: accentColor,
-                              opacity: sel ? 1 : 0.55,
-                            },
-                          ]}
-                        />
-                        <Text
-                          style={[
-                            fpS.roomLabel,
-                            { color: sel ? accentColor : accentColor + 'AA' },
-                          ]}
-                          numberOfLines={2}
-                        >
-                          {zone.name}
-                        </Text>
-                        <Text
-                          style={[
-                            fpS.roomCount,
-                            { color: sel ? accentColor : C.textMuted },
-                          ]}
-                        >
-                          {zone.items} {t('museum.artifactsCount')}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              ))}
+            : null}
         </View>
 
-        {!useRoomsLayout && floorZones.length === 0 ? (
-          <Text style={fpS.emptyHint}>{t('museum.noZones')}</Text>
-        ) : null}
-        {useRoomsLayout && floorRooms.length === 0 ? (
-          <Text style={fpS.emptyHint}>{t('museum.noRoomsOnFloor')}</Text>
+        {floorRooms.length === 0 ? (
+          <Text style={fpS.emptyHint}>
+            {floors.length === 0 ? t('museum.noFloors') : t('museum.noRoomsOnFloor')}
+          </Text>
         ) : null}
 
         <View style={fpS.corridor} />
@@ -386,30 +333,6 @@ function FloorPlan({
           )}
         </View>
       </View>
-
-      {!useRoomsLayout &&
-        zones
-          .filter((z) => z.floor.toLowerCase().includes('ngoài'))
-          .map((z) => (
-            <TouchableOpacity
-              key={z.name}
-              style={[
-                fpS.outdoorZone,
-                selectedZone === z.name && { borderColor: accentColor + '70' },
-              ]}
-              onPress={() => onSelectZone(z.name)}
-            >
-              <MaterialCommunityIcons
-                name="tree-outline"
-                size={14}
-                color={accentColor}
-              />
-              <Text style={fpS.outdoorLabel}>{z.name}</Text>
-              <Text style={fpS.outdoorCount}>
-                {z.items} {t('museum.artifactsCount')} · {t('museum.outdoor')}
-              </Text>
-            </TouchableOpacity>
-          ))}
 
       <View style={fpS.legend}>
         {(routeMode
@@ -662,7 +585,6 @@ export default function MuseumDetailScreen() {
   const { museum } = useMuseumProfile();
   const museumId = Number(museum.id) || 0;
   const { track } = useTrackAction();
-  const [favorited, setFavorited] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
   const { checkSync } = useMuseumSyncCheck();
@@ -729,6 +651,11 @@ export default function MuseumDetailScreen() {
     return [...byKey.values()];
   }, [rooms, routeMode, routeStops, museumId]);
 
+  const floors = useMemo(
+    () => collectMuseumFloors(maps, layoutRooms, t('museum.floor')),
+    [maps, layoutRooms, t, lang],
+  );
+
   useEffect(() => {
     checkSync();
   }, [checkSync]);
@@ -742,7 +669,12 @@ export default function MuseumDetailScreen() {
     });
   }, [museumId, track, lang]);
 
-  const selectedZoneData = museum.zones.find((z) => z.name === selectedZone);
+  const selectedRoom = layoutRooms.find(
+    (r) => r.roomName === selectedZone || r.roomCode === selectedZone,
+  );
+  const selectedFloor = selectedRoom
+    ? floors.find((f) => f.floorNumber === selectedRoom.floorNumber)
+    : undefined;
 
   const startRoute = async (route: TourRouteDto) => {
     setStartingRouteId(route.id);
@@ -796,13 +728,24 @@ export default function MuseumDetailScreen() {
 
           {/* ── Name & location ─────────────────────────────────────────── */}
           <Text style={styles.name}>{museum.name}</Text>
-          <View style={styles.locationRow}>
-            <MaterialCommunityIcons name="map-marker-outline" size={14} color={C.textSecondary} />
-            <Text style={styles.city}>
-              {museum.city}
-              {museum.founded ? ` · ${t('museum.est')} ${museum.founded}` : ''}
-            </Text>
-          </View>
+          {museumLocationLabel(museum) ? (
+            <TouchableOpacity
+              style={styles.locationRow}
+              activeOpacity={canOpenMuseumMap(museum) ? 0.7 : 1}
+              onPress={() => openMuseumMap(museum)}
+              disabled={!canOpenMuseumMap(museum)}
+            >
+              <MaterialCommunityIcons name="map-marker-outline" size={14} color={C.textSecondary} />
+              <Text style={styles.city}>
+                {museumLocationLabel(museum)}
+                {museum.founded ? ` · ${t('museum.est')} ${museum.founded}` : ''}
+              </Text>
+            </TouchableOpacity>
+          ) : museum.founded ? (
+            <View style={styles.locationRow}>
+              <Text style={styles.city}>{`${t('museum.est')} ${museum.founded}`}</Text>
+            </View>
+          ) : null}
 
           {/* ── Action buttons ──────────────────────────────────────────── */}
           <View style={styles.actionGrid}>
@@ -813,16 +756,6 @@ export default function MuseumDetailScreen() {
             <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(tabs)/explore')}>
               <MaterialCommunityIcons name="headphones" size={26} color={museum.color} />
               <Text style={styles.actionLabel}>{t('museum.audioTour')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.actionCard} onPress={() => setFavorited((v) => !v)}>
-              <MaterialCommunityIcons
-                name={favorited ? 'heart' : 'heart-outline'}
-                size={26}
-                color={favorited ? '#EF4444' : museum.color}
-              />
-              <Text style={[styles.actionLabel, favorited && { color: '#EF4444' }]}>
-                {favorited ? t('museum.saved') : t('museum.save')}
-              </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/ar-packs')}>
               <MaterialCommunityIcons name="package-variant-closed" size={26} color={museum.color} />
@@ -841,9 +774,16 @@ export default function MuseumDetailScreen() {
             <View style={styles.statDivider} />
             <View style={styles.statBox}>
               <Text style={[styles.statValue, { color: museum.color }]}>
-                {museum.zones.length > 0 ? museum.zones.length : '—'}
+                {floors.length > 0 ? floors.length : '—'}
               </Text>
-              <Text style={styles.statLabel}>{t('museum.zonesCount')}</Text>
+              <Text style={styles.statLabel}>{t('museum.floorsCount')}</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statBox}>
+              <Text style={[styles.statValue, { color: museum.color }]}>
+                {layoutRooms.length > 0 ? layoutRooms.length : '—'}
+              </Text>
+              <Text style={styles.statLabel}>{t('museum.rooms')}</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statBox}>
@@ -855,7 +795,12 @@ export default function MuseumDetailScreen() {
           {/* ── Info grid ───────────────────────────────────────────────── */}
           <View style={styles.infoGrid}>
             {[
-              { icon: '📍', label: t('museum.address'), value: museum.address },
+              {
+                icon: '📍',
+                label: t('museum.address'),
+                value: museumLocationLabel(museum),
+                onPress: canOpenMuseumMap(museum) ? () => openMuseumMap(museum) : undefined,
+              },
               {
                 icon: '⏰',
                 label: t('museum.hours'),
@@ -871,23 +816,29 @@ export default function MuseumDetailScreen() {
                 keepCase: true,
               },
               { icon: '📞', label: t('museum.contact'), value: museum.phone },
-            ].map((item) => (
-              <View key={item.label} style={styles.infoCard}>
-                <Text style={styles.infoIcon}>{item.icon}</Text>
-                <Text
-                  style={[
-                    styles.infoLabel,
-                    item.keepCase && styles.infoLabelSentence,
-                  ]}
+            ]
+              .filter((item) => item.value && item.value !== '—')
+              .map((item) => (
+                <TouchableOpacity
+                  key={item.label}
+                  style={styles.infoCard}
+                  activeOpacity={item.onPress ? 0.75 : 1}
+                  onPress={item.onPress}
+                  disabled={!item.onPress}
                 >
-                  {item.label}
-                </Text>
-                {item.value ? (
+                  <Text style={styles.infoIcon}>{item.icon}</Text>
+                  <Text
+                    style={[
+                      styles.infoLabel,
+                      item.keepCase && styles.infoLabelSentence,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
                   <Text style={styles.infoValue}>{item.value}</Text>
-                ) : null}
-                {item.note && <Text style={styles.infoNote}>{item.note}</Text>}
-              </View>
-            ))}
+                  {item.note ? <Text style={styles.infoNote}>{item.note}</Text> : null}
+                </TouchableOpacity>
+              ))}
           </View>
 
           {/* ── Description ─────────────────────────────────────────────── */}
@@ -981,7 +932,7 @@ export default function MuseumDetailScreen() {
               <ActivityIndicator color={museum.color} style={{ marginVertical: 16 }} />
             ) : showInteractivePlan ? (
               <FloorPlan
-                zones={museum.zones}
+                floors={floors}
                 rooms={layoutRooms}
                 accentColor={museum.color}
                 selectedZone={selectedZone}
@@ -1012,7 +963,7 @@ export default function MuseumDetailScreen() {
             ) : null}
 
             {/* Selected zone info card — only when not in route mode */}
-            {!routeMode && selectedZoneData && !hasMapImage ? (
+            {!routeMode && selectedRoom && !hasMapImage ? (
               <View style={[styles.zoneInfoCard, { borderColor: museum.color + '50' }]}>
                 <LinearGradient
                   colors={[museum.color + '10', 'transparent']}
@@ -1020,11 +971,14 @@ export default function MuseumDetailScreen() {
                 />
                 <View style={styles.zoneInfoLeft}>
                   <Text style={[styles.zoneInfoName, { color: museum.color }]}>
-                    {selectedZoneData.name}
+                    {selectedRoom.roomName}
                   </Text>
                   <Text style={styles.zoneInfoMeta}>
-                    {selectedZoneData.floor} · {selectedZoneData.items}{' '}
-                    {t('museum.artifactsCount')}
+                    {selectedFloor?.label ??
+                      `${t('museum.floor')} ${selectedRoom.floorNumber}`}
+                    {selectedRoom.roomCode
+                      ? ` · ${t('museum.room')} ${selectedRoom.roomCode}`
+                      : ''}
                   </Text>
                 </View>
                 <TouchableOpacity
@@ -1206,8 +1160,8 @@ const styles = StyleSheet.create({
 
   content: { paddingHorizontal: 20, paddingTop: 4 },
   name:    { fontSize: 24, fontWeight: '800', color: C.textPrimary, lineHeight: 32 },
-  locationRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
-  city:    { fontSize: 14, color: C.textSecondary },
+  locationRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4, marginTop: 6 },
+  city:    { flex: 1, fontSize: 14, color: C.textSecondary },
 
   actionGrid: { flexDirection: 'row', gap: 10, marginTop: 20, marginBottom: 4 },
   actionCard: {
@@ -1225,13 +1179,13 @@ const styles = StyleSheet.create({
 
   statsRow: {
     flexDirection: 'row', backgroundColor: C.bgSurface,
-    borderRadius: 16, paddingVertical: 14, paddingHorizontal: 14,
+    borderRadius: 16, paddingVertical: 14, paddingHorizontal: 8,
     marginTop: 18, alignItems: 'center',
     borderWidth: 1, borderColor: C.border,
   },
-  statBox:    { flex: 1, alignItems: 'center' },
-  statValue:  { fontSize: 18, fontWeight: '800' },
-  statLabel:  { fontSize: 11, color: C.textMuted, marginTop: 3, textAlign: 'center' },
+  statBox:    { flex: 1, alignItems: 'center', paddingHorizontal: 2 },
+  statValue:  { fontSize: 16, fontWeight: '800' },
+  statLabel:  { fontSize: 10, color: C.textMuted, marginTop: 3, textAlign: 'center' },
   statDivider:{ width: 1, height: 32, backgroundColor: C.divider },
 
   infoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },

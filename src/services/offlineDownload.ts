@@ -89,6 +89,7 @@ async function snapshotContentApis(museumId?: number): Promise<ExhibitDto[]> {
     { key: 'Content/themes?lang=en', run: () => apiService.getThemes('en') },
     { key: 'Content/tags', run: () => apiService.getTags() },
     { key: 'Content/tags?lang=en', run: () => apiService.getTags('en') },
+    { key: 'Content/tag-groups', run: () => apiService.getTagGroups() },
     { key: 'Content/categories', run: () => apiService.getCategories() },
     { key: 'Content/maps', run: () => apiService.getMaps() },
     { key: 'Content/routes', run: () => apiService.getRoutes() },

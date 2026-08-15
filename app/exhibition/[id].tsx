@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useExhibitionDetail } from '../../src/hooks/useExhibitionDetail';
+import { useCategories } from '../../src/hooks/useCategories';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
 import { formatExhibitionDates } from '../../src/utils/exhibitionDates';
@@ -19,6 +20,7 @@ export default function ExhibitionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { t, lang } = useLanguage();
   const { exhibition, exhibits, loading } = useExhibitionDetail(id);
+  const { themes } = useCategories();
 
   if (!exhibition) {
     return (
@@ -35,6 +37,10 @@ export default function ExhibitionDetailScreen() {
   }
 
   const dates = formatExhibitionDates(exhibition, lang);
+  const themeName =
+    exhibition.themeId != null
+      ? themes.find((theme) => theme.id === Number(exhibition.themeId))?.name
+      : undefined;
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -54,7 +60,7 @@ export default function ExhibitionDetailScreen() {
         </View>
 
         <View style={styles.body}>
-          <Text style={styles.kicker}>{t('content.exhibition')}</Text>
+          <Text style={styles.kicker}>{themeName || t('content.exhibition')}</Text>
           <Text style={styles.title}>{exhibition.name || `Exhibition #${exhibition.id}`}</Text>
           {dates ? <Text style={styles.dates}>{dates}</Text> : null}
 

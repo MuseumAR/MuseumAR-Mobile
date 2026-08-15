@@ -7,17 +7,17 @@ import { useCategories } from './useCategories';
 
 type UseExhibitsOptions = {
   categoryId?: number;
-  themeId?: number;
   tagId?: number;
   search?: string;
 };
 
 /**
  * Lấy danh sách hiện vật từ GET /Content/exhibits, bổ sung translations,
- * rồi lọc phía client theo category/theme/tag/search.
+ * rồi lọc phía client theo category/tag/search.
+ * Theme gắn với Exhibition.ThemeId — lọc ở màn triển lãm, không lọc hiện vật.
  */
 export function useExhibits(options: UseExhibitsOptions = {}) {
-  const { categoryId, themeId, tagId, search } = options;
+  const { categoryId, tagId, search } = options;
   const { lang } = useLanguage();
   const [exhibits, setExhibits] = useState<ExhibitRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,9 +42,6 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
       if (categoryId != null) {
         list = list.filter((e) => e.categoryId === categoryId);
       }
-      if (themeId != null) {
-        list = list.filter((e) => e.themeId === themeId);
-      }
       if (tagId != null) {
         list = list.filter((e) => (e.tagIds ?? []).includes(tagId));
       }
@@ -63,7 +60,7 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
     } finally {
       setLoading(false);
     }
-  }, [categoryId, themeId, tagId, search, categoryNameById, lang]);
+  }, [categoryId, tagId, search, categoryNameById, lang]);
 
   useEffect(() => {
     refresh();

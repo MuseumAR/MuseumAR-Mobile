@@ -52,6 +52,19 @@ function mapProfileFromApi(
       ? hoursFromLang || profile.openingHoursEn || profile.openingHours || profile.openHours || hoursFromVi
       : profile.openingHours || profile.openHours || hoursFromVi || hoursFromLang) || ''
   ).trim();
+
+  const addressFromLang = profile.translations
+    ?.find((row) => row.languageCode?.toLowerCase() === lang)
+    ?.address?.trim();
+  const addressFromVi = profile.translations
+    ?.find((row) => row.languageCode?.toLowerCase() === 'vi')
+    ?.address?.trim();
+  const address = (
+    (lang === 'en'
+      ? addressFromLang || profile.addressEn || profile.address || addressFromVi
+      : profile.address || addressFromVi || addressFromLang || profile.addressEn) || ''
+  ).trim();
+
   const phone = (profile.contactPhone || profile.phone || '').trim();
   const founded =
     profile.foundedYear != null && String(profile.foundedYear).trim()
@@ -64,7 +77,15 @@ function mapProfileFromApi(
     city: city || '—',
     tag: '',
     color: UI_ACCENT,
-    address: profile.address?.trim() || '—',
+    address: address || city || '—',
+    latitude:
+      profile.latitude != null && Number.isFinite(profile.latitude)
+        ? profile.latitude
+        : undefined,
+    longitude:
+      profile.longitude != null && Number.isFinite(profile.longitude)
+        ? profile.longitude
+        : undefined,
     phone: phone || '—',
     openHours: openHours || '—',
     closedDay: profile.closedDay?.trim() || '',
@@ -128,14 +149,33 @@ export function useMuseumProfile() {
           data?.openingHoursEn?.trim() ||
           data?.translations?.some((row) => row.openingHours?.trim()),
       );
-      if (data && !hasHours) {
+      const hasAddress = Boolean(
+        data?.address?.trim() ||
+          data?.addressEn?.trim() ||
+          data?.translations?.some((row) => row.address?.trim()),
+      );
+      if (data && (!hasHours || !hasAddress)) {
         const fallback = await apiService.getMuseumProfile();
         const hours =
           fallback.data?.openingHours?.trim() ||
           fallback.data?.openHours?.trim() ||
           '';
-        if (hours) {
-          data = { ...data, openingHours: hours, openHours: hours };
+        const address =
+          fallback.data?.address?.trim() ||
+          fallback.data?.addressEn?.trim() ||
+          '';
+        if (hours || address) {
+          data = {
+            ...data,
+            ...(hours
+              ? { openingHours: data.openingHours || hours, openHours: data.openHours || hours }
+              : {}),
+            ...(address ? { address: data.address?.trim() || address } : {}),
+            latitude: data.latitude ?? fallback.data?.latitude,
+            longitude: data.longitude ?? fallback.data?.longitude,
+            city: data.city?.trim() || fallback.data?.city,
+            province: data.province?.trim() || fallback.data?.province,
+          };
         }
       }
 

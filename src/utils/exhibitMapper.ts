@@ -21,6 +21,30 @@ export function pickTranslation(
   return pickLocalizedRow(dto.translations, lang);
 }
 
+function readTagIds(dto: ExhibitDto): number[] {
+  const raw = dto as ExhibitDto & {
+    TagIds?: unknown;
+    tags?: unknown;
+    Tags?: unknown;
+  };
+  const fromIds = raw.tagIds ?? raw.TagIds;
+  if (Array.isArray(fromIds)) {
+    return fromIds
+      .map((value) => Number(value))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+  const fromObjects = raw.tags ?? raw.Tags;
+  if (Array.isArray(fromObjects)) {
+    return fromObjects
+      .map((item) => {
+        const row = item as { id?: unknown; Id?: unknown };
+        return Number(row.id ?? row.Id);
+      })
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+  return [];
+}
+
 /** Tách mô tả dài thành các đoạn transcript ngắn để hiển thị theo audio. */
 function splitTranscript(description?: string): string[] {
   if (!description) return [];
@@ -57,7 +81,7 @@ export function mapExhibitDtoToRecord(
       (dto.categoryId != null ? `Danh mục ${dto.categoryId}` : 'Hiện vật'),
     categoryId: dto.categoryId,
     themeId: dto.themeId,
-    tagIds: dto.tagIds,
+    tagIds: readTagIds(dto),
     origin: '',
     material: '',
     description,

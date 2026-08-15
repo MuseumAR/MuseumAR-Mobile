@@ -16,6 +16,7 @@ import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { TicketTypeDto } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
+import { museumLocationLabel } from '../../src/utils/museumLocation';
 
 const WEEKDAYS_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -158,7 +159,9 @@ export default function TicketScreen() {
             <View style={[styles.museumColorDot, { backgroundColor: museum.color }]} />
             <View style={styles.museumInfo}>
               <Text style={styles.museumName}>{museum.name}</Text>
-              <Text style={styles.museumCity}>{museum.city}</Text>
+              <Text style={styles.museumCity} numberOfLines={2}>
+                {museumLocationLabel(museum)}
+              </Text>
             </View>
           </View>
         </View>

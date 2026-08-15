@@ -10,6 +10,7 @@ import { useExhibits } from '../../src/hooks/useExhibits';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
+import { museumLocationLabel } from '../../src/utils/museumLocation';
 import { formatExhibitionDates } from '../../src/utils/exhibitionDates';
 
 const TAXONOMY_COLORS = ['#C89B3C', '#A67C2D', '#0369A1', '#047857', '#9A6F1F', '#B45309'];
@@ -42,7 +43,7 @@ export default function HomeScreen() {
   const quickActions = [
     { label: t('home.quickScan'), icon: 'line-scan' as const, route: '/(tabs)/scan' as const },
     { label: t('home.quickAudio'), icon: 'headphones' as const, route: '/(tabs)/explore' as const },
-    { label: t('home.quickSaved'), icon: 'bookmark-outline' as const, route: '/(tabs)/profile' as const },
+    { label: t('home.quickSaved'), icon: 'bookmark-outline' as const, route: '/bookmarks' as const },
   ];
 
   const categoryCards = useMemo(
@@ -175,8 +176,14 @@ export default function HomeScreen() {
             ) : null}
             <Text style={styles.museumName}>{museum.name}</Text>
             <View style={styles.museumLocation}>
-              <MaterialCommunityIcons name="map-marker-outline" size={11} color={C.textSecondary} />
-              <Text style={styles.museumCity}>{museum.city}</Text>
+              {museumLocationLabel(museum) ? (
+                <>
+                  <MaterialCommunityIcons name="map-marker-outline" size={11} color={C.textSecondary} />
+                  <Text style={styles.museumCity} numberOfLines={2}>
+                    {museumLocationLabel(museum)}
+                  </Text>
+                </>
+              ) : null}
             </View>
             <View style={styles.museumMetaRow}>
               <MaterialCommunityIcons name="clock-outline" size={12} color={C.success} />
@@ -339,6 +346,9 @@ export default function HomeScreen() {
               <Text style={styles.sectionLabel}>{t('home.topics')}</Text>
               <Text style={styles.sectionTitle}>{t('home.exploreByTheme')}</Text>
             </View>
+            <TouchableOpacity onPress={() => router.push('/exhibitions')}>
+              <Text style={styles.seeAll}>{t('home.seeAll')} →</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.eraGrid}>
@@ -352,7 +362,7 @@ export default function HomeScreen() {
                   activeOpacity={0.8}
                   onPress={() =>
                     router.push({
-                      pathname: '/(tabs)/explore',
+                      pathname: '/exhibitions',
                       params: { themeId: String(item.id) },
                     })
                   }
@@ -561,8 +571,8 @@ const styles = StyleSheet.create({
   },
   museumBadgeText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
   museumName: { fontSize: 16, fontWeight: '800', color: C.textPrimary, lineHeight: 22, marginBottom: 6 },
-  museumLocation: { flexDirection: 'row', alignItems: 'center', gap: 3, marginBottom: 8 },
-  museumCity: { fontSize: 12, color: C.textSecondary },
+  museumLocation: { flexDirection: 'row', alignItems: 'flex-start', gap: 3, marginBottom: 8 },
+  museumCity: { flex: 1, fontSize: 12, color: C.textSecondary },
   museumMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   museumHours: { fontSize: 12, color: C.success, fontWeight: '600' },
   museumDot: { fontSize: 12, color: C.textMuted },

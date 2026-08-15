@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { useCategories } from '../../src/hooks/useCategories';
+import { useExhibitTagIndex } from '../../src/hooks/useExhibitTagIndex';
 import { useExhibits } from '../../src/hooks/useExhibits';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useLanguage } from '../../src/i18n/LanguageContext';
@@ -23,43 +24,49 @@ import { parseNumericId } from '../../src/utils/parseId';
 
 type SelectedFilter =
   | { kind: 'all' }
-  | { kind: 'category' | 'theme' | 'tag'; id: number; name: string };
+  | { kind: 'category' | 'tagGroup'; id: number; name: string }
+  | { kind: 'tag'; id: number; name: string; groupId: number };
 
-function chipMatches(filter: SelectedFilter, chip: TaxonomyChip): boolean {
+function primaryChipActive(filter: SelectedFilter, chip: TaxonomyChip): boolean {
   if (filter.kind === 'all') return false;
+  if (chip.kind === 'tagGroup') {
+    if (filter.kind === 'tagGroup') return filter.id === chip.id;
+    if (filter.kind === 'tag') return filter.groupId === chip.id;
+    return false;
+  }
   return filter.kind === chip.kind && filter.id === chip.id;
 }
 
 export default function ExploreScreen() {
   const router = useRouter();
   const { t, lang } = useLanguage();
-  const params = useLocalSearchParams<{ categoryId?: string; themeId?: string }>();
+  const params = useLocalSearchParams<{ categoryId?: string }>();
   const paramCategoryId = parseNumericId(params.categoryId);
-  const paramThemeId = parseNumericId(params.themeId);
 
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<SelectedFilter>({ kind: 'all' });
   const { track } = useTrackAction();
   const searchTrackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { filterChips, categories, themes, ALL_LABEL } = useCategories();
-  const { exhibits, loading, error, refresh } = useExhibits();
+  const { filterChips, categories, tags, ALL_LABEL } = useCategories();
+  const { exhibits, loading, error, refresh: refreshExhibits } = useExhibits();
+  const {
+    tagIdsByExhibit,
+    loading: tagIndexLoading,
+    refresh: refreshTagIndex,
+  } = useExhibitTagIndex(exhibits);
 
-  // Deep-link from Home: explore by category / theme
+  const refresh = async () => {
+    await Promise.all([refreshExhibits(), refreshTagIndex()]);
+  };
+
   useEffect(() => {
     if (paramCategoryId != null) {
       const cat = categories.find((c) => c.id === paramCategoryId);
       if (cat?.name) {
         setSelected({ kind: 'category', id: cat.id, name: cat.name });
-        return;
       }
     }
-    if (paramThemeId != null) {
-      const theme = themes.find((t) => t.id === paramThemeId);
-      if (theme) {
-        setSelected({ kind: 'theme', id: theme.id, name: theme.name });
-      }
-    }
-  }, [paramCategoryId, paramThemeId, categories, themes]);
+  }, [paramCategoryId, categories]);
 
   useEffect(() => {
     if (searchTrackTimer.current) clearTimeout(searchTrackTimer.current);
@@ -76,21 +83,58 @@ export default function ExploreScreen() {
     };
   }, [search, track, lang]);
 
+  const selectedGroupId =
+    selected.kind === 'tagGroup'
+      ? selected.id
+      : selected.kind === 'tag'
+        ? selected.groupId
+        : null;
+
+  const tagsInGroup = useMemo(
+    () =>
+      selectedGroupId == null
+        ? []
+        : tags.filter((tag) => tag.tagGroupId === selectedGroupId),
+    [tags, selectedGroupId],
+  );
+
+  const tagIdsInGroup = useMemo(
+    () => new Set(tagsInGroup.map((tag) => tag.id)),
+    [tagsInGroup],
+  );
+
+  const tagsPending = exhibits.some(
+    (e) => !tagIdsByExhibit.has(Number(e.id)),
+  );
+
   const filtered = useMemo(
     () =>
       exhibits.filter((e) => {
         let matchTaxonomy = true;
         if (selected.kind === 'category') {
           matchTaxonomy = e.categoryId === selected.id || e.category === selected.name;
-        } else if (selected.kind === 'theme') {
-          matchTaxonomy = e.themeId === selected.id;
-        } else if (selected.kind === 'tag') {
-          matchTaxonomy = (e.tagIds ?? []).includes(selected.id);
+        } else if (selected.kind === 'tagGroup' || selected.kind === 'tag') {
+          const exhibitTags = tagIdsByExhibit.get(Number(e.id));
+          if (exhibitTags == null) {
+            matchTaxonomy = tagIndexLoading || tagsPending;
+          } else if (selected.kind === 'tagGroup') {
+            matchTaxonomy = exhibitTags.some((id) => tagIdsInGroup.has(id));
+          } else {
+            matchTaxonomy = exhibitTags.includes(selected.id);
+          }
         }
         const matchSearch = e.title.toLowerCase().includes(search.toLowerCase());
         return matchTaxonomy && matchSearch;
       }),
-    [exhibits, selected, search],
+    [
+      exhibits,
+      selected,
+      search,
+      tagIdsByExhibit,
+      tagIdsInGroup,
+      tagIndexLoading,
+      tagsPending,
+    ],
   );
 
   const listHeader = (
@@ -124,14 +168,15 @@ export default function ExploreScreen() {
             </Text>
           </TouchableOpacity>
           {filterChips.map((chip) => {
-            const active = chipMatches(selected, chip);
+            const active = primaryChipActive(selected, chip);
             return (
               <TouchableOpacity
                 key={chip.key}
                 style={[styles.categoryChip, active && styles.categoryChipActive]}
-                onPress={() =>
-                  setSelected({ kind: chip.kind, id: chip.id, name: chip.name })
-                }
+                onPress={() => {
+                  if (chip.kind !== 'category' && chip.kind !== 'tagGroup') return;
+                  setSelected({ kind: chip.kind, id: chip.id, name: chip.name });
+                }}
               >
                 <Text
                   style={[styles.categoryText, active && styles.categoryTextActive]}
@@ -144,6 +189,42 @@ export default function ExploreScreen() {
           })}
         </ScrollView>
       </View>
+
+      {tagsInGroup.length > 0 ? (
+        <View style={styles.tagRowWrap}>
+          <Text style={styles.tagRowLabel}>{t('explore.selectTag')}</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categories}
+          >
+            {tagsInGroup.map((tag) => {
+              const active = selected.kind === 'tag' && selected.id === tag.id;
+              return (
+                <TouchableOpacity
+                  key={tag.key}
+                  style={[styles.categoryChip, active && styles.categoryChipActive]}
+                  onPress={() =>
+                    setSelected({
+                      kind: 'tag',
+                      id: tag.id,
+                      name: tag.name,
+                      groupId: tag.tagGroupId ?? selectedGroupId ?? tag.id,
+                    })
+                  }
+                >
+                  <Text
+                    style={[styles.categoryText, active && styles.categoryTextActive]}
+                    numberOfLines={1}
+                  >
+                    {tag.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
     </View>
   );
 
@@ -157,7 +238,7 @@ export default function ExploreScreen() {
         numColumns={2}
         columnWrapperStyle={styles.row}
         onRefresh={refresh}
-        refreshing={loading}
+        refreshing={loading || tagIndexLoading}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.gridCard}
@@ -215,8 +296,20 @@ const styles = StyleSheet.create({
     borderColor: C.border,
   },
   categoriesWrap: {
-    height: 52,
+    minHeight: 52,
     marginBottom: 4,
+  },
+  tagRowWrap: {
+    minHeight: 52,
+    marginBottom: 8,
+  },
+  tagRowLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.textMuted,
+    textTransform: 'uppercase',
+    paddingHorizontal: 20,
+    marginBottom: 2,
   },
   categories: {
     paddingHorizontal: 20,
