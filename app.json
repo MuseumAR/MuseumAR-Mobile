@@ -75,6 +75,8 @@
     },
     "extra": {
       "apiHost": "",
+      "apiPort": "5149",
+      "apiBaseUrl": "",
       "googleClientIds": {
         "web": "",
         "ios": "",

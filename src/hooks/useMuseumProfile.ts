@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiService, MuseumProfileDto } from '../services/apiService';
 import { setCachedMuseumId } from '../services/museumContext';
+import { notifyMuseumReadyForAnalytics } from '../services/trackAnalytics';
 import { type MuseumRecord } from '../data/museums';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { AppLanguage } from '../services/languagePrefs';
@@ -142,6 +143,7 @@ export function useMuseumProfile() {
 
       if (data?.id != null) {
         setCachedMuseumId(data.id);
+        notifyMuseumReadyForAnalytics();
 
         const [exhibitsResult, ticketsResult] = await Promise.allSettled([
           apiService.getExhibits(data.id),

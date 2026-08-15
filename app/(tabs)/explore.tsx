@@ -12,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { useCategories } from '../../src/hooks/useCategories';
 import { useExhibits } from '../../src/hooks/useExhibits';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
@@ -31,7 +32,7 @@ function chipMatches(filter: SelectedFilter, chip: TaxonomyChip): boolean {
 
 export default function ExploreScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const params = useLocalSearchParams<{ categoryId?: string; themeId?: string }>();
   const paramCategoryId = parseNumericId(params.categoryId);
   const paramThemeId = parseNumericId(params.themeId);
@@ -64,12 +65,16 @@ export default function ExploreScreen() {
     if (searchTrackTimer.current) clearTimeout(searchTrackTimer.current);
     if (search.trim().length < 2) return;
     searchTrackTimer.current = setTimeout(() => {
-      track({ actionType: 'Search', searchQuery: search.trim() });
+      track({
+        actionType: AnalyticsAction.SEARCH,
+        searchQuery: search.trim(),
+        languageUsed: lang,
+      });
     }, 800);
     return () => {
       if (searchTrackTimer.current) clearTimeout(searchTrackTimer.current);
     };
-  }, [search, track]);
+  }, [search, track, lang]);
 
   const filtered = useMemo(
     () =>

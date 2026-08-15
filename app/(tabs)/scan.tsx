@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { parseQRCode } from '../../src/data/qrData';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useLanguage } from '../../src/i18n/LanguageContext';
@@ -30,8 +31,9 @@ export default function ScanScreen() {
   const openExhibit = useCallback(
     (exhibitId: number) => {
       track({
-        actionType: 'ScanQR',
+        actionType: AnalyticsAction.QR_SCAN,
         exhibitId,
+        languageUsed: lang,
       });
       setScanning(false);
       setResolving(false);

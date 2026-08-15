@@ -25,10 +25,14 @@ module.exports = () => {
     expo.extra?.apiHost ||
     ''
   ).trim();
+  const apiPort = (process.env.EXPO_PUBLIC_API_PORT || '5149').trim();
+  const apiBaseUrl = (process.env.EXPO_PUBLIC_API_BASE_URL || '').trim();
 
   expo.extra = {
     ...expo.extra,
     apiHost,
+    apiPort,
+    apiBaseUrl,
     googleClientIds: {
       web,
       ios,

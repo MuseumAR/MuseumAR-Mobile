@@ -14,8 +14,10 @@ import {
   setStoredLanguage,
   type AppLanguage,
 } from '../services/languagePrefs';
+import { AnalyticsAction } from '../constants/analyticsActions';
 import { getSession } from '../services/sessionStorage';
 import { getToken } from '../services/tokenStorage';
+import { trackAnalytics } from '../services/trackAnalytics';
 import { getDeviceModel, getDeviceType } from '../utils/deviceInfo';
 import { translate, type TranslationKey } from './strings';
 
@@ -70,6 +72,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setLang(next);
     await setStoredLanguage(next);
     void syncPreferredLangToVisitor(next);
+    void trackAnalytics({
+      actionType: AnalyticsAction.LANGUAGE_SWITCH,
+      languageUsed: next,
+    });
   }, []);
 
   const t = useCallback(

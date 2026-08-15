@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnalyticsAction } from '../constants/analyticsActions';
 import type { ARPack } from '../data/arPacks';
 import { readPackIndex } from '../services/offlineCache';
 import { deleteOfflinePack, downloadOfflinePack } from '../services/offlineDownload';
 import { loadMediaMap } from '../services/offlineMedia';
+import { trackAnalytics } from '../services/trackAnalytics';
 
 export type DownloadStatus = 'idle' | 'downloading' | 'downloaded' | 'error';
 
@@ -59,6 +61,10 @@ export function useARPacks() {
           ...prev,
           [packId]: { status: 'downloaded', progress: 100 },
         }));
+        void trackAnalytics({
+          actionType: AnalyticsAction.PACKAGE_DOWNLOAD,
+          museumId: Number.isFinite(museumId) ? museumId : undefined,
+        });
       })
       .catch((err) => {
         console.warn('Offline pack download failed:', err);

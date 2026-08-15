@@ -113,6 +113,7 @@ export interface TrackActionRequest {
   languageUsed?: string | null;
   deviceType?: string | null;
   searchQuery?: string | null;
+  listeningDuration?: number | null;
 }
 
 /** POST /Visitor/sync — upsert visitor by device; JWT links userId. */
@@ -1563,6 +1564,11 @@ export const apiService = {
       throw new ApiError('museumId is required for track-action', 400);
     }
     const actionType = (payload.actionType ?? 'Unknown').slice(0, 30);
+    const searchQuery = payload.searchQuery?.trim().slice(0, 200) || null;
+    const listeningDuration =
+      payload.listeningDuration != null && payload.listeningDuration > 0
+        ? Math.round(payload.listeningDuration)
+        : null;
     return apiFetch<null>('Visitor/track-action', {
       method: 'POST',
       body: JSON.stringify({
@@ -1571,7 +1577,8 @@ export const apiService = {
         actionType,
         languageUsed: payload.languageUsed ?? null,
         deviceType: payload.deviceType ?? Platform.OS,
-        searchQuery: payload.searchQuery ?? null,
+        searchQuery,
+        listeningDuration,
       }),
     });
   },

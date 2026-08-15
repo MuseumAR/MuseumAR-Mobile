@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -13,6 +13,9 @@ import {
   UnityArPlayer,
   UnityOverlayStatus,
 } from '../../src/components/UnityArPlayer';
+import { AnalyticsAction } from '../../src/constants/analyticsActions';
+import { useTrackAction } from '../../src/hooks/useTrackAction';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { isExpoGo, isUnityNativeAvailable } from '../../src/services/unityAr';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
@@ -29,6 +32,9 @@ export default function UnityArScreen() {
   }>();
 
   const exhibitId = parseNumericId(id);
+  const { track } = useTrackAction();
+  const { lang } = useLanguage();
+  const arViewTracked = useRef(false);
   const overlayUrl = useMemo(() => {
     const raw = Array.isArray(overlayUrlParam) ? overlayUrlParam[0] : overlayUrlParam;
     const trimmed = (raw ?? '').trim();
@@ -46,6 +52,18 @@ export default function UnityArScreen() {
 
   const available = isUnityNativeAvailable();
   const expoGo = isExpoGo();
+
+  useEffect(() => {
+    if (arViewTracked.current || exhibitId == null || !overlayUrl || !available) {
+      return;
+    }
+    arViewTracked.current = true;
+    track({
+      actionType: AnalyticsAction.AR_VIEW,
+      exhibitId,
+      languageUsed: lang,
+    });
+  }, [exhibitId, overlayUrl, available, track, lang]);
 
   if (exhibitId == null || !overlayUrl) {
     return (

@@ -7,6 +7,7 @@ import * as WebBrowser from 'expo-web-browser';
 import { OfflineBanner } from '../src/components/OfflineBanner';
 import { LanguageProvider, useLanguage } from '../src/i18n/LanguageContext';
 import { loadMediaMap } from '../src/services/offlineMedia';
+import { startAnalyticsLifecycle } from '../src/services/trackAnalytics';
 import { C } from '../src/theme/colors';
 
 // Dismiss PayOS auth session when redirected to museumar://payment-result
@@ -95,6 +96,7 @@ function RootStack() {
 export default function RootLayout() {
   useEffect(() => {
     void loadMediaMap();
+    return startAnalyticsLifecycle();
   }, []);
 
   return (

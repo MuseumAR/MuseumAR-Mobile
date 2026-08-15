@@ -17,6 +17,8 @@ import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
 import { usePackages } from '../../src/hooks/usePackages';
 import { useRooms } from '../../src/hooks/useRooms';
 import { useRoutes } from '../../src/hooks/useRoutes';
+import { useTrackAction } from '../../src/hooks/useTrackAction';
+import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import type {
   MuseumMapDto,
@@ -659,6 +661,7 @@ export default function MuseumDetailScreen() {
   const { t, lang } = useLanguage();
   const { museum } = useMuseumProfile();
   const museumId = Number(museum.id) || 0;
+  const { track } = useTrackAction();
   const [favorited, setFavorited] = useState(false);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
@@ -730,6 +733,15 @@ export default function MuseumDetailScreen() {
     checkSync();
   }, [checkSync]);
 
+  useEffect(() => {
+    if (museumId <= 0) return;
+    track({
+      actionType: AnalyticsAction.MAP_VIEW,
+      museumId,
+      languageUsed: lang,
+    });
+  }, [museumId, track, lang]);
+
   const selectedZoneData = museum.zones.find((z) => z.name === selectedZone);
 
   const startRoute = async (route: TourRouteDto) => {
@@ -745,6 +757,11 @@ export default function MuseumDetailScreen() {
       }
       setActiveRoute({ ...detail, stops });
       setStopIndex(0);
+      track({
+        actionType: AnalyticsAction.ROUTE_VIEW,
+        museumId,
+        languageUsed: lang,
+      });
     } finally {
       setStartingRouteId(null);
     }
