@@ -4,6 +4,8 @@ import { useEffect } from 'react';
 import { Platform, View } from 'react-native';
 import { NavigationBar } from 'expo-navigation-bar';
 import * as WebBrowser from 'expo-web-browser';
+import { UnityArHostOverlay } from '../src/components/UnityArHostOverlay';
+import { UnityArHostProvider } from '../src/context/UnityArHostContext';
 import { OfflineBanner } from '../src/components/OfflineBanner';
 import { LanguageProvider, useLanguage } from '../src/i18n/LanguageContext';
 import { loadMediaMap } from '../src/services/offlineMedia';
@@ -101,7 +103,12 @@ export default function RootLayout() {
 
   return (
     <LanguageProvider>
-      <RootStack />
+      <UnityArHostProvider>
+        <View style={{ flex: 1 }}>
+          <RootStack />
+          <UnityArHostOverlay />
+        </View>
+      </UnityArHostProvider>
     </LanguageProvider>
   );
 }

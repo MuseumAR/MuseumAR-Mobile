@@ -46,6 +46,7 @@ export default function ARViewScreen() {
   const { track } = useTrackAction();
   const mountTimeRef = useRef(Date.now());
   const wasPlayingRef = useRef(false);
+  const lastPlaySecondsRef = useRef(0);
 
   const [activeTranscript, setActiveTranscript] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -156,6 +157,7 @@ export default function ARViewScreen() {
     if (playing === wasPlayingRef.current) return;
 
     const playedSeconds = Math.max(0, Math.round(status.currentTime ?? 0));
+    lastPlaySecondsRef.current = playedSeconds;
     const duration = status.duration ?? 0;
     const finished = duration > 0 && playedSeconds >= Math.max(0, duration - 0.5);
 
@@ -189,6 +191,7 @@ export default function ARViewScreen() {
         exhibitId,
         museumId,
         languageUsed: lang,
+        listeningDuration: Math.max(lastPlaySecondsRef.current, 1),
       });
     };
   }, [exhibitId, museumId, track, lang]);

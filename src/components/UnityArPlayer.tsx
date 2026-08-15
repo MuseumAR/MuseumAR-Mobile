@@ -17,9 +17,18 @@ type UnityLoaderEvent = {
   message?: string;
 };
 
+type UnityViewHandle = {
+  postMessage: (go: string, method: string, message: string) => void;
+  pauseUnity?: (pause?: boolean) => void;
+  resumeUnity?: () => void;
+  windowFocusChanged?: (hasFocus?: boolean) => void;
+};
+
 type Props = {
   exhibitId: number;
   overlayUrl: string;
+  /** When false, pause Unity but keep the native view mounted. */
+  active: boolean;
   style?: ViewStyle;
   onUnityMessage?: (message: string) => void;
   onOverlayStatus?: (status: UnityOverlayStatus) => void;
@@ -28,14 +37,33 @@ type Props = {
 const RETRY_INTERVAL_MS = 1500;
 const MAX_RETRY_MS = 30000;
 
+function resumePlayer(player: UnityViewHandle | null) {
+  try {
+    player?.resumeUnity?.();
+    player?.pauseUnity?.(false);
+    player?.windowFocusChanged?.(true);
+  } catch {
+    // ignore
+  }
+}
+
+function pausePlayer(player: UnityViewHandle | null) {
+  try {
+    player?.pauseUnity?.(true);
+  } catch {
+    // ignore
+  }
+}
+
 /**
  * Embedded Unity player (UaaL via @azesmway/react-native-unity).
- * Retries the overlay payload until ArExhibitLoader acknowledges it
- * (Unity boot / Vuforia init can take several seconds).
+ * Must stay mounted for the app lifetime after first use — UnityView
+ * unloads the engine on React unmount, which crashes the next session.
  */
 export function UnityArPlayer({
   exhibitId,
   overlayUrl,
+  active,
   style,
   onUnityMessage,
   onOverlayStatus,
@@ -43,17 +71,21 @@ export function UnityArPlayer({
   // Require at runtime so Expo Go / web metro still bundles without native module crash at import time.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const UnityView = require('@azesmway/react-native-unity').default;
-  const unityRef = useRef<{
-    postMessage: (go: string, method: string, message: string) => void;
-    pauseUnity?: (pause?: boolean) => void;
-    windowFocusChanged?: (hasFocus?: boolean) => void;
-  } | null>(null);
+  const unityRef = useRef<UnityViewHandle | null>(null);
 
   const ackedRef = useRef(false);
   const statusRef = useRef(onOverlayStatus);
   statusRef.current = onOverlayStatus;
+  const onMessageRef = useRef(onUnityMessage);
+  onMessageRef.current = onUnityMessage;
 
   useEffect(() => {
+    if (!active) {
+      pausePlayer(unityRef.current);
+      return;
+    }
+
+    resumePlayer(unityRef.current);
     ackedRef.current = false;
     statusRef.current?.({ state: 'loading' });
 
@@ -61,6 +93,7 @@ export function UnityArPlayer({
 
     const send = () => {
       if (ackedRef.current) return;
+      resumePlayer(unityRef.current);
       try {
         unityRef.current?.postMessage(
           UNITY_AR_GAME_OBJECT,
@@ -72,7 +105,7 @@ export function UnityArPlayer({
       }
     };
 
-    const first = setTimeout(send, 500);
+    const first = setTimeout(send, 400);
     const interval = setInterval(send, RETRY_INTERVAL_MS);
     const stop = setTimeout(() => clearInterval(interval), MAX_RETRY_MS);
 
@@ -80,16 +113,8 @@ export function UnityArPlayer({
       clearTimeout(first);
       clearTimeout(stop);
       clearInterval(interval);
-      // Pause only — do not unloadUnity here. Unload is async and races with
-      // view drop (library NPE in onUnload). androidKeepPlayerMounted keeps the
-      // player alive across screen closes.
-      try {
-        unityRef.current?.pauseUnity?.(true);
-      } catch {
-        // ignore
-      }
     };
-  }, [exhibitId, overlayUrl]);
+  }, [active, exhibitId, overlayUrl]);
 
   const handleUnityMessage = (message: string) => {
     let event: UnityLoaderEvent | null = null;
@@ -108,13 +133,12 @@ export function UnityArPlayer({
         message: event.message || 'Unity không tải được ảnh overlay.',
       });
     }
-    // 'ready' → keep retrying; the next interval tick delivers the payload.
 
-    onUnityMessage?.(message);
+    onMessageRef.current?.(message);
   };
 
   return (
-    <View style={[styles.wrap, style]}>
+    <View style={[styles.wrap, style]} collapsable={false}>
       <UnityView
         ref={unityRef}
         style={styles.unity}
