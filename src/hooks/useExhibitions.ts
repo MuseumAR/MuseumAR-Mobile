@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { apiService, type ExhibitionDto } from '../services/apiService';
+import { localizeExhibition } from '../utils/localizeExhibition';
 
 function filterByMuseum(
   list: ExhibitionDto[],

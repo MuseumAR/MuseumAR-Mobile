@@ -1195,10 +1195,16 @@ const styles = StyleSheet.create({
   actionGrid: { flexDirection: 'row', gap: 10, marginTop: 20, marginBottom: 4 },
   actionCard: {
     flex: 1, backgroundColor: C.bgSurface, borderRadius: 14,
-    paddingVertical: 14, alignItems: 'center', gap: 6,
+    paddingVertical: 14, paddingHorizontal: 4, alignItems: 'center', gap: 6,
     borderWidth: 1, borderColor: C.border,
   },
-  actionLabel: { fontSize: 11, fontWeight: '700', color: C.textSecondary },
+  actionLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.textSecondary,
+    textAlign: 'center',
+    width: '100%',
+  },
 
   statsRow: {
     flexDirection: 'row', backgroundColor: C.bgSurface,

@@ -88,8 +88,8 @@ export default function ExploreScreen() {
     [exhibits, selected, search],
   );
 
-  return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+  const listHeader = (
+    <View>
       <View style={styles.header}>
         <Text style={styles.title}>{t('explore.title')}</Text>
         <TextInput
@@ -101,43 +101,53 @@ export default function ExploreScreen() {
         />
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.categories}
-        style={styles.categoriesScroll}
-      >
-        <TouchableOpacity
-          style={[styles.categoryChip, selected.kind === 'all' && styles.categoryChipActive]}
-          onPress={() => setSelected({ kind: 'all' })}
+      <View style={styles.categoriesWrap}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.categories}
         >
-          <Text
-            style={[styles.categoryText, selected.kind === 'all' && styles.categoryTextActive]}
+          <TouchableOpacity
+            style={[styles.categoryChip, selected.kind === 'all' && styles.categoryChipActive]}
+            onPress={() => setSelected({ kind: 'all' })}
           >
-            {ALL_LABEL}
-          </Text>
-        </TouchableOpacity>
-        {filterChips.map((chip) => {
-          const active = chipMatches(selected, chip);
-          return (
-            <TouchableOpacity
-              key={chip.key}
-              style={[styles.categoryChip, active && styles.categoryChipActive]}
-              onPress={() =>
-                setSelected({ kind: chip.kind, id: chip.id, name: chip.name })
-              }
+            <Text
+              style={[styles.categoryText, selected.kind === 'all' && styles.categoryTextActive]}
+              numberOfLines={1}
             >
-              <Text style={[styles.categoryText, active && styles.categoryTextActive]}>
-                {chip.name}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+              {ALL_LABEL}
+            </Text>
+          </TouchableOpacity>
+          {filterChips.map((chip) => {
+            const active = chipMatches(selected, chip);
+            return (
+              <TouchableOpacity
+                key={chip.key}
+                style={[styles.categoryChip, active && styles.categoryChipActive]}
+                onPress={() =>
+                  setSelected({ kind: chip.kind, id: chip.id, name: chip.name })
+                }
+              >
+                <Text
+                  style={[styles.categoryText, active && styles.categoryTextActive]}
+                  numberOfLines={1}
+                >
+                  {chip.name}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </View>
+  );
 
+  return (
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <FlatList
         data={filtered}
         keyExtractor={(item) => item.id}
+        ListHeaderComponent={listHeader}
         contentContainerStyle={styles.list}
         numColumns={2}
         columnWrapperStyle={styles.row}
@@ -199,8 +209,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-  categoriesScroll: { flexGrow: 0 },
-  categories: { paddingHorizontal: 20, paddingVertical: 12, gap: 8, alignItems: 'center' },
+  categoriesWrap: {
+    height: 52,
+    marginBottom: 4,
+  },
+  categories: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+  },
   categoryChip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -209,6 +225,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
     marginRight: 8,
+    minHeight: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   categoryChipActive: { backgroundColor: C.accent, borderColor: C.accent },
   categoryText: { fontSize: 13, color: C.textSecondary, fontWeight: '600' },

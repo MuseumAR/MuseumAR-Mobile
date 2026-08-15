@@ -3,6 +3,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import type { ExhibitRecord } from '../data/exhibits';
 import { apiService, type ExhibitionDto } from '../services/apiService';
 import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
+import { localizeExhibition } from '../utils/localizeExhibition';
 import { parseNumericId } from '../utils/parseId';
 
 /** Chi tiết triển lãm + hiện vật bên trong (giống exhibit detail). */
