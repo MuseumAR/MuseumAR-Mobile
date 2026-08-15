@@ -37,7 +37,10 @@
           "hidden": true
         }
       ],
-      "./plugins/withUnityManifestMergerFixes.js"
+      "./plugins/withUnityGradleProperties.js",
+      "./plugins/withUnityManifestMergerFixes.js",
+      "./plugins/withCmakeLongPaths.js",
+      "@react-native-google-signin/google-signin"
     ],
     "experiments": {
       "typedRoutes": true
@@ -72,6 +75,8 @@
     },
     "extra": {
       "apiHost": "",
+      "apiPort": "5149",
+      "apiBaseUrl": "",
       "googleClientIds": {
         "web": "",
         "ios": "",

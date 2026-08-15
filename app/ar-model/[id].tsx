@@ -14,7 +14,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
 import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
-import { isExpoGo } from '../../src/services/unityAr';
+import { useUnityArHost } from '../../src/context/UnityArHostContext';
+import { isExpoGo, isUnityNativeAvailable } from '../../src/services/unityAr';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
 
@@ -24,6 +25,7 @@ export default function ArModelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const exhibitId = parseNumericId(id);
+  const { openAr: openUnityAr } = useUnityArHost();
   const { exhibit, loading: exhibitLoading } = useExhibitDetail(id);
   const {
     imageAsset,
@@ -75,7 +77,7 @@ export default function ArModelScreen() {
       return;
     }
 
-    if (isExpoGo()) {
+    if (isExpoGo() || !isUnityNativeAvailable()) {
       Alert.alert(
         'Cần Development Build',
         'Unity AR không chạy trong Expo Go. Export Unity vào unity/builds rồi chạy:\n\nnpx expo prebuild\nnpx expo run:android',
@@ -87,15 +89,8 @@ export default function ArModelScreen() {
       console.log('[MuseumAR] Opening Unity AR with OverlayImage URL:', overlayUrl);
     }
 
-    router.push({
-      pathname: '/unity-ar/[id]',
-      params: {
-        id: String(exhibitId),
-        // Encode so query chars in Cloudinary URLs survive routing.
-        overlayUrl: encodeURIComponent(overlayUrl),
-      },
-    });
-  }, [mode, exhibitId, overlayUrl, router]);
+    void openUnityAr(exhibitId, overlayUrl);
+  }, [mode, exhibitId, overlayUrl, openUnityAr]);
 
   if (loading && !exhibit) {
     return (

@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ARPackCard } from '../../src/components/ARPackCard';
+import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import { useBookmarks } from '../../src/hooks/useBookmarks';
 import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
@@ -77,7 +78,7 @@ export default function ExhibitDetailScreen() {
     if (exhibitId == null) return;
     mountTimeRef.current = Date.now();
     track({
-      actionType: 'ViewExhibit',
+      actionType: AnalyticsAction.EXHIBIT_VIEW,
       exhibitId,
       museumId,
       languageUsed: lang,
@@ -107,9 +108,13 @@ export default function ExhibitDetailScreen() {
     }
 
     if (result === 'added') {
-      track({ actionType: 'Bookmark', exhibitId, museumId });
+      track({ actionType: AnalyticsAction.BOOKMARK_ADD, exhibitId, museumId });
     } else if (result === 'removed') {
-      track({ actionType: 'Unbookmark', exhibitId, museumId });
+      track({
+        actionType: AnalyticsAction.BOOKMARK_REMOVE,
+        exhibitId,
+        museumId,
+      });
     }
   }, [exhibitId, museumId, toggleBookmark, track, router, t]);
 
@@ -249,7 +254,7 @@ export default function ExhibitDetailScreen() {
                   key={pack.id}
                   pack={pack}
                   state={getState(pack.id)}
-                  onDownload={() => downloadPack(pack.id)}
+                  onDownload={() => downloadPack(pack)}
                   onDelete={() => deletePack(pack.id)}
                 />
               ))

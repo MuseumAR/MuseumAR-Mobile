@@ -4,6 +4,7 @@ import {
   apiService,
   CategoryDto,
   TagDto,
+  TagGroupDto,
   TaxonomyChip,
   ThemeDto,
 } from '../services/apiService';
@@ -23,7 +24,11 @@ function toLabel(value: unknown): string | null {
 }
 
 function asId(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+    return Number(value.trim());
+  }
+  return null;
 }
 
 /** Lấy tên category theo ngôn ngữ; không có bản dịch thì giữ name hiện có. */
@@ -52,32 +57,56 @@ function normalizeCategory(
   return { ...c, id, name, type: 'category' };
 }
 
-function normalizeTheme(entry: unknown): TaxonomyChip | null {
+function normalizeTheme(entry: unknown, lang: AppLanguage): TaxonomyChip | null {
   const t = entry as ThemeDto & { Id?: unknown; ThemeName?: unknown; Name?: unknown };
   const id = asId(t.id) ?? asId(t.Id);
   if (id == null) return null;
-  const name = toLabel(t.themeName ?? t.ThemeName ?? t.name ?? t.Name);
+  const name =
+    pickLocalizedField(t.translations, lang, 'themeName', t.themeName ?? t.name) ??
+    toLabel(t.themeName ?? t.ThemeName ?? t.name ?? t.Name);
   if (name == null) return null;
   return { key: `theme:${id}`, id, name, kind: 'theme' };
 }
 
-function normalizeTag(entry: unknown): TaxonomyChip | null {
-  const t = entry as TagDto & { Id?: unknown; TagName?: unknown; Name?: unknown };
+function normalizeTagGroup(entry: unknown): TaxonomyChip | null {
+  const g = entry as TagGroupDto & {
+    Id?: unknown;
+    GroupName?: unknown;
+    Name?: unknown;
+  };
+  const id = asId(g.id) ?? asId(g.Id);
+  if (id == null) return null;
+  const name = toLabel(g.groupName ?? g.GroupName ?? g.name ?? g.Name);
+  if (name == null) return null;
+  return { key: `tagGroup:${id}`, id, name, kind: 'tagGroup' };
+}
+
+function normalizeTag(entry: unknown, lang: AppLanguage): TaxonomyChip | null {
+  const t = entry as TagDto & {
+    Id?: unknown;
+    TagName?: unknown;
+    Name?: unknown;
+    TagGroupId?: unknown;
+  };
   const id = asId(t.id) ?? asId(t.Id);
   if (id == null) return null;
-  const name = toLabel(t.tagName ?? t.TagName ?? t.name ?? t.Name);
+  const name =
+    pickLocalizedField(t.translations, lang, 'tagName', t.tagName ?? t.name) ??
+    toLabel(t.tagName ?? t.TagName ?? t.name ?? t.Name);
   if (name == null) return null;
-  return { key: `tag:${id}`, id, name, kind: 'tag' };
+  const tagGroupId = asId(t.tagGroupId) ?? asId(t.TagGroupId) ?? undefined;
+  return { key: `tag:${id}`, id, name, kind: 'tag', tagGroupId };
 }
 
 /**
- * Lấy categories + themes + tags từ backend để lọc màn Explore.
+ * Lấy categories + themes + tag groups + tags từ backend để lọc màn Explore.
  */
 export function useCategories() {
   const { lang, t } = useLanguage();
   const ALL_LABEL = t('common.all');
   const [categories, setCategories] = useState<CategoryDto[]>([]);
   const [themes, setThemes] = useState<TaxonomyChip[]>([]);
+  const [tagGroups, setTagGroups] = useState<TaxonomyChip[]>([]);
   const [tags, setTags] = useState<TaxonomyChip[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,10 +115,11 @@ export function useCategories() {
     setLoading(true);
     setError(null);
     try {
-      const [catRes, themeRes, tagRes] = await Promise.all([
+      const [catRes, themeRes, groupRes, tagRes] = await Promise.all([
         apiService.getCategories(),
-        apiService.getThemes(),
-        apiService.getTags(),
+        apiService.getThemes(lang),
+        apiService.getTagGroups(),
+        apiService.getTags(lang),
       ]);
 
       const catList = Array.isArray(catRes.data) ? catRes.data : [];
@@ -100,10 +130,42 @@ export function useCategories() {
       );
 
       const themeList = Array.isArray(themeRes.data) ? themeRes.data : [];
-      setThemes(themeList.map(normalizeTheme).filter((c): c is TaxonomyChip => c != null));
+      setThemes(
+        themeList
+          .map((item) => normalizeTheme(item, lang))
+          .filter((c): c is TaxonomyChip => c != null),
+      );
+
+      const groupList = Array.isArray(groupRes.data) ? groupRes.data : [];
+      const groups = groupList
+        .map((item) => normalizeTagGroup(item))
+        .filter((c): c is TaxonomyChip => c != null);
+      setTagGroups(groups);
 
       const tagList = Array.isArray(tagRes.data) ? tagRes.data : [];
-      setTags(tagList.map(normalizeTag).filter((c): c is TaxonomyChip => c != null));
+      let nextTags = tagList
+        .map((item) => normalizeTag(item, lang))
+        .filter((c): c is TaxonomyChip => c != null);
+
+      const missingGroup = nextTags.length > 0 && nextTags.every((tag) => tag.tagGroupId == null);
+      if (missingGroup && groups.length > 0) {
+        const grouped = await Promise.all(
+          groups.map(async (group) => {
+            try {
+              const res = await apiService.getTagsByGroup(group.id, lang);
+              return (res.data ?? [])
+                .map((item) => normalizeTag(item, lang))
+                .filter((c): c is TaxonomyChip => c != null)
+                .map((tag) => ({ ...tag, tagGroupId: tag.tagGroupId ?? group.id }));
+            } catch {
+              return [] as TaxonomyChip[];
+            }
+          }),
+        );
+        nextTags = grouped.flat();
+      }
+
+      setTags(nextTags);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Không thể tải danh mục');
     } finally {
@@ -123,7 +185,7 @@ export function useCategories() {
     return map;
   }, [categories]);
 
-  /** Chip lọc: category + theme + tag. */
+  /** Chip hàng 1 Explore: category + tag group. Theme lọc triển lãm, không lọc hiện vật. */
   const filterChips = useMemo(() => {
     const chips: TaxonomyChip[] = [
       ...categories
@@ -134,11 +196,10 @@ export function useCategories() {
           name: c.name as string,
           kind: 'category' as const,
         })),
-      ...themes,
-      ...tags,
+      ...tagGroups,
     ];
     return chips;
-  }, [categories, themes, tags]);
+  }, [categories, tagGroups]);
 
   /** Nhãn chip (giữ tương thích UI cũ). */
   const categoryLabels = useMemo(
@@ -149,6 +210,7 @@ export function useCategories() {
   return {
     categories,
     themes,
+    tagGroups,
     tags,
     filterChips,
     categoryNameById,

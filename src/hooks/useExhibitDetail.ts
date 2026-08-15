@@ -26,7 +26,7 @@ export function useExhibitDetail(routeId: string | undefined) {
       return;
     }
     try {
-      const response = await apiService.getExhibitDetail(numericId);
+      const response = await apiService.getExhibitDetail(numericId, lang);
       if (response.data) {
         const enriched = await apiService.enrichExhibit(response.data);
         setExhibit(mapExhibitDtoToRecord(enriched, undefined, lang));

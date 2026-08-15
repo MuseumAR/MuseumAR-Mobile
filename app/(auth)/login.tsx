@@ -158,7 +158,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
             {!googleConfigured ? (
               <Text style={styles.googleHint}>
-                Cần cấu hình Google OAuth client id trong app.json (expo.extra.googleClientIds).
+                Chưa có Google Web Client ID trong .env (EXPO_PUBLIC_GOOGLE_CLIENT_ID).
               </Text>
             ) : null}
             {googleError ? <Text style={styles.fieldError}>{googleError}</Text> : null}

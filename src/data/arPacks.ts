@@ -10,6 +10,9 @@ export type ARPack = {
   category: string;
   color: string;
   artifacts: string[];
+  packageUrl?: string;
+  checksum?: string;
+  versionId?: number;
 };
 
 export const AR_PACKS: ARPack[] = [

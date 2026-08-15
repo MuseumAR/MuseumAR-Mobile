@@ -1,6 +1,12 @@
 import { Platform } from 'react-native';
 import { API_BASE_URL } from '../config/apiConfig';
 import { getRefreshToken, getToken, saveTokens } from './tokenStorage';
+import {
+  isCacheableEndpoint,
+  readCachedResponse,
+  saveCachedResponse,
+} from './offlineCache';
+import { resolveOfflineUri } from './offlineMedia';
 
 // Giao diện dữ liệu phản hồi chung từ API
 export interface ApiResponse<T> {
@@ -48,7 +54,9 @@ export interface ExhibitTranslationDto {
 export interface ExhibitMetadataDto {
   ageGroupId?: number;
   era?: string;
+  eraEn?: string;
   historicalEvent?: string;
+  historicalEventEn?: string;
 }
 
 export interface ExhibitDto {
@@ -105,6 +113,7 @@ export interface TrackActionRequest {
   languageUsed?: string | null;
   deviceType?: string | null;
   searchQuery?: string | null;
+  listeningDuration?: number | null;
 }
 
 /** POST /Visitor/sync — upsert visitor by device; JWT links userId. */
@@ -169,7 +178,9 @@ export interface SyncCheckDto {
 export interface TicketTypeDto {
   id: number;
   name: string;
+  nameEn?: string | null;
   description?: string;
+  descriptionEn?: string | null;
   /** Giá vé (VND) */
   price: number;
   museumId?: number;
@@ -313,31 +324,122 @@ export interface CategoryDto {
 }
 
 /** GET /Content/themes */
+export interface ThemeTranslationDto {
+  themeId?: number;
+  languageCode: string;
+  themeName: string;
+  description?: string | null;
+}
+
 export interface ThemeDto {
   id: number;
   museumId?: number;
   themeName?: string;
   name?: string;
   description?: string;
+  translations?: ThemeTranslationDto[];
+}
+
+/** GET /Content/exhibitions/{id}/translations */
+export interface ExhibitionTranslationDto {
+  exhibitionId?: number;
+  languageCode: string;
+  name: string;
+  description?: string | null;
+}
+
+/** GET /Content/exhibitions?lang= */
+export interface ExhibitionDto {
+  id: number;
+  museumId: number;
+  themeId?: number | null;
+  name?: string | null;
+  nameEn?: string | null;
+  description?: string | null;
+  descriptionEn?: string | null;
+  thumbnailUrl?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  status?: string;
+  translations?: ExhibitionTranslationDto[];
+}
+
+export function normalizeExhibitionDto(
+  raw: Partial<ExhibitionDto> & Record<string, unknown>,
+): ExhibitionDto {
+  const translationsRaw = Array.isArray(raw.translations)
+    ? raw.translations
+    : Array.isArray(raw.Translations)
+      ? (raw.Translations as unknown[])
+      : [];
+  const exhibitionId = Number(raw.id ?? raw.Id) || 0;
+  const remoteThumb = String(raw.thumbnailUrl ?? raw.ThumbnailUrl ?? '').trim();
+  return {
+    id: exhibitionId,
+    museumId: Number(raw.museumId ?? raw.MuseumId) || 0,
+    themeId:
+      raw.themeId != null || raw.ThemeId != null
+        ? Number(raw.themeId ?? raw.ThemeId)
+        : null,
+    name: String(raw.name ?? raw.Name ?? '').trim() || null,
+    nameEn: String(raw.nameEn ?? raw.NameEn ?? '').trim() || null,
+    description: String(raw.description ?? raw.Description ?? '').trim() || null,
+    descriptionEn:
+      String(raw.descriptionEn ?? raw.DescriptionEn ?? '').trim() || null,
+    thumbnailUrl:
+      resolveOfflineUri(remoteThumb, `exhibition:${exhibitionId}`) ??
+      (remoteThumb || null),
+    startDate: (raw.startDate ?? raw.StartDate) as string | null | undefined ?? null,
+    endDate: (raw.endDate ?? raw.EndDate) as string | null | undefined ?? null,
+    status: String(raw.status ?? raw.Status ?? 'Active'),
+    translations: translationsRaw.map((item) => {
+      const o = (item ?? {}) as Record<string, unknown>;
+      return {
+        exhibitionId: Number(o.exhibitionId ?? o.ExhibitionId) || undefined,
+        languageCode: String(o.languageCode ?? o.LanguageCode ?? '').trim(),
+        name: String(o.name ?? o.Name ?? '').trim(),
+        description:
+          String(o.description ?? o.Description ?? '').trim() || null,
+      };
+    }),
+  };
 }
 
 /** GET /Content/tags */
+export interface TagTranslationDto {
+  tagId?: number;
+  languageCode: string;
+  tagName: string;
+}
+
 export interface TagDto {
   id: number;
   museumId?: number;
+  tagGroupId?: number;
   tagName?: string;
   name?: string;
   description?: string;
+  translations?: TagTranslationDto[];
 }
 
-export type TaxonomyKind = 'category' | 'theme' | 'tag';
+/** GET /Content/tag-groups */
+export interface TagGroupDto {
+  id: number;
+  groupName?: string;
+  name?: string;
+  sortOrder?: number;
+}
 
-/** Chip lọc Explore (category / theme / tag). */
+export type TaxonomyKind = 'category' | 'theme' | 'tagGroup' | 'tag';
+
+/** Chip lọc Explore (category / theme / tag group / tag). */
 export interface TaxonomyChip {
   key: string;
   id: number;
   name: string;
   kind: TaxonomyKind;
+  /** Present on tag chips: parent group for drill-down filter. */
+  tagGroupId?: number;
 }
 
 /**
@@ -400,6 +502,7 @@ export interface ContentPackageDto {
   status?: string;
   arassetCount?: number;
   createdAt?: string;
+  packageSizeBytes?: number;
   /** Optional / future fields */
   name?: string;
   description?: string;
@@ -411,10 +514,49 @@ export interface ContentPackageDto {
   thumbnailUrl?: string;
 }
 
+function normalizePackageDto(
+  raw: Partial<ContentPackageDto> & Record<string, unknown>,
+): ContentPackageDto {
+  const sizeBytes =
+    Number(
+      raw.sizeBytes ??
+        raw.SizeBytes ??
+        raw.packageSizeBytes ??
+        raw.PackageSizeBytes,
+    ) || undefined;
+  return {
+    id: Number(raw.id ?? raw.Id),
+    museumId: Number(raw.museumId ?? raw.MuseumId) || undefined,
+    versionId: Number(raw.versionId ?? raw.VersionId) || undefined,
+    packageUrl:
+      String(raw.packageUrl ?? raw.PackageUrl ?? raw.downloadUrl ?? '').trim() ||
+      undefined,
+    checksum: String(raw.checksum ?? raw.Checksum ?? '').trim() || undefined,
+    status: String(raw.status ?? raw.Status ?? '').trim() || undefined,
+    arassetCount:
+      Number(raw.arassetCount ?? raw.ArAssetCount ?? raw.ARAssetCount) ||
+      undefined,
+    createdAt: String(raw.createdAt ?? raw.CreatedAt ?? '') || undefined,
+    packageSizeBytes: sizeBytes,
+    sizeBytes,
+    exhibitCount: Number(raw.exhibitCount ?? raw.ExhibitCount) || undefined,
+    name: String(raw.name ?? raw.Name ?? '').trim() || undefined,
+    description:
+      String(raw.description ?? raw.Description ?? '').trim() || undefined,
+    category: String(raw.category ?? raw.Category ?? '').trim() || undefined,
+    downloadUrl:
+      String(
+        raw.downloadUrl ?? raw.DownloadUrl ?? raw.packageUrl ?? raw.PackageUrl ?? '',
+      ).trim() || undefined,
+    version: String(raw.version ?? raw.Version ?? '').trim() || undefined,
+    thumbnailUrl:
+      String(raw.thumbnailUrl ?? raw.ThumbnailUrl ?? '').trim() || undefined,
+  };
+}
+
 /**
- * GET /Content/maps → BE MuseumMapDto returns only:
- * { id, museumId, mapImageUrl, mapType }  (mapType = entity MapName ?? "floor").
- * Other entity columns (floorNumber, width, height, isDefault) are not exposed.
+ * GET /Content/maps → BE MuseumMapDto:
+ * { id, museumId, floorNumber, mapName, mapImageUrl, mapType }
  */
 export interface MuseumMapDto {
   id: number;
@@ -423,11 +565,13 @@ export interface MuseumMapDto {
   mapImageUrl?: string;
   /** Normalized alias of mapImageUrl for UI */
   imageUrl?: string;
-  /** BE field — carries the map/floor name */
+  /** BE field — Indoor / Outdoor / … */
   mapType?: string;
-  /** Display label derived from mapType */
+  /** BE MuseumMap.MapName */
+  mapName?: string;
+  /** Display label: mapName, else "Tầng {n}" */
   label?: string;
-  /** Parsed from the label when it contains a number (e.g. "Tầng 2" → 2) */
+  /** BE MuseumMap.FloorNumber */
   floorNumber?: number;
 }
 
@@ -436,26 +580,41 @@ function parseFloorNumber(label: string): number | undefined {
   const match = label.match(/\d+/);
   if (!match) return undefined;
   const n = Number(match[0]);
-  return Number.isFinite(n) ? n : undefined;
+  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 
 /** Normalize BE museum map payload → mobile shape. */
 export function normalizeMuseumMap(
-  raw: Partial<MuseumMapDto> & { mapImageUrl?: string | null },
+  raw: Partial<MuseumMapDto> & Record<string, unknown>,
 ): MuseumMapDto {
-  const imageUrl = String(raw.imageUrl ?? raw.mapImageUrl ?? '').trim();
-  const mapType = String(raw.mapType ?? '').trim();
-  const id = Number(raw.id) || 0;
-  const label = mapType && mapType.toLowerCase() !== 'floor' ? mapType : '';
+  const id = Number(raw.id ?? raw.Id) || 0;
+  const remoteImage = String(
+    raw.imageUrl ?? raw.mapImageUrl ?? raw.MapImageUrl ?? '',
+  ).trim();
+  const mapType = String(raw.mapType ?? raw.MapType ?? '').trim();
+  const mapName = String(raw.mapName ?? raw.MapName ?? '').trim();
+  const floorRaw = Number(raw.floorNumber ?? raw.FloorNumber);
+  const floorNumber =
+    Number.isFinite(floorRaw) && floorRaw > 0
+      ? floorRaw
+      : parseFloorNumber(mapName) ?? parseFloorNumber(mapType);
+  const imageUrl =
+    resolveOfflineUri(remoteImage, `map:${id}`) ?? remoteImage;
+  const label =
+    mapName ||
+    (floorNumber != null ? `Tầng ${floorNumber}` : mapType && mapType.toLowerCase() !== 'floor'
+      ? mapType
+      : `Bản đồ ${id}`);
 
   return {
     id,
-    museumId: raw.museumId != null ? Number(raw.museumId) : undefined,
-    mapImageUrl: (raw.mapImageUrl ?? imageUrl) || undefined,
+    museumId: Number(raw.museumId ?? raw.MuseumId) || undefined,
+    mapImageUrl: imageUrl || undefined,
     imageUrl: imageUrl || undefined,
     mapType: mapType || undefined,
-    label: label || `Bản đồ ${id}`,
-    floorNumber: label ? parseFloorNumber(label) : undefined,
+    mapName: mapName || undefined,
+    label,
+    floorNumber,
   };
 }
 
@@ -522,6 +681,53 @@ export interface RoomDto {
   description?: string | null;
 }
 
+/** BE NavigationRouteResponseDto — GET Navigation/route */
+export interface NavigationInstructionDto {
+  stepIndex: number;
+  instruction: string;
+  action: string;
+  distance: number;
+  floorNumber: number;
+  waypointId: string;
+}
+
+export interface NavigationRouteResponseDto {
+  fromRoomId: number;
+  fromRoomName: string;
+  toRoomId: number;
+  toRoomName: string;
+  totalDistance: number;
+  instructions: NavigationInstructionDto[];
+}
+
+export function normalizeNavigationRoute(
+  raw: Partial<NavigationRouteResponseDto> & Record<string, unknown>,
+): NavigationRouteResponseDto {
+  const instructionsRaw = Array.isArray(raw.instructions)
+    ? raw.instructions
+    : Array.isArray(raw.Instructions)
+      ? (raw.Instructions as unknown[])
+      : [];
+  return {
+    fromRoomId: Number(raw.fromRoomId ?? raw.FromRoomId) || 0,
+    fromRoomName: String(raw.fromRoomName ?? raw.FromRoomName ?? ''),
+    toRoomId: Number(raw.toRoomId ?? raw.ToRoomId) || 0,
+    toRoomName: String(raw.toRoomName ?? raw.ToRoomName ?? ''),
+    totalDistance: Number(raw.totalDistance ?? raw.TotalDistance) || 0,
+    instructions: instructionsRaw.map((item, i) => {
+      const o = (item ?? {}) as Record<string, unknown>;
+      return {
+        stepIndex: Number(o.stepIndex ?? o.StepIndex ?? i) || i,
+        instruction: String(o.instruction ?? o.Instruction ?? ''),
+        action: String(o.action ?? o.Action ?? 'STRAIGHT'),
+        distance: Number(o.distance ?? o.Distance) || 0,
+        floorNumber: Number(o.floorNumber ?? o.FloorNumber) || 1,
+        waypointId: String(o.waypointId ?? o.WaypointId ?? ''),
+      };
+    }),
+  };
+}
+
 export function normalizeTourRouteStop(
   raw: Partial<TourRouteStopDto> & Record<string, unknown>,
 ): TourRouteStopDto {
@@ -549,7 +755,7 @@ export function normalizeRoomDto(
     mapId: raw.mapId != null ? Number(raw.mapId) : null,
     roomCode: String(raw.roomCode ?? '').trim() || `R${raw.id ?? 0}`,
     roomName: String(raw.roomName ?? '').trim() || String(raw.roomCode ?? 'Phòng'),
-    floorNumber: Number(raw.floorNumber) || 1,
+    floorNumber: Number(raw.floorNumber ?? raw.FloorNumber) || 1,
     description: (raw.description as string | null | undefined) ?? null,
   };
 }
@@ -560,6 +766,7 @@ export interface MuseumProfileDto {
   name: string;
   description?: string;
   address?: string;
+  addressEn?: string;
   city?: string;
   province?: string;
   country?: string;
@@ -571,9 +778,17 @@ export interface MuseumProfileDto {
   email?: string;
   /** BE field */
   openingHours?: string;
+  openingHoursEn?: string;
   /** Alias used by older clients */
   openHours?: string;
   closedDay?: string;
+  translations?: Array<{
+    languageCode?: string;
+    name?: string;
+    description?: string;
+    address?: string;
+    openingHours?: string;
+  }>;
   /** Giá vé cơ bản (VND) — not on BE MuseumDto; filled from ticket types when possible */
   ticketPrice?: number;
   foundedYear?: string | number;
@@ -591,44 +806,75 @@ export function normalizeMuseumProfile(
   raw: Partial<MuseumProfileDto> | null | undefined,
 ): MuseumProfileDto | null {
   if (!raw || typeof raw !== 'object') return null;
-  const id = Number(raw.id);
+  const row = raw as Partial<MuseumProfileDto> & Record<string, unknown>;
+  const id = Number(row.id ?? row.Id);
   if (!Number.isFinite(id) || id <= 0) return null;
 
-  const openingHours = String(raw.openingHours ?? raw.openHours ?? '').trim();
-  const contactPhone = String(raw.contactPhone ?? raw.phone ?? '').trim();
-  const contactEmail = String(raw.contactEmail ?? raw.email ?? '').trim();
-  const thumbnailUrl = String(raw.thumbnailUrl ?? raw.logoUrl ?? '').trim();
+  const openingHours = String(
+    row.openingHours ?? row.OpeningHours ?? row.openHours ?? row.OpenHours ?? '',
+  ).trim();
+  const openingHoursEn = String(
+    row.openingHoursEn ?? row.OpeningHoursEn ?? '',
+  ).trim();
+  const translationsRaw = Array.isArray(row.translations)
+    ? row.translations
+    : Array.isArray(row.Translations)
+      ? (row.Translations as unknown[])
+      : [];
+  const contactPhone = String(row.contactPhone ?? row.ContactPhone ?? row.phone ?? row.Phone ?? '').trim();
+  const contactEmail = String(row.contactEmail ?? row.ContactEmail ?? row.email ?? row.Email ?? '').trim();
+  const remoteThumb = String(row.thumbnailUrl ?? row.ThumbnailUrl ?? row.logoUrl ?? '').trim();
+  const thumbnailUrl =
+    resolveOfflineUri(remoteThumb, `museum:${id}`) ?? remoteThumb;
 
   return {
     id,
-    name: String(raw.name ?? '').trim(),
-    description: String(raw.description ?? '').trim() || undefined,
-    address: String(raw.address ?? '').trim() || undefined,
-    city: String(raw.city ?? '').trim() || undefined,
-    province: String(raw.province ?? '').trim() || undefined,
-    country: String(raw.country ?? '').trim() || undefined,
+    name: String(row.name ?? row.Name ?? '').trim(),
+    description: String(row.description ?? row.Description ?? '').trim() || undefined,
+    address: String(row.address ?? row.Address ?? '').trim() || undefined,
+    addressEn: String(row.addressEn ?? row.AddressEn ?? '').trim() || undefined,
+    city: String(row.city ?? row.City ?? '').trim() || undefined,
+    province: String(row.province ?? row.Province ?? '').trim() || undefined,
+    country: String(row.country ?? row.Country ?? '').trim() || undefined,
     contactPhone: contactPhone || undefined,
     phone: contactPhone || undefined,
     contactEmail: contactEmail || undefined,
     email: contactEmail || undefined,
     openingHours: openingHours || undefined,
-    openHours: openingHours || undefined,
-    closedDay: String(raw.closedDay ?? '').trim() || undefined,
+    openingHoursEn: openingHoursEn || undefined,
+    openHours: openingHours || openingHoursEn || undefined,
+    translations: translationsRaw.map((item) => {
+      const o = (item ?? {}) as Record<string, unknown>;
+      return {
+        languageCode: String(o.languageCode ?? o.LanguageCode ?? '').trim(),
+        name: String(o.name ?? o.Name ?? '').trim() || undefined,
+        description: String(o.description ?? o.Description ?? '').trim() || undefined,
+        address: String(o.address ?? o.Address ?? '').trim() || undefined,
+        openingHours: String(o.openingHours ?? o.OpeningHours ?? '').trim() || undefined,
+      };
+    }),
+    closedDay: String(row.closedDay ?? row.ClosedDay ?? '').trim() || undefined,
     ticketPrice:
-      raw.ticketPrice != null && Number.isFinite(Number(raw.ticketPrice))
-        ? Number(raw.ticketPrice)
+      row.ticketPrice != null && Number.isFinite(Number(row.ticketPrice))
+        ? Number(row.ticketPrice)
         : undefined,
-    foundedYear: raw.foundedYear,
+    foundedYear: row.foundedYear ?? row.FoundedYear,
     exhibitCount:
-      raw.exhibitCount != null && Number.isFinite(Number(raw.exhibitCount))
-        ? Number(raw.exhibitCount)
+      row.exhibitCount != null && Number.isFinite(Number(row.exhibitCount))
+        ? Number(row.exhibitCount)
         : undefined,
     thumbnailUrl: thumbnailUrl || undefined,
     logoUrl: thumbnailUrl || undefined,
-    status: String(raw.status ?? '').trim() || undefined,
-    latitude: raw.latitude != null ? Number(raw.latitude) : undefined,
-    longitude: raw.longitude != null ? Number(raw.longitude) : undefined,
-    website: String(raw.website ?? '').trim() || undefined,
+    status: String(row.status ?? row.Status ?? '').trim() || undefined,
+    latitude: (() => {
+      const n = Number(row.latitude ?? row.Latitude);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
+    longitude: (() => {
+      const n = Number(row.longitude ?? row.Longitude);
+      return Number.isFinite(n) ? n : undefined;
+    })(),
+    website: String(row.website ?? row.Website ?? '').trim() || undefined,
   };
 }
 
@@ -743,6 +989,10 @@ async function apiFetch<T>(
       headers,
     });
   } catch {
+    if (isCacheableEndpoint(endpoint, options.method as string | undefined)) {
+      const cached = await readCachedResponse<ApiResponse<T>>(endpoint);
+      if (cached) return cached;
+    }
     throw new TypeError('Network request failed');
   }
 
@@ -777,6 +1027,10 @@ async function apiFetch<T>(
 
   if (!response.ok) {
     throw new ApiError(json.message || `Lỗi API (Mã: ${response.status})`, response.status);
+  }
+
+  if (isCacheableEndpoint(endpoint, options.method as string | undefined)) {
+    void saveCachedResponse(endpoint, json);
   }
   return json as ApiResponse<T>;
 }
@@ -847,8 +1101,8 @@ export const apiService = {
    * @deprecated BE no longer has Admin/museums list.
    * Use getMuseumProfile() (GET /Admin/museum-profile) instead.
    */
-  async getMuseums(): Promise<ApiResponse<MuseumDto[]>> {
-    const profile = await apiService.getMuseumProfile();
+  async getMuseums(lang?: string): Promise<ApiResponse<MuseumDto[]>> {
+    const profile = await apiService.getMuseumProfile(lang);
     const m = profile.data;
     if (!m) return { ...profile, data: [] };
     return {
@@ -871,14 +1125,16 @@ export const apiService = {
    * List exhibits for a museum — filters client-side from GET /Content/exhibits
    * (BE list endpoint has no museumId path param).
    */
-  async getExhibits(museumId: number): Promise<ApiResponse<ExhibitDto[]>> {
-    const response = await apiService.getContentExhibits();
+  async getExhibits(museumId: number, lang?: string): Promise<ApiResponse<ExhibitDto[]>> {
+    const response = await apiService.getContentExhibits(lang);
     const filtered = (response.data ?? []).filter((e) => e.museumId === museumId);
     return { ...response, data: filtered };
   },
 
-  async getExhibitDetail(id: number): Promise<ApiResponse<ExhibitDto>> {
-    return apiFetch<ExhibitDto>(`Content/exhibits/${id}`);
+  async getExhibitDetail(id: number, lang?: string): Promise<ApiResponse<ExhibitDto>> {
+    return apiFetch<ExhibitDto>(
+      `Content/exhibits/${id}${buildQuery(lang ? { lang } : undefined)}`,
+    );
   },
 
   /**
@@ -957,8 +1213,10 @@ export const apiService = {
   },
 
   /** Danh sách hiện vật — Public. Filter phía client nếu cần. */
-  async getContentExhibits(): Promise<ApiResponse<ExhibitDto[]>> {
-    return apiFetch<ExhibitDto[]>('Content/exhibits');
+  async getContentExhibits(lang?: string): Promise<ApiResponse<ExhibitDto[]>> {
+    return apiFetch<ExhibitDto[]>(
+      `Content/exhibits${buildQuery(lang ? { lang } : undefined)}`,
+    );
   },
 
   /** Các asset AR 3D của một hiện vật. */
@@ -972,7 +1230,13 @@ export const apiService = {
 
   /** Gói nội dung offline / AR packs. */
   async getPackages(): Promise<ApiResponse<ContentPackageDto[]>> {
-    return apiFetch<ContentPackageDto[]>('Content/packages');
+    const response = await apiFetch<ContentPackageDto[]>('Content/packages');
+    return {
+      ...response,
+      data: (response.data ?? []).map((item) =>
+        normalizePackageDto(item as Partial<ContentPackageDto> & Record<string, unknown>),
+      ),
+    };
   },
 
   /** Bản đồ bảo tàng. */
@@ -994,14 +1258,45 @@ export const apiService = {
     return apiFetch<TourRouteDto>(`Content/routes/${id}`);
   },
 
-  /** Phòng theo museum — GET Content/rooms/museum/{museumId}. */
-  async getRoomsByMuseum(museumId: number): Promise<ApiResponse<RoomDto[]>> {
-    const response = await apiFetch<RoomDto[]>(`Content/rooms/museum/${museumId}`);
+  /** Phòng theo museum — GET Content/rooms/museum/{museumId}?lang=. */
+  async getRoomsByMuseum(
+    museumId: number,
+    lang?: string,
+  ): Promise<ApiResponse<RoomDto[]>> {
+    const response = await apiFetch<RoomDto[]>(
+      `Content/rooms/museum/${museumId}${buildQuery(lang ? { lang } : undefined)}`,
+    );
     return {
       ...response,
       data: (response.data ?? []).map((item) =>
         normalizeRoomDto(item as Partial<RoomDto> & Record<string, unknown>),
       ),
+    };
+  },
+
+  /**
+   * Room-to-room path + spoken instructions —
+   * GET Navigation/route?fromRoomId=&toRoomId=&lang=
+   */
+  async getNavigationRoute(
+    fromRoomId: number,
+    toRoomId: number,
+    lang?: string,
+  ): Promise<ApiResponse<NavigationRouteResponseDto>> {
+    const response = await apiFetch<
+      NavigationRouteResponseDto & Record<string, unknown>
+    >(
+      `Navigation/route${buildQuery({
+        fromRoomId,
+        toRoomId,
+        lang: lang || undefined,
+      })}`,
+    );
+    return {
+      ...response,
+      data: response.data
+        ? normalizeNavigationRoute(response.data)
+        : (null as unknown as NavigationRouteResponseDto),
     };
   },
 
@@ -1011,13 +1306,76 @@ export const apiService = {
   },
 
   /** Chủ đề trưng bày. */
-  async getThemes(): Promise<ApiResponse<ThemeDto[]>> {
-    return apiFetch<ThemeDto[]>('Content/themes');
+  async getThemes(lang?: string): Promise<ApiResponse<ThemeDto[]>> {
+    return apiFetch<ThemeDto[]>(
+      `Content/themes${buildQuery(lang ? { lang } : undefined)}`,
+    );
+  },
+
+  /** Triển lãm — GET Content/exhibitions?lang= */
+  async getExhibitions(lang?: string): Promise<ApiResponse<ExhibitionDto[]>> {
+    const response = await apiFetch<ExhibitionDto[]>(
+      `Content/exhibitions${buildQuery(lang ? { lang } : undefined)}`,
+    );
+    return {
+      ...response,
+      data: (response.data ?? []).map((item) =>
+        normalizeExhibitionDto(
+          item as Partial<ExhibitionDto> & Record<string, unknown>,
+        ),
+      ),
+    };
+  },
+
+  /** Bản dịch triển lãm — GET Content/exhibitions/{id}/translations */
+  async getExhibitionTranslations(
+    exhibitionId: number,
+  ): Promise<ApiResponse<ExhibitionTranslationDto[]>> {
+    return apiFetch<ExhibitionTranslationDto[]>(
+      `Content/exhibitions/${exhibitionId}/translations`,
+    );
+  },
+
+  /** Hiện vật thuộc triển lãm — GET Content/exhibitions/{id}/exhibits */
+  async getExhibitsByExhibition(
+    exhibitionId: number,
+    lang?: string,
+  ): Promise<ApiResponse<ExhibitDto[]>> {
+    return apiFetch<ExhibitDto[]>(
+      `Content/exhibitions/${exhibitionId}/exhibits${buildQuery(lang ? { lang } : undefined)}`,
+    );
   },
 
   /** Tag hiện vật. */
-  async getTags(): Promise<ApiResponse<TagDto[]>> {
-    return apiFetch<TagDto[]>('Content/tags');
+  async getTags(lang?: string): Promise<ApiResponse<TagDto[]>> {
+    return apiFetch<TagDto[]>(
+      `Content/tags${buildQuery(lang ? { lang } : undefined)}`,
+    );
+  },
+
+  /** Nhóm tag — GET Content/tag-groups */
+  async getTagGroups(): Promise<ApiResponse<TagGroupDto[]>> {
+    return apiFetch<TagGroupDto[]>('Content/tag-groups');
+  },
+
+  /** Tag thuộc một nhóm — GET Content/tag-groups/{id}/tags */
+  async getTagsByGroup(
+    tagGroupId: number,
+    lang?: string,
+  ): Promise<ApiResponse<TagDto[]>> {
+    return apiFetch<TagDto[]>(
+      `Content/tag-groups/${tagGroupId}/tags${buildQuery(lang ? { lang } : undefined)}`,
+    );
+  },
+
+  /** Tag gắn với hiện vật — GET Content/exhibits/{id}/tags */
+  async getExhibitTags(
+    exhibitId: number,
+    lang?: string,
+  ): Promise<ApiResponse<TagDto[]>> {
+    return apiFetch<TagDto[]>(
+      `Content/exhibits/${exhibitId}/tags${buildQuery(lang ? { lang } : undefined)}`,
+    );
   },
 
   // --- TICKETING / PAYMENT (aligned with current WebBE) ---
@@ -1067,14 +1425,19 @@ export const apiService = {
   },
 
   /** Paid tickets only. */
-  async getMyTickets(): Promise<ApiResponse<MyTicketDto[]>> {
-    return apiFetch<MyTicketDto[]>('Ticketing/my-tickets');
+  async getMyTickets(lang?: string): Promise<ApiResponse<MyTicketDto[]>> {
+    return apiFetch<MyTicketDto[]>(
+      `Ticketing/my-tickets${buildQuery(lang ? { lang } : undefined)}`,
+    );
   },
 
   /** GET /Ticketing/my-tickets/{id} — paid ticket detail + check-in QR payload. */
-  async getTicketDetail(ticketId: number): Promise<ApiResponse<TicketDetailDto>> {
+  async getTicketDetail(
+    ticketId: number,
+    lang?: string,
+  ): Promise<ApiResponse<TicketDetailDto>> {
     const response = await apiFetch<TicketDetailDto & Record<string, unknown>>(
-      `Ticketing/my-tickets/${ticketId}`,
+      `Ticketing/my-tickets/${ticketId}${buildQuery(lang ? { lang } : undefined)}`,
     );
     const raw = response.data;
     if (!raw) return { ...response, data: undefined };
@@ -1137,9 +1500,9 @@ export const apiService = {
    * Active unpaid order (&lt; 15 min). Data is null when none.
    * Also regenerates / returns PayOS CheckoutUrl.
    */
-  async getPendingOrder(): Promise<ApiResponse<PendingOrderDto | null>> {
+  async getPendingOrder(lang?: string): Promise<ApiResponse<PendingOrderDto | null>> {
     const response = await apiFetch<PendingOrderDto & Record<string, unknown>>(
-      'Ticketing/pending-order',
+      `Ticketing/pending-order${buildQuery(lang ? { lang } : undefined)}`,
     );
     const raw = response.data;
     if (!raw || typeof raw !== 'object') {
@@ -1220,9 +1583,11 @@ export const apiService = {
   },
 
   // --- ADMIN ---
-  /** Hồ sơ bảo tàng (single museum) — Public. */
-  async getMuseumProfile(): Promise<ApiResponse<MuseumProfileDto>> {
-    const response = await apiFetch<MuseumProfileDto>('Admin/museum-profile');
+  /** Hồ sơ bảo tàng (single museum) — Public. GET Admin/museum-profile?lang= */
+  async getMuseumProfile(lang?: string): Promise<ApiResponse<MuseumProfileDto>> {
+    const response = await apiFetch<MuseumProfileDto>(
+      `Admin/museum-profile${buildQuery(lang ? { lang } : undefined)}`,
+    );
     const normalized = normalizeMuseumProfile(response.data);
     return {
       ...response,
@@ -1258,6 +1623,11 @@ export const apiService = {
       throw new ApiError('museumId is required for track-action', 400);
     }
     const actionType = (payload.actionType ?? 'Unknown').slice(0, 30);
+    const searchQuery = payload.searchQuery?.trim().slice(0, 200) || null;
+    const listeningDuration =
+      payload.listeningDuration != null && payload.listeningDuration > 0
+        ? Math.round(payload.listeningDuration)
+        : null;
     return apiFetch<null>('Visitor/track-action', {
       method: 'POST',
       body: JSON.stringify({
@@ -1266,7 +1636,8 @@ export const apiService = {
         actionType,
         languageUsed: payload.languageUsed ?? null,
         deviceType: payload.deviceType ?? Platform.OS,
-        searchQuery: payload.searchQuery ?? null,
+        searchQuery,
+        listeningDuration,
       }),
     });
   },

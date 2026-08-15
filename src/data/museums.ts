@@ -24,6 +24,9 @@ export type MuseumRecord = {
   /** Màu chủ đạo của bảo tàng (hex) */
   color: string;
   address: string;
+  /** GPS từ Museum.Latitude / Longitude — dùng mở bản đồ. */
+  latitude?: number;
+  longitude?: number;
   phone: string;
   openHours: string;
   closedDay: string;

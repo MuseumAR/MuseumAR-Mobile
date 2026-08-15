@@ -72,13 +72,6 @@ export default function ProfileScreen() {
           statKey: null,
           route: '/settings' as const,
         },
-        {
-          key: 'help',
-          label: t('profile.help'),
-          icon: '💬',
-          statKey: null,
-          route: null,
-        },
       ] as const,
     [t],
   );
@@ -147,9 +140,6 @@ export default function ProfileScreen() {
             <Text style={styles.userName}>{displayName}</Text>
             <Text style={styles.userEmail}>{email}</Text>
           </View>
-          <TouchableOpacity style={styles.editBtn}>
-            <Text style={styles.editBtnText}>{t('profile.edit')}</Text>
-          </TouchableOpacity>
         </View>
 
         <View style={styles.statsRow}>
@@ -229,14 +219,6 @@ const styles = StyleSheet.create({
   userInfo: { flex: 1, marginLeft: 14 },
   userName: { fontSize: 17, fontWeight: '700', color: C.textPrimary },
   userEmail: { fontSize: 13, color: C.textMuted, marginTop: 2 },
-  editBtn: {
-    borderWidth: 1,
-    borderColor: C.accent,
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  editBtnText: { color: C.accent, fontSize: 13, fontWeight: '600' },
   statsRow: {
     flexDirection: 'row',
     backgroundColor: C.bgSurface,

@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
-import { apiService, TrackActionRequest } from '../services/apiService';
-import { getCachedMuseumId } from '../services/museumContext';
-import { isIgnorableVisitorError } from '../utils/visitorErrors';
+import { useLanguage } from '../i18n/LanguageContext';
+import { type TrackActionRequest } from '../services/apiService';
+import { trackAnalytics } from '../services/trackAnalytics';
 
 /**
  * Ghi analytics (POST /Visitor/track-action).
@@ -9,25 +9,17 @@ import { isIgnorableVisitorError } from '../utils/visitorErrors';
  * Auth optional trên BE; không bắt buộc JWT phía client.
  */
 export function useTrackAction() {
-  const track = useCallback(async (payload: TrackActionRequest) => {
-    const museumId =
-      payload.museumId != null && payload.museumId > 0
-        ? payload.museumId
-        : getCachedMuseumId();
+  const { lang } = useLanguage();
 
-    if (museumId == null || museumId <= 0) {
-      // Chưa có museum profile → bỏ qua, tránh spam 500 FK
-      return;
-    }
-
-    try {
-      await apiService.trackAction({ ...payload, museumId });
-    } catch (error) {
-      if (!isIgnorableVisitorError(error)) {
-        console.warn('track-action failed:', error);
-      }
-    }
-  }, []);
+  const track = useCallback(
+    async (payload: TrackActionRequest) => {
+      await trackAnalytics({
+        ...payload,
+        languageUsed: payload.languageUsed?.trim() || lang,
+      });
+    },
+    [lang],
+  );
 
   return { track };
 }

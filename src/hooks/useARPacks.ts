@@ -1,7 +1,10 @@
-import * as FileSystem from 'expo-file-system/legacy';
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-const STORAGE_PATH = FileSystem.documentDirectory + 'ar_packs.json';
+import { AnalyticsAction } from '../constants/analyticsActions';
+import type { ARPack } from '../data/arPacks';
+import { readPackIndex } from '../services/offlineCache';
+import { deleteOfflinePack, downloadOfflinePack } from '../services/offlineDownload';
+import { loadMediaMap } from '../services/offlineMedia';
+import { trackAnalytics } from '../services/trackAnalytics';
 
 export type DownloadStatus = 'idle' | 'downloading' | 'downloaded' | 'error';
 
@@ -12,109 +15,82 @@ export type PackState = {
 
 type PackStates = Record<string, PackState>;
 
-async function readStorage(): Promise<Record<string, boolean>> {
-  try {
-    const info = await FileSystem.getInfoAsync(STORAGE_PATH);
-    if (!info.exists) return {};
-    const raw = await FileSystem.readAsStringAsync(STORAGE_PATH);
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
-}
-
-async function writeStorage(data: Record<string, boolean>) {
-  try {
-    await FileSystem.writeAsStringAsync(STORAGE_PATH, JSON.stringify(data));
-  } catch {
-    // bỏ qua lỗi ghi file
-  }
-}
-
 export function useARPacks() {
   const [packStates, setPackStates] = useState<PackStates>({});
-  const timersRef = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+  const inflightRef = useRef<Set<string>>(new Set());
 
-  // Load trạng thái đã lưu khi mount
   useEffect(() => {
-    readStorage().then((saved) => {
+    void loadMediaMap();
+    readPackIndex().then((index) => {
       const states: PackStates = {};
-      Object.keys(saved).forEach((id) => {
-        if (saved[id]) {
-          states[id] = { status: 'downloaded', progress: 100 };
-        }
+      Object.keys(index).forEach((id) => {
+        states[id] = { status: 'downloaded', progress: 100 };
       });
       setPackStates(states);
     });
   }, []);
 
-  const persistDownloaded = useCallback(async (packId: string, downloaded: boolean) => {
-    const saved = await readStorage();
-    saved[packId] = downloaded;
-    await writeStorage(saved);
+  const downloadPack = useCallback((pack: ARPack | string) => {
+    const packId = typeof pack === 'string' ? pack : pack.id;
+    const meta: Partial<ARPack> = typeof pack === 'string' ? {} : pack;
+    if (inflightRef.current.has(packId)) return;
+    inflightRef.current.add(packId);
+
+    setPackStates((prev) => ({
+      ...prev,
+      [packId]: { status: 'downloading', progress: 0 },
+    }));
+
+    const museumId = meta.museumId ? Number(meta.museumId) : undefined;
+
+    void downloadOfflinePack({
+      packId,
+      museumId: Number.isFinite(museumId) ? museumId : undefined,
+      versionId: meta.versionId,
+      packageUrl: meta.packageUrl,
+      checksum: meta.checksum,
+      onProgress: (percent) => {
+        setPackStates((prev) => ({
+          ...prev,
+          [packId]: { status: 'downloading', progress: Math.min(percent, 99) },
+        }));
+      },
+    })
+      .then(() => {
+        setPackStates((prev) => ({
+          ...prev,
+          [packId]: { status: 'downloaded', progress: 100 },
+        }));
+        void trackAnalytics({
+          actionType: AnalyticsAction.PACKAGE_DOWNLOAD,
+          museumId: Number.isFinite(museumId) ? museumId : undefined,
+        });
+      })
+      .catch((err) => {
+        console.warn('Offline pack download failed:', err);
+        setPackStates((prev) => ({
+          ...prev,
+          [packId]: { status: 'error', progress: 0 },
+        }));
+      })
+      .finally(() => {
+        inflightRef.current.delete(packId);
+      });
   }, []);
 
-  // Bắt đầu tải — simulate progress từng 300ms
-  const downloadPack = useCallback(
-    (packId: string) => {
-      setPackStates((prev) => ({
-        ...prev,
-        [packId]: { status: 'downloading', progress: 0 },
-      }));
-
-      let progress = 0;
-      const timer = setInterval(() => {
-        progress += Math.floor(Math.random() * 12) + 5;
-        if (progress >= 100) {
-          progress = 100;
-          clearInterval(timer);
-          delete timersRef.current[packId];
-          setPackStates((prev) => ({
-            ...prev,
-            [packId]: { status: 'downloaded', progress: 100 },
-          }));
-          persistDownloaded(packId, true);
-        } else {
-          setPackStates((prev) => ({
-            ...prev,
-            [packId]: { status: 'downloading', progress },
-          }));
-        }
-      }, 300);
-
-      timersRef.current[packId] = timer;
-    },
-    [persistDownloaded],
-  );
-
-  // Xoá pack đã tải
-  const deletePack = useCallback(
-    (packId: string) => {
-      if (timersRef.current[packId]) {
-        clearInterval(timersRef.current[packId]);
-        delete timersRef.current[packId];
-      }
-      setPackStates((prev) => {
-        const next = { ...prev };
-        delete next[packId];
-        return next;
-      });
-      persistDownloaded(packId, false);
-    },
-    [persistDownloaded],
-  );
+  const deletePack = useCallback((packId: string) => {
+    setPackStates((prev) => {
+      const next = { ...prev };
+      delete next[packId];
+      return next;
+    });
+    void deleteOfflinePack(packId);
+  }, []);
 
   const getState = useCallback(
     (packId: string): PackState => packStates[packId] ?? { status: 'idle', progress: 0 },
     [packStates],
   );
-
-  // Dọn timer khi unmount
-  useEffect(() => {
-    return () => {
-      Object.values(timersRef.current).forEach(clearInterval);
-    };
-  }, []);
 
   return { downloadPack, deletePack, getState };
 }

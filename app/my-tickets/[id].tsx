@@ -23,7 +23,7 @@ function qrImageUrl(data: string): string {
 export default function TicketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const ticketId = parseNumericId(id);
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const [detail, setDetail] = useState<TicketDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +37,7 @@ export default function TicketDetailScreen() {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiService.getTicketDetail(ticketId);
+      const res = await apiService.getTicketDetail(ticketId, lang);
       if (!res.data) {
         setError(res.message || t('ticket.loadError'));
         setDetail(null);
@@ -50,7 +50,7 @@ export default function TicketDetailScreen() {
     } finally {
       setLoading(false);
     }
-  }, [ticketId, t]);
+  }, [ticketId, t, lang]);
 
   useEffect(() => {
     void load();
@@ -146,7 +146,7 @@ export default function TicketDetailScreen() {
           <Row
             icon="cash"
             label={t('ticket.total')}
-            value={`${Number(detail.order.totalAmount).toLocaleString('vi-VN')} ${detail.order.currency || 'VND'}`}
+            value={`${Number(detail.order.totalAmount).toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')} ${detail.order.currency || 'VND'}`}
           />
           <Row
             icon="credit-card-outline"
@@ -156,13 +156,13 @@ export default function TicketDetailScreen() {
           <Row
             icon="calendar-outline"
             label={t('ticket.purchaseDate')}
-            value={formatVisitorDate(detail.purchaseDate)}
+            value={formatVisitorDate(detail.purchaseDate, lang === 'en' ? 'en-US' : 'vi-VN')}
           />
           {detail.validDate ? (
             <Row
               icon="calendar-check"
               label={t('ticket.validDate')}
-              value={formatVisitorDate(detail.validDate)}
+              value={formatVisitorDate(detail.validDate, lang === 'en' ? 'en-US' : 'vi-VN')}
             />
           ) : null}
         </View>

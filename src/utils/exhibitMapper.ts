@@ -1,6 +1,13 @@
 import { ExhibitDto, ExhibitTranslationDto } from '../services/apiService';
 import type { ExhibitRecord } from '../data/exhibits';
 import type { AppLanguage } from '../services/languagePrefs';
+import {
+  audioLogicalKey,
+  markerLogicalKey,
+  overlayLogicalKey,
+  resolveOfflineUri,
+  thumbLogicalKey,
+} from '../services/offlineMedia';
 import { pickLocalizedRow } from './pickLocalized';
 
 /** Bảng màu chủ đạo dùng khi backend không cung cấp màu cho hiện vật. */
@@ -12,6 +19,30 @@ export function pickTranslation(
   lang: AppLanguage | string = 'vi',
 ): ExhibitTranslationDto | undefined {
   return pickLocalizedRow(dto.translations, lang);
+}
+
+function readTagIds(dto: ExhibitDto): number[] {
+  const raw = dto as ExhibitDto & {
+    TagIds?: unknown;
+    tags?: unknown;
+    Tags?: unknown;
+  };
+  const fromIds = raw.tagIds ?? raw.TagIds;
+  if (Array.isArray(fromIds)) {
+    return fromIds
+      .map((value) => Number(value))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+  const fromObjects = raw.tags ?? raw.Tags;
+  if (Array.isArray(fromObjects)) {
+    return fromObjects
+      .map((item) => {
+        const row = item as { id?: unknown; Id?: unknown };
+        return Number(row.id ?? row.Id);
+      })
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+  return [];
 }
 
 /** Tách mô tả dài thành các đoạn transcript ngắn để hiển thị theo audio. */
@@ -41,25 +72,40 @@ export function mapExhibitDtoToRecord(
     id: String(dto.id),
     museumId: String(dto.museumId),
     title: tr?.title ?? dto.exhibitCode ?? `Hiện vật #${dto.id}`,
-    era: meta?.era ?? '',
+    era:
+      lang === 'en' && meta?.eraEn?.trim()
+        ? meta.eraEn.trim()
+        : (meta?.era ?? ''),
     category:
       categoryName ??
       (dto.categoryId != null ? `Danh mục ${dto.categoryId}` : 'Hiện vật'),
     categoryId: dto.categoryId,
     themeId: dto.themeId,
-    tagIds: dto.tagIds,
+    tagIds: readTagIds(dto),
     origin: '',
     material: '',
     description,
     arAvailable: Boolean(dto.arOverlayUrl || dto.arMarkerUrl),
-    arOverlayUrl: dto.arOverlayUrl,
-    arMarkerUrl: dto.arMarkerUrl,
+    arOverlayUrl:
+      resolveOfflineUri(dto.arOverlayUrl, overlayLogicalKey(dto.id)) ?? dto.arOverlayUrl,
+    arMarkerUrl:
+      resolveOfflineUri(dto.arMarkerUrl, markerLogicalKey(dto.id)) ?? dto.arMarkerUrl,
     emoji: '🏺',
     color,
-    audioUrl: tr?.audioUrl ?? '',
+    audioUrl:
+      resolveOfflineUri(tr?.audioUrl, audioLogicalKey(dto.id, String(lang))) ??
+      tr?.audioUrl ??
+      '',
     audioDuration: tr?.audioDuration ?? 0,
     transcript: splitTranscript(description),
-    highlights: meta?.historicalEvent ? [meta.historicalEvent] : [],
-    thumbnailUrl: dto.thumbnailUrl,
+    highlights: (() => {
+      const event =
+        lang === 'en' && meta?.historicalEventEn?.trim()
+          ? meta.historicalEventEn.trim()
+          : meta?.historicalEvent?.trim();
+      return event ? [event] : [];
+    })(),
+    thumbnailUrl:
+      resolveOfflineUri(dto.thumbnailUrl, thumbLogicalKey(dto.id)) ?? dto.thumbnailUrl,
   };
 }

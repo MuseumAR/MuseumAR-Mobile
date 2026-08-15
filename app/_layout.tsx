@@ -1,10 +1,15 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
 import { Platform, View } from 'react-native';
 import { NavigationBar } from 'expo-navigation-bar';
 import * as WebBrowser from 'expo-web-browser';
+import { UnityArHostOverlay } from '../src/components/UnityArHostOverlay';
+import { UnityArHostProvider } from '../src/context/UnityArHostContext';
 import { OfflineBanner } from '../src/components/OfflineBanner';
 import { LanguageProvider, useLanguage } from '../src/i18n/LanguageContext';
+import { loadMediaMap } from '../src/services/offlineMedia';
+import { startAnalyticsLifecycle } from '../src/services/trackAnalytics';
 import { C } from '../src/theme/colors';
 
 // Dismiss PayOS auth session when redirected to museumar://payment-result
@@ -36,6 +41,14 @@ function RootStack() {
         <Stack.Screen
           name="ar-packs/index"
           options={{ headerShown: true, headerTitle: t('header.arPacks'), ...headerOpts }}
+        />
+        <Stack.Screen
+          name="exhibitions/index"
+          options={{ headerShown: true, headerTitle: t('header.exhibitions'), ...headerOpts }}
+        />
+        <Stack.Screen
+          name="exhibition/[id]"
+          options={{ headerShown: true, headerTitle: t('header.exhibitionDetail'), ...headerOpts }}
         />
         <Stack.Screen
           name="exhibit/[id]"
@@ -83,9 +96,19 @@ function RootStack() {
 }
 
 export default function RootLayout() {
+  useEffect(() => {
+    void loadMediaMap();
+    return startAnalyticsLifecycle();
+  }, []);
+
   return (
     <LanguageProvider>
-      <RootStack />
+      <UnityArHostProvider>
+        <View style={{ flex: 1 }}>
+          <RootStack />
+          <UnityArHostOverlay />
+        </View>
+      </UnityArHostProvider>
     </LanguageProvider>
   );
 }

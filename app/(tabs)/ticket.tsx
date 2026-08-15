@@ -16,6 +16,7 @@ import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { TicketTypeDto } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
+import { museumLocationLabel } from '../../src/utils/museumLocation';
 
 const WEEKDAYS_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
 const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -59,10 +60,12 @@ export default function TicketScreen() {
   );
 
   useEffect(() => {
-    if (!selectedType && types.length > 0) {
-      setSelectedType(types[0]);
-    }
-  }, [types, selectedType]);
+    if (types.length === 0) return;
+    setSelectedType((current) => {
+      if (!current) return types[0];
+      return types.find((item) => item.id === current.id) ?? types[0];
+    });
+  }, [types]);
 
   const total = (selectedType?.price ?? 0) * quantity;
 
@@ -150,13 +153,15 @@ export default function TicketScreen() {
             <View style={styles.stepBadge}>
               <Text style={styles.stepNum}>1</Text>
             </View>
-            <Text style={styles.sectionTitle}>Bảo tàng</Text>
+            <Text style={styles.sectionTitle}>{t('ticket.museum')}</Text>
           </View>
           <View style={styles.museumRow}>
             <View style={[styles.museumColorDot, { backgroundColor: museum.color }]} />
             <View style={styles.museumInfo}>
               <Text style={styles.museumName}>{museum.name}</Text>
-              <Text style={styles.museumCity}>{museum.city}</Text>
+              <Text style={styles.museumCity} numberOfLines={2}>
+                {museumLocationLabel(museum)}
+              </Text>
             </View>
           </View>
         </View>
@@ -175,25 +180,27 @@ export default function TicketScreen() {
           ) : typesError ? (
             <Text style={styles.errorText}>{typesError}</Text>
           ) : types.length === 0 ? (
-            <Text style={styles.emptyText}>Chưa có loại vé nào.</Text>
+            <Text style={styles.emptyText}>{t('ticket.emptyTypes')}</Text>
           ) : (
             <View style={styles.typeGrid}>
-              {types.map((t) => {
-                const active = selectedType?.id === t.id;
+              {types.map((item) => {
+                const active = selectedType?.id === item.id;
                 return (
                   <TouchableOpacity
-                    key={t.id}
+                    key={item.id}
                     style={[styles.typeCard, active && styles.typeCardActive]}
-                    onPress={() => setSelectedType(t)}
+                    onPress={() => setSelectedType(item)}
                   >
-                    <Text style={[styles.typeLabel, active && styles.typeLabelActive]}>{t.name}</Text>
-                    {t.description ? (
+                    <Text style={[styles.typeLabel, active && styles.typeLabelActive]}>{item.name}</Text>
+                    {item.description ? (
                       <Text style={[styles.typeDesc, active && styles.typeDescActive]} numberOfLines={2}>
-                        {t.description}
+                        {item.description}
                       </Text>
                     ) : null}
                     <Text style={[styles.typePrice, active && styles.typeLabelActive]}>
-                      {t.price === 0 ? 'Miễn phí' : `${t.price.toLocaleString('vi-VN')}đ`}
+                      {item.price === 0
+                        ? t('ticket.free')
+                        : `${item.price.toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')}đ`}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -224,7 +231,7 @@ export default function TicketScreen() {
             >
               <MaterialCommunityIcons name="plus" size={20} color={C.textSecondary} />
             </TouchableOpacity>
-            <Text style={styles.qtyNote}>tối đa 10 vé / lần</Text>
+            <Text style={styles.qtyNote}>{t('ticket.maxQty')}</Text>
           </View>
         </View>
 
@@ -234,7 +241,7 @@ export default function TicketScreen() {
             <View style={styles.stepBadge}>
               <Text style={styles.stepNum}>4</Text>
             </View>
-            <Text style={styles.sectionTitle}>Ngày tham quan</Text>
+            <Text style={styles.sectionTitle}>{t('ticket.visitDate')}</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
             {days.map((d) => {
@@ -256,7 +263,7 @@ export default function TicketScreen() {
         {/* Summary */}
         <View style={styles.summary}>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Bảo tàng</Text>
+            <Text style={styles.summaryLabel}>{t('ticket.museum')}</Text>
             <Text style={styles.summaryValue} numberOfLines={1}>{museum.name}</Text>
           </View>
           <View style={styles.summaryRow}>
@@ -265,13 +272,17 @@ export default function TicketScreen() {
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>{t('ticket.qty')}</Text>
-            <Text style={styles.summaryValue}>{quantity} vé</Text>
+            <Text style={styles.summaryValue}>
+              {quantity} {t('ticket.qtyUnit')}
+            </Text>
           </View>
           <View style={styles.divider} />
           <View style={styles.summaryRow}>
             <Text style={styles.totalLabel}>{t('ticket.total')}</Text>
             <Text style={styles.totalValue}>
-              {total === 0 ? 'Miễn phí' : `${total.toLocaleString('vi-VN')}đ`}
+              {total === 0
+                ? t('ticket.free')
+                : `${total.toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')}đ`}
             </Text>
           </View>
         </View>

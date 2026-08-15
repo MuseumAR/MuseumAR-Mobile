@@ -28,9 +28,9 @@ export function uniqueBookmarks(bookmarks: BookmarkDto[]): BookmarkDto[] {
   );
 }
 
-export function formatVisitorDate(iso: string): string {
+export function formatVisitorDate(iso: string, locale: 'vi-VN' | 'en-US' = 'vi-VN'): string {
   try {
-    return new Date(iso).toLocaleDateString('vi-VN', {
+    return new Date(iso).toLocaleDateString(locale, {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',

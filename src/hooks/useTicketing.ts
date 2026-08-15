@@ -21,7 +21,9 @@ const MOCK_TICKET_TYPES: TicketTypeDto[] = [
   {
     id: 1,
     name: 'Vé người lớn',
+    nameEn: 'Adult ticket',
     description: 'Áp dụng từ 16 tuổi trở lên',
+    descriptionEn: 'Ages 16 and up',
     price: 50000,
     currency: 'VND',
     status: 'Approved',
@@ -30,7 +32,9 @@ const MOCK_TICKET_TYPES: TicketTypeDto[] = [
   {
     id: 2,
     name: 'Vé học sinh / sinh viên',
+    nameEn: 'Student ticket',
     description: 'Có thẻ học sinh / sinh viên',
+    descriptionEn: 'Valid student ID required',
     price: 25000,
     currency: 'VND',
     status: 'Approved',
@@ -39,13 +43,24 @@ const MOCK_TICKET_TYPES: TicketTypeDto[] = [
   {
     id: 3,
     name: 'Vé trẻ em',
+    nameEn: 'Child ticket',
     description: 'Dưới 16 tuổi',
+    descriptionEn: 'Under 16',
     price: 0,
     currency: 'VND',
     status: 'Approved',
     isActive: true,
   },
 ];
+
+function localizeTicketTypes(types: TicketTypeDto[], lang: string): TicketTypeDto[] {
+  if (lang !== 'en') return types;
+  return types.map((item) => ({
+    ...item,
+    name: item.nameEn?.trim() || item.name,
+    description: item.descriptionEn?.trim() || item.description,
+  }));
+}
 
 export type PaymentBrowserOutcome = 'success' | 'cancel' | 'dismiss' | 'pending';
 
@@ -130,9 +145,11 @@ export function useTicketTypes() {
       const list = (response.data ?? []).filter(
         (t) => !t.status || t.status.toLowerCase() === 'approved' || t.isActive !== false,
       );
-      setTypes(list.length > 0 ? list : MOCK_TICKET_TYPES);
+      setTypes(
+        localizeTicketTypes(list.length > 0 ? list : MOCK_TICKET_TYPES, lang),
+      );
     } catch (err: unknown) {
-      setTypes(MOCK_TICKET_TYPES);
+      setTypes(localizeTicketTypes(MOCK_TICKET_TYPES, lang));
       setError(getAuthErrorMessage(err, 'Đang dùng loại vé mẫu trên thiết bị'));
     } finally {
       setLoading(false);
@@ -148,6 +165,7 @@ export function useTicketTypes() {
 
 /** Vé của tôi — GET /Ticketing/my-tickets (JWT + Visitor đã sync). */
 export function useMyTickets() {
+  const { lang } = useLanguage();
   const [tickets, setTickets] = useState<MyTicketDto[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,7 +187,7 @@ export function useMyTickets() {
       } catch {
         // Still try my-tickets; BE may already have the visitor from login sync.
       }
-      const response = await apiService.getMyTickets();
+      const response = await apiService.getMyTickets(lang);
       setTickets(response.data ?? []);
     } catch (err: unknown) {
       setError(getAuthErrorMessage(err, 'Không thể tải vé của bạn'));
@@ -177,13 +195,14 @@ export function useMyTickets() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   return { tickets, loading, authRequired, error, refresh };
 }
 
 /** Active pending PayOS order — GET /Ticketing/pending-order. */
 export function usePendingOrder() {
+  const { lang } = useLanguage();
   const [pending, setPending] = useState<PendingOrderDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -198,7 +217,7 @@ export function usePendingOrder() {
     setError(null);
     try {
       await ensureVisitorSynced().catch(() => undefined);
-      const response = await apiService.getPendingOrder();
+      const response = await apiService.getPendingOrder(lang);
       setPending(response.data ?? null);
     } catch (err: unknown) {
       setError(getAuthErrorMessage(err, 'Không thể tải đơn chờ thanh toán'));
@@ -206,7 +225,7 @@ export function usePendingOrder() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lang]);
 
   return { pending, loading, error, refresh };
 }
@@ -226,6 +245,7 @@ export type CreateOrderSubmitResult =
  * success → Paid screen | cancel → Payment/cancel | close → Pending (resume via pending-order)
  */
 export function useCreateOrder() {
+  const { lang } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -243,7 +263,7 @@ export function useCreateOrder() {
 
         let paidCountBefore = 0;
         try {
-          const before = await apiService.getMyTickets();
+          const before = await apiService.getMyTickets(lang);
           paidCountBefore = countPaidTickets(before.data ?? []);
         } catch {
           paidCountBefore = 0;
@@ -300,7 +320,7 @@ export function useCreateOrder() {
         setSubmitting(false);
       }
     },
-    [],
+    [lang],
   );
 
   return { submit, submitting, error };

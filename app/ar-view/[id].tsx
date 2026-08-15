@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
 import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
@@ -44,7 +45,8 @@ export default function ARViewScreen() {
   const { recordVisit } = useVisitedExhibits();
   const { track } = useTrackAction();
   const mountTimeRef = useRef(Date.now());
-  const audioTrackedRef = useRef(false);
+  const wasPlayingRef = useRef(false);
+  const lastPlaySecondsRef = useRef(0);
 
   const [activeTranscript, setActiveTranscript] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -150,15 +152,49 @@ export default function ARViewScreen() {
   }, [exhibitId, recordVisit]);
 
   useEffect(() => {
-    if (!status.playing || audioTrackedRef.current || exhibitId == null) return;
-    audioTrackedRef.current = true;
-    track({
-      actionType: 'PlayAudio',
-      exhibitId,
-      museumId,
-      languageUsed: lang,
-    });
+    if (exhibitId == null) return;
+    const playing = Boolean(status.playing);
+    if (playing === wasPlayingRef.current) return;
+
+    const playedSeconds = Math.max(0, Math.round(status.currentTime ?? 0));
+    lastPlaySecondsRef.current = playedSeconds;
+    const duration = status.duration ?? 0;
+    const finished = duration > 0 && playedSeconds >= Math.max(0, duration - 0.5);
+
+    if (playing) {
+      track({
+        actionType: AnalyticsAction.AUDIO_PLAY,
+        exhibitId,
+        museumId,
+        languageUsed: lang,
+      });
+    } else {
+      track({
+        actionType: finished
+          ? AnalyticsAction.AUDIO_COMPLETE
+          : AnalyticsAction.AUDIO_PAUSE,
+        exhibitId,
+        museumId,
+        languageUsed: lang,
+        listeningDuration: Math.max(playedSeconds, 1),
+      });
+    }
+    wasPlayingRef.current = playing;
   }, [status.playing, exhibitId, museumId, track, lang]);
+
+  useEffect(() => {
+    return () => {
+      if (!wasPlayingRef.current || exhibitId == null) return;
+      wasPlayingRef.current = false;
+      track({
+        actionType: AnalyticsAction.AUDIO_PAUSE,
+        exhibitId,
+        museumId,
+        languageUsed: lang,
+        listeningDuration: Math.max(lastPlaySecondsRef.current, 1),
+      });
+    };
+  }, [exhibitId, museumId, track, lang]);
 
   const skip = (secs: number) => {
     safeSeek((status.currentTime ?? 0) + secs);
