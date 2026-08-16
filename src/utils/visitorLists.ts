@@ -4,6 +4,7 @@ import { BookmarkDto, VisitedExhibitDto } from '../services/apiService';
 export function uniqueVisitedExhibits(visited: VisitedExhibitDto[]): VisitedExhibitDto[] {
   const byExhibit = new Map<number, VisitedExhibitDto>();
   for (const entry of visited) {
+    if (entry.exhibitId == null || entry.exhibitId <= 0) continue;
     const existing = byExhibit.get(entry.exhibitId);
     if (!existing || new Date(entry.visitedAt) > new Date(existing.visitedAt)) {
       byExhibit.set(entry.exhibitId, entry);
@@ -18,6 +19,7 @@ export function uniqueVisitedExhibits(visited: VisitedExhibitDto[]): VisitedExhi
 export function uniqueBookmarks(bookmarks: BookmarkDto[]): BookmarkDto[] {
   const byExhibit = new Map<number, BookmarkDto>();
   for (const entry of bookmarks) {
+    if (entry.exhibitId == null || entry.exhibitId <= 0) continue;
     const existing = byExhibit.get(entry.exhibitId);
     if (!existing || new Date(entry.createdAt) > new Date(existing.createdAt)) {
       byExhibit.set(entry.exhibitId, entry);

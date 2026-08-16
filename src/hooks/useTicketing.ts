@@ -1,3 +1,4 @@
+import NetInfo from '@react-native-community/netinfo';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { useCallback, useEffect, useState } from 'react';
@@ -13,6 +14,11 @@ import {
 import { useLanguage } from '../i18n/LanguageContext';
 import { ensureVisitorSynced } from '../services/ensureVisitorSynced';
 import { getToken } from '../services/tokenStorage';
+
+async function isNetworkOffline(): Promise<boolean> {
+  const net = await NetInfo.fetch();
+  return net.isConnected === false || net.isInternetReachable === false;
+}
 
 // Required so openAuthSessionAsync can dismiss when redirected to our scheme.
 WebBrowser.maybeCompleteAuthSession();
@@ -132,7 +138,7 @@ export async function openPayOsCheckout(
 
 /** Lấy loại vé (GET /Ticketing/types?lang=), fallback mock nếu API lỗi. */
 export function useTicketTypes() {
-  const { lang } = useLanguage();
+  const { lang, t } = useLanguage();
   const [types, setTypes] = useState<TicketTypeDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -140,6 +146,12 @@ export function useTicketTypes() {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
+    if (await isNetworkOffline()) {
+      setTypes([]);
+      setError(t('ticket.offlineUnavailable'));
+      setLoading(false);
+      return;
+    }
     try {
       const response = await apiService.getTicketTypes(lang);
       const list = (response.data ?? []).filter(
@@ -154,7 +166,7 @@ export function useTicketTypes() {
     } finally {
       setLoading(false);
     }
-  }, [lang]);
+  }, [lang, t]);
 
   useEffect(() => {
     refresh();
@@ -245,12 +257,18 @@ export type CreateOrderSubmitResult =
  * success → Paid screen | cancel → Payment/cancel | close → Pending (resume via pending-order)
  */
 export function useCreateOrder() {
-  const { lang } = useLanguage();
+  const { lang, t } = useLanguage();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const submit = useCallback(
     async (payload: CreateOrderRequest): Promise<CreateOrderSubmitResult> => {
+      if (await isNetworkOffline()) {
+        const message = t('ticket.offlineUnavailable');
+        setError(message);
+        return { ok: false, message };
+      }
+
       const token = await getToken();
       if (!token) {
         return { ok: false, authRequired: true, message: 'Vui lòng đăng nhập để đặt vé.' };
@@ -320,7 +338,7 @@ export function useCreateOrder() {
         setSubmitting(false);
       }
     },
-    [lang],
+    [lang, t],
   );
 
   return { submit, submitting, error };

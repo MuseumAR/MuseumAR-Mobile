@@ -25,7 +25,11 @@ export function useExhibitions(museumId?: number | null) {
     try {
       const response = await apiService.getExhibitions(lang);
       const list = Array.isArray(response.data) ? response.data : [];
-      setExhibitions(filterByMuseum(list, museumId));
+      setExhibitions(
+        filterByMuseum(list, museumId).map((item) =>
+          localizeExhibition(item, lang),
+        ),
+      );
     } catch (err: unknown) {
       setError(
         err instanceof Error ? err.message : 'Không thể tải danh sách triển lãm',

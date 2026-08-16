@@ -4,9 +4,24 @@ import { removeSession } from './sessionStorage';
 const TOKEN_FILE_PATH = FileSystem.documentDirectory + 'auth_token.txt';
 const REFRESH_TOKEN_FILE_PATH = FileSystem.documentDirectory + 'refresh_token.txt';
 
+type AuthChangeListener = () => void;
+const authChangeListeners = new Set<AuthChangeListener>();
+
+export function subscribeAuthChange(listener: AuthChangeListener): () => void {
+  authChangeListeners.add(listener);
+  return () => {
+    authChangeListeners.delete(listener);
+  };
+}
+
+function notifyAuthChange(): void {
+  authChangeListeners.forEach((listener) => listener());
+}
+
 export async function saveToken(token: string): Promise<void> {
   try {
     await FileSystem.writeAsStringAsync(TOKEN_FILE_PATH, token);
+    notifyAuthChange();
   } catch (error) {
     console.error('Error saving token:', error);
   }
@@ -57,6 +72,7 @@ export async function removeToken(): Promise<void> {
       await FileSystem.deleteAsync(REFRESH_TOKEN_FILE_PATH);
     }
     await removeSession();
+    notifyAuthChange();
   } catch (error) {
     console.error('Error removing token:', error);
   }

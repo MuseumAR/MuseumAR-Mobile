@@ -2,42 +2,6 @@ import type { RoomDto, TourRouteStopDto } from '../services/apiService';
 
 export type CardinalDirection = 'up' | 'down' | 'left' | 'right';
 
-export type RoomGridCell = {
-  room: RoomDto;
-  /** 0-based column in 2-col floor grid */
-  col: number;
-  /** 0-based row in floor grid */
-  row: number;
-  /** Index within floor rooms list */
-  index: number;
-};
-
-export type RouteStepGuide = {
-  from: TourRouteStopDto;
-  to: TourRouteStopDto;
-  direction: CardinalDirection;
-  /** Primary move axes (may include secondary if diagonal-ish). */
-  directions: CardinalDirection[];
-  instructionVi: string;
-  instructionShort: string;
-  sameFloor: boolean;
-  floorChange: number;
-};
-
-const ARROW: Record<CardinalDirection, string> = {
-  up: '⬆️',
-  down: '⬇️',
-  left: '⬅️',
-  right: '➡️',
-};
-
-const VERB: Record<CardinalDirection, string> = {
-  up: 'Đi lên',
-  down: 'Đi xuống',
-  left: 'Rẽ trái',
-  right: 'Rẽ phải',
-};
-
 /** Sort rooms for a stable schematic layout (code numeric when possible). */
 export function sortRoomsForLayout(rooms: RoomDto[]): RoomDto[] {
   return [...rooms].sort((a, b) => {
@@ -49,175 +13,22 @@ export function sortRoomsForLayout(rooms: RoomDto[]): RoomDto[] {
   });
 }
 
-/** Build 2-column grid cells for one floor. */
-export function buildFloorGrid(roomsOnFloor: RoomDto[]): RoomGridCell[] {
-  const sorted = sortRoomsForLayout(roomsOnFloor);
-  return sorted.map((room, index) => ({
-    room,
-    index,
-    col: index % 2,
-    row: Math.floor(index / 2),
-  }));
-}
-
-export function findRoomCell(
-  cells: RoomGridCell[],
-  roomCode?: string | null,
-  roomId?: number | null,
-): RoomGridCell | null {
-  if (roomId != null) {
-    const byId = cells.find((c) => c.room.id === roomId);
-    if (byId) return byId;
-  }
-  if (roomCode) {
-    const code = roomCode.trim().toLowerCase();
-    return (
-      cells.find((c) => c.room.roomCode.trim().toLowerCase() === code) ?? null
-    );
-  }
-  return null;
-}
-
-/**
- * Cardinal direction from A → B using grid cells, or floor numbers when
- * rooms aren't on the same schematic floor.
- */
-export function computeDirectionBetweenRooms(
-  fromStop: TourRouteStopDto,
-  toStop: TourRouteStopDto,
-  allRooms: RoomDto[],
-): { direction: CardinalDirection; directions: CardinalDirection[]; floorChange: number } {
-  const floorFrom = fromStop.floorNumber ?? 1;
-  const floorTo = toStop.floorNumber ?? 1;
-  const floorChange = floorTo - floorFrom;
-
-  if (floorChange !== 0) {
-    const direction: CardinalDirection = floorChange > 0 ? 'up' : 'down';
-    return { direction, directions: [direction], floorChange };
-  }
-
-  const floorRooms = allRooms.filter((r) => r.floorNumber === floorFrom);
-  const cells = buildFloorGrid(floorRooms.length > 0 ? floorRooms : allRooms);
-  const a =
-    findRoomCell(cells, fromStop.roomCode, fromStop.roomId) ??
-    // Fallback: invent cells from stop codes alone
-    inventCellFromCode(fromStop.roomCode, 0);
-  const b =
-    findRoomCell(cells, toStop.roomCode, toStop.roomId) ??
-    inventCellFromCode(toStop.roomCode, 1);
-
-  const dCol = b.col - a.col;
-  const dRow = b.row - a.row;
-  const directions: CardinalDirection[] = [];
-
-  if (Math.abs(dCol) >= Math.abs(dRow)) {
-    if (dCol > 0) directions.push('right');
-    else if (dCol < 0) directions.push('left');
-    if (dRow > 0) directions.push('down');
-    else if (dRow < 0) directions.push('up');
-  } else {
-    if (dRow > 0) directions.push('down');
-    else if (dRow < 0) directions.push('up');
-    if (dCol > 0) directions.push('right');
-    else if (dCol < 0) directions.push('left');
-  }
-
-  // Same cell / unknown → use room-code numeric delta as last resort
-  if (directions.length === 0) {
-    const na = parseInt(String(fromStop.roomCode ?? '').replace(/\D/g, ''), 10);
-    const nb = parseInt(String(toStop.roomCode ?? '').replace(/\D/g, ''), 10);
-    if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) {
-      directions.push(nb > na ? 'right' : 'left');
-    } else {
-      directions.push('right');
-    }
-  }
-
-  return { direction: directions[0], directions, floorChange: 0 };
-}
-
-function inventCellFromCode(
-  roomCode: string | null | undefined,
-  fallbackIndex: number,
-): RoomGridCell {
-  const n = parseInt(String(roomCode ?? '').replace(/\D/g, ''), 10);
-  const index = Number.isFinite(n) ? Math.max(0, (n % 100) - 1) : fallbackIndex;
-  return {
-    room: {
-      id: 0,
-      museumId: 0,
-      roomCode: roomCode ?? '?',
-      roomName: roomCode ?? '?',
-      floorNumber: 1,
-    },
-    index,
-    col: index % 2,
-    row: Math.floor(index / 2),
-  };
-}
-
-export function buildRouteStepGuide(
-  from: TourRouteStopDto,
-  to: TourRouteStopDto,
-  allRooms: RoomDto[],
+export function formatRoomRef(
+  room: { roomCode?: string | null; roomName?: string | null } | null | undefined,
   lang: 'vi' | 'en' = 'vi',
-): RouteStepGuide {
-  const { direction, directions, floorChange } = computeDirectionBetweenRooms(
-    from,
-    to,
-    allRooms,
-  );
-  const sameFloor = floorChange === 0;
-  const fromLabel = roomLabel(from, lang);
-  const toLabel = roomLabel(to, lang);
-  const en = lang === 'en';
-
-  const VERB_EN: Record<CardinalDirection, string> = {
-    up: 'Go up',
-    down: 'Go down',
-    left: 'Turn left',
-    right: 'Turn right',
-  };
-  const primary = en ? VERB_EN[direction] : VERB[direction];
-  const arrow = ARROW[direction];
-
-  let detail: string;
-  if (!sameFloor) {
-    detail = en
-      ? `${primary} ${arrow} to floor ${to.floorNumber ?? '?'} to ${toLabel}`
-      : `${primary} ${arrow} lên tầng ${to.floorNumber ?? '?'} đến ${toLabel}`;
-  } else if (directions.length > 1) {
-    const secondary = directions[1];
-    const secVerb = en
-      ? VERB_EN[secondary].toLowerCase()
-      : VERB[secondary].toLowerCase();
-    detail = en
-      ? `${primary} ${arrow} then ${secVerb} ${ARROW[secondary]} to ${toLabel}`
-      : `${primary} ${arrow} rồi ${secVerb} ${ARROW[secondary]} đến ${toLabel}`;
-  } else {
-    detail = en
-      ? `${primary} ${arrow} through the corridor to ${toLabel}`
-      : `${primary} ${arrow} đi qua hành lang đến ${toLabel}`;
+): string {
+  if (!room) return lang === 'en' ? 'Unknown room' : 'Chưa rõ phòng';
+  if (room.roomCode) {
+    return lang === 'en' ? `Room ${room.roomCode}` : `Phòng ${room.roomCode}`;
   }
-
-  const instructionVi = en
-    ? `From ${fromLabel} ➔ ${toLabel}: ${detail}`
-    : `Đi từ ${fromLabel} ➔ ${toLabel}: ${detail}`;
-  const instructionShort = `${fromLabel} ➔ ${toLabel}: ${primary} ${arrow}`;
-
-  return {
-    from,
-    to,
-    direction,
-    directions,
-    instructionVi,
-    instructionShort,
-    sameFloor,
-    floorChange,
-  };
+  if (room.roomName) return room.roomName;
+  return lang === 'en' ? 'Unknown room' : 'Chưa rõ phòng';
 }
 
-export function roomLabel(stop: TourRouteStopDto, lang: 'vi' | 'en' = 'vi'): string {
+export function roomLabel(
+  stop: TourRouteStopDto,
+  lang: 'vi' | 'en' = 'vi',
+): string {
   if (stop.roomCode) {
     return lang === 'en' ? `Room ${stop.roomCode}` : `Phòng ${stop.roomCode}`;
   }
@@ -243,4 +54,125 @@ export function arrowIconName(
     default:
       return 'arrow-right';
   }
+}
+
+/** Room id for pathfinding — stop.roomId, else match rooms by code/name. */
+export function resolveStopRoomId(
+  stop: TourRouteStopDto | null | undefined,
+  rooms: RoomDto[],
+): number | null {
+  if (!stop) return null;
+  if (stop.roomId != null && stop.roomId > 0) return stop.roomId;
+  const code = stop.roomCode?.trim().toLowerCase();
+  if (code) {
+    const byCode = rooms.find((r) => r.roomCode.trim().toLowerCase() === code);
+    if (byCode?.id) return byCode.id;
+  }
+  const name = stop.roomName?.trim().toLowerCase();
+  if (name) {
+    const byName = rooms.find((r) => r.roomName.trim().toLowerCase() === name);
+    if (byName?.id) return byName.id;
+  }
+  return null;
+}
+
+/** Fill missing room fields on itinerary stops from the rooms catalog. */
+export function hydrateTourStops(
+  stops: TourRouteStopDto[],
+  rooms: RoomDto[],
+): TourRouteStopDto[] {
+  return stops.map((s) => {
+    const roomId = resolveStopRoomId(s, rooms);
+    const room = roomId != null ? rooms.find((r) => r.id === roomId) : undefined;
+    if (!room) return s;
+    return {
+      ...s,
+      roomId,
+      roomCode: s.roomCode ?? room.roomCode ?? null,
+      roomName: s.roomName ?? room.roomName ?? null,
+      floorNumber: s.floorNumber ?? room.floorNumber ?? null,
+      mapId: s.mapId ?? room.mapId ?? null,
+    };
+  });
+}
+
+/** Same gallery — compare room id, then code, then name. */
+export function stopsShareRoom(
+  a: TourRouteStopDto | null | undefined,
+  b: TourRouteStopDto | null | undefined,
+): boolean {
+  if (!a || !b) return false;
+  if (a.roomId != null && a.roomId > 0 && b.roomId != null && b.roomId > 0) {
+    return a.roomId === b.roomId;
+  }
+  const codeA = a.roomCode?.trim().toLowerCase();
+  const codeB = b.roomCode?.trim().toLowerCase();
+  if (codeA && codeB) return codeA === codeB;
+  const nameA = a.roomName?.trim().toLowerCase();
+  const nameB = b.roomName?.trim().toLowerCase();
+  if (nameA && nameB) return nameA === nameB;
+  return false;
+}
+
+export type TourHop = {
+  fromStop: TourRouteStopDto;
+  toStop: TourRouteStopDto;
+  /** Same room → exhibit names. Different rooms → room names. */
+  kind: 'exhibit' | 'room';
+  fromLabel: string;
+  toLabel: string;
+};
+
+function exhibitLabel(
+  stop: TourRouteStopDto,
+  lang: 'vi' | 'en',
+): string {
+  return (
+    stop.exhibitName?.trim() ||
+    (lang === 'en' ? `Exhibit ${stop.exhibitId}` : `Hiện vật ${stop.exhibitId}`)
+  );
+}
+
+/**
+ * One hop per consecutive tour stops.
+ * Same room: exhibit → exhibit. Different rooms: room → room.
+ */
+export function buildTourHops(
+  stops: TourRouteStopDto[],
+  lang: 'vi' | 'en' = 'vi',
+): TourHop[] {
+  const sorted = sortStops(stops);
+  const hops: TourHop[] = [];
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const fromStop = sorted[i];
+    const toStop = sorted[i + 1];
+    const same = stopsShareRoom(fromStop, toStop);
+    hops.push({
+      fromStop,
+      toStop,
+      kind: same ? 'exhibit' : 'room',
+      fromLabel: same ? exhibitLabel(fromStop, lang) : formatRoomRef(fromStop, lang),
+      toLabel: same ? exhibitLabel(toStop, lang) : formatRoomRef(toStop, lang),
+    });
+  }
+  return hops;
+}
+
+/** Exhibit→exhibit or room→room preview — not walking directions. */
+export function itineraryPreview(
+  stops: TourRouteStopDto[] | undefined,
+  lang: 'vi' | 'en' = 'vi',
+  max = 3,
+): string {
+  const hops = buildTourHops(stops ?? [], lang);
+  if (hops.length === 0) {
+    const names = sortStops(stops ?? [])
+      .map((s) => s.exhibitName?.trim())
+      .filter((n): n is string => Boolean(n));
+    if (names.length === 0) return '';
+    const shown = names.slice(0, max);
+    return shown.join(' → ') + (names.length > max ? '…' : '');
+  }
+  const shown = hops.slice(0, max).map((h) => `${h.fromLabel} → ${h.toLabel}`);
+  return shown.join(' · ') + (hops.length > max ? '…' : '');
 }

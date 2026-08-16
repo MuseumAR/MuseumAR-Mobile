@@ -1,12 +1,16 @@
 import { Platform } from 'react-native';
 import { API_BASE_URL } from '../config/apiConfig';
 import { getRefreshToken, getToken, saveTokens } from './tokenStorage';
+import { getCachedMuseumId } from './museumContext';
 import {
   isCacheableEndpoint,
-  readCachedResponse,
+  readCachedResponseFlexible,
+  readPackIndex,
   saveCachedResponse,
 } from './offlineCache';
+import { canUseOfflineContent, isTicketingEndpoint } from './offlineMode';
 import { resolveOfflineUri } from './offlineMedia';
+import { routeFromGraph } from '../utils/offlineNavigation';
 
 // Giao diện dữ liệu phản hồi chung từ API
 export interface ApiResponse<T> {
@@ -73,8 +77,34 @@ export interface ExhibitDto {
   arMarkerUrl?: string;
   status: string;
   publishedAt?: string;
+  mapId?: number | null;
+  floorNumber?: number | null;
+  roomId?: number | null;
+  roomCode?: string | null;
+  roomName?: string | null;
   exhibitMetadata?: ExhibitMetadataDto | null;
   translations: ExhibitTranslationDto[];
+}
+
+/** Room / map fields from BE ExhibitDto (PascalCase-safe). */
+export function attachExhibitRoomFields(
+  raw: Partial<ExhibitDto> & Record<string, unknown>,
+  exhibit: ExhibitDto,
+): ExhibitDto {
+  const roomIdRaw = raw.roomId ?? raw.RoomId;
+  const floorRaw = raw.floorNumber ?? raw.FloorNumber;
+  const mapRaw = raw.mapId ?? raw.MapId;
+  return {
+    ...exhibit,
+    mapId: mapRaw != null ? Number(mapRaw) || null : exhibit.mapId ?? null,
+    floorNumber:
+      floorRaw != null ? Number(floorRaw) || null : exhibit.floorNumber ?? null,
+    roomId: roomIdRaw != null ? Number(roomIdRaw) || null : exhibit.roomId ?? null,
+    roomCode:
+      (raw.roomCode ?? raw.RoomCode ?? exhibit.roomCode ?? null) as string | null,
+    roomName:
+      (raw.roomName ?? raw.RoomName ?? exhibit.roomName ?? null) as string | null,
+  };
 }
 
 /** GET /Content/exhibits/scan-qr result (newest WebBE). */
@@ -98,7 +128,10 @@ export interface ExhibitScanResultDto {
   audioUrl?: string | null;
   languageCode: string;
   categoryName?: string | null;
+  roomId?: number | null;
+  roomCode?: string | null;
   roomName?: string | null;
+  floorNumber?: number | null;
   thumbnailUrl?: string | null;
   aroverlayUrl?: string | null;
   armarkerUrl?: string | null;
@@ -691,12 +724,111 @@ export interface NavigationInstructionDto {
   waypointId: string;
 }
 
+export interface NavigationWaypointDto {
+  id: string;
+  museumId: number;
+  mapId: number;
+  floorNumber: number;
+  locationX: number;
+  locationY: number;
+  waypointType: string;
+  roomId: number | null;
+  code: string | null;
+  name: string | null;
+}
+
+export interface NavigationEdgeDto {
+  id: number;
+  museumId: number;
+  fromWaypointId: string;
+  toWaypointId: string;
+  distance: number;
+  edgeType: string;
+  isBidirectional: boolean;
+}
+
+/** BE NavigationGraphDto — GET Navigation/museum/{id}/graph */
+export interface NavigationGraphDto {
+  museumId: number;
+  waypoints: NavigationWaypointDto[];
+  edges: NavigationEdgeDto[];
+}
+
+export function normalizeNavigationWaypoint(
+  raw: Partial<NavigationWaypointDto> & Record<string, unknown>,
+): NavigationWaypointDto {
+  return {
+    id: String(raw.id ?? raw.Id ?? ''),
+    museumId: Number(raw.museumId ?? raw.MuseumId) || 0,
+    mapId: Number(raw.mapId ?? raw.MapId) || 0,
+    floorNumber: Number(raw.floorNumber ?? raw.FloorNumber) || 1,
+    locationX: Number(raw.locationX ?? raw.LocationX ?? raw.x ?? raw.X) || 0,
+    locationY: Number(raw.locationY ?? raw.LocationY ?? raw.y ?? raw.Y) || 0,
+    waypointType: String(
+      raw.waypointType ?? raw.WaypointType ?? raw.type ?? raw.Type ?? 'HALLWAY',
+    ),
+    roomId:
+      raw.roomId != null || raw.RoomId != null
+        ? Number(raw.roomId ?? raw.RoomId) || null
+        : null,
+    code: (raw.code ?? raw.Code ?? null) as string | null,
+    name: (raw.name ?? raw.Name ?? raw.label ?? raw.Label ?? null) as
+      | string
+      | null,
+  };
+}
+
+export function normalizeNavigationEdge(
+  raw: Partial<NavigationEdgeDto> & Record<string, unknown>,
+): NavigationEdgeDto {
+  return {
+    id: Number(raw.id ?? raw.Id) || 0,
+    museumId: Number(raw.museumId ?? raw.MuseumId) || 0,
+    fromWaypointId: String(raw.fromWaypointId ?? raw.FromWaypointId ?? ''),
+    toWaypointId: String(raw.toWaypointId ?? raw.ToWaypointId ?? ''),
+    distance: Number(raw.distance ?? raw.Distance) || 0,
+    edgeType: String(raw.edgeType ?? raw.EdgeType ?? 'WALK'),
+    isBidirectional: Boolean(
+      raw.isBidirectional ?? raw.IsBidirectional ?? true,
+    ),
+  };
+}
+
+export function normalizeNavigationGraph(
+  raw: Partial<NavigationGraphDto> & Record<string, unknown>,
+): NavigationGraphDto {
+  const waypointsRaw = Array.isArray(raw.waypoints)
+    ? raw.waypoints
+    : Array.isArray(raw.Waypoints)
+      ? (raw.Waypoints as unknown[])
+      : [];
+  const edgesRaw = Array.isArray(raw.edges)
+    ? raw.edges
+    : Array.isArray(raw.Edges)
+      ? (raw.Edges as unknown[])
+      : [];
+  return {
+    museumId: Number(raw.museumId ?? raw.MuseumId) || 0,
+    waypoints: waypointsRaw.map((item) =>
+      normalizeNavigationWaypoint(
+        (item ?? {}) as Partial<NavigationWaypointDto> & Record<string, unknown>,
+      ),
+    ),
+    edges: edgesRaw.map((item) =>
+      normalizeNavigationEdge(
+        (item ?? {}) as Partial<NavigationEdgeDto> & Record<string, unknown>,
+      ),
+    ),
+  };
+}
+
 export interface NavigationRouteResponseDto {
   fromRoomId: number;
   fromRoomName: string;
   toRoomId: number;
   toRoomName: string;
   totalDistance: number;
+  pathWaypoints: NavigationWaypointDto[];
   instructions: NavigationInstructionDto[];
 }
 
@@ -708,12 +840,22 @@ export function normalizeNavigationRoute(
     : Array.isArray(raw.Instructions)
       ? (raw.Instructions as unknown[])
       : [];
+  const pathRaw = Array.isArray(raw.pathWaypoints)
+    ? raw.pathWaypoints
+    : Array.isArray(raw.PathWaypoints)
+      ? (raw.PathWaypoints as unknown[])
+      : [];
   return {
     fromRoomId: Number(raw.fromRoomId ?? raw.FromRoomId) || 0,
     fromRoomName: String(raw.fromRoomName ?? raw.FromRoomName ?? ''),
     toRoomId: Number(raw.toRoomId ?? raw.ToRoomId) || 0,
     toRoomName: String(raw.toRoomName ?? raw.ToRoomName ?? ''),
     totalDistance: Number(raw.totalDistance ?? raw.TotalDistance) || 0,
+    pathWaypoints: pathRaw.map((item) =>
+      normalizeNavigationWaypoint(
+        (item ?? {}) as Partial<NavigationWaypointDto> & Record<string, unknown>,
+      ),
+    ),
     instructions: instructionsRaw.map((item, i) => {
       const o = (item ?? {}) as Record<string, unknown>;
       return {
@@ -731,18 +873,24 @@ export function normalizeNavigationRoute(
 export function normalizeTourRouteStop(
   raw: Partial<TourRouteStopDto> & Record<string, unknown>,
 ): TourRouteStopDto {
+  const exhibitId = Number(raw.exhibitId ?? raw.ExhibitId) || 0;
+  const mapIdRaw = raw.mapId ?? raw.MapId;
+  const floorRaw = raw.floorNumber ?? raw.FloorNumber;
+  const roomIdRaw = raw.roomId ?? raw.RoomId;
+  const minutesRaw = raw.estimatedMinutes ?? raw.EstimatedMinutes;
   return {
-    exhibitId: Number(raw.exhibitId) || 0,
-    exhibitName: (raw.exhibitName as string | null | undefined) ?? null,
-    exhibitCode: (raw.exhibitCode as string | null | undefined) ?? null,
-    stopOrder: Number(raw.stopOrder ?? raw.order) || 0,
-    estimatedMinutes:
-      raw.estimatedMinutes != null ? Number(raw.estimatedMinutes) : null,
-    mapId: raw.mapId != null ? Number(raw.mapId) : null,
-    floorNumber: raw.floorNumber != null ? Number(raw.floorNumber) : null,
-    roomId: raw.roomId != null ? Number(raw.roomId) : null,
-    roomCode: (raw.roomCode as string | null | undefined) ?? null,
-    roomName: (raw.roomName as string | null | undefined) ?? null,
+    exhibitId,
+    exhibitName:
+      (raw.exhibitName ?? raw.ExhibitName ?? null) as string | null,
+    exhibitCode:
+      (raw.exhibitCode ?? raw.ExhibitCode ?? null) as string | null,
+    stopOrder: Number(raw.stopOrder ?? raw.StopOrder ?? raw.order) || 0,
+    estimatedMinutes: minutesRaw != null ? Number(minutesRaw) : null,
+    mapId: mapIdRaw != null ? Number(mapIdRaw) : null,
+    floorNumber: floorRaw != null ? Number(floorRaw) : null,
+    roomId: roomIdRaw != null ? Number(roomIdRaw) : null,
+    roomCode: (raw.roomCode ?? raw.RoomCode ?? null) as string | null,
+    roomName: (raw.roomName ?? raw.RoomName ?? null) as string | null,
   };
 }
 
@@ -989,8 +1137,14 @@ async function apiFetch<T>(
       headers,
     });
   } catch {
-    if (isCacheableEndpoint(endpoint, options.method as string | undefined)) {
-      const cached = await readCachedResponse<ApiResponse<T>>(endpoint);
+    if (isTicketingEndpoint(endpoint)) {
+      throw new TypeError('Network request failed');
+    }
+    if (
+      isCacheableEndpoint(endpoint, options.method as string | undefined) &&
+      (await canUseOfflineContent())
+    ) {
+      const cached = await readCachedResponseFlexible<ApiResponse<T>>(endpoint);
       if (cached) return cached;
     }
     throw new TypeError('Network request failed');
@@ -1033,6 +1187,56 @@ async function apiFetch<T>(
     void saveCachedResponse(endpoint, json);
   }
   return json as ApiResponse<T>;
+}
+
+async function resolveOfflineMuseumId(): Promise<number | null> {
+  const cached = getCachedMuseumId();
+  if (cached != null && cached > 0) return cached;
+  const packs = await readPackIndex();
+  for (const rec of Object.values(packs)) {
+    if (rec.museumId != null && rec.museumId > 0) return rec.museumId;
+  }
+  const profile = await readCachedResponseFlexible<ApiResponse<MuseumProfileDto>>(
+    'Admin/museum-profile',
+  );
+  const id = Number(profile?.data?.id);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+async function tryOfflineNavigationRoute(
+  fromRoomId: number,
+  toRoomId: number,
+  lang?: string,
+): Promise<ApiResponse<NavigationRouteResponseDto> | null> {
+  if (!(await canUseOfflineContent())) return null;
+  const museumId = await resolveOfflineMuseumId();
+  if (museumId == null) return null;
+
+  const graphRes = await readCachedResponseFlexible<
+    ApiResponse<NavigationGraphDto & Record<string, unknown>>
+  >(`Navigation/museum/${museumId}/graph`);
+  if (!graphRes?.data) return null;
+  const graph = normalizeNavigationGraph(graphRes.data);
+
+  const roomsRes =
+    (await readCachedResponseFlexible<
+      ApiResponse<Array<Partial<RoomDto> & Record<string, unknown>>>
+    >(
+      `Content/rooms/museum/${museumId}${lang ? `?lang=${lang}` : ''}`,
+    )) ??
+    (await readCachedResponseFlexible<
+      ApiResponse<Array<Partial<RoomDto> & Record<string, unknown>>>
+    >(`Content/rooms/museum/${museumId}`));
+  const rooms = (roomsRes?.data ?? []).map((item) =>
+    normalizeRoomDto(item as Partial<RoomDto> & Record<string, unknown>),
+  );
+
+  return {
+    statusCode: 200,
+    status: 'Success',
+    message: '',
+    data: routeFromGraph(graph, rooms, fromRoomId, toRoomId, lang),
+  };
 }
 
 // Các hàm dịch vụ chính gọi API
@@ -1132,9 +1336,14 @@ export const apiService = {
   },
 
   async getExhibitDetail(id: number, lang?: string): Promise<ApiResponse<ExhibitDto>> {
-    return apiFetch<ExhibitDto>(
+    const response = await apiFetch<ExhibitDto & Record<string, unknown>>(
       `Content/exhibits/${id}${buildQuery(lang ? { lang } : undefined)}`,
     );
+    if (!response.data) return response as ApiResponse<ExhibitDto>;
+    return {
+      ...response,
+      data: attachExhibitRoomFields(response.data, response.data),
+    };
   },
 
   /**
@@ -1176,7 +1385,16 @@ export const apiService = {
         audioUrl: (raw.audioUrl ?? raw.AudioUrl ?? null) as string | null,
         languageCode: String(raw.languageCode ?? raw.LanguageCode ?? 'vi'),
         categoryName: (raw.categoryName ?? raw.CategoryName ?? null) as string | null,
+        roomId: (() => {
+          const n = Number(raw.roomId ?? raw.RoomId);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        })(),
+        roomCode: (raw.roomCode ?? raw.RoomCode ?? null) as string | null,
         roomName: (raw.roomName ?? raw.RoomName ?? null) as string | null,
+        floorNumber: (() => {
+          const n = Number(raw.floorNumber ?? raw.FloorNumber);
+          return Number.isFinite(n) && n > 0 ? n : null;
+        })(),
         thumbnailUrl: (raw.thumbnailUrl ?? raw.ThumbnailUrl ?? null) as string | null,
         aroverlayUrl: (raw.aroverlayUrl ?? raw.AroverlayUrl ?? null) as string | null,
         armarkerUrl: (raw.armarkerUrl ?? raw.ArmarkerUrl ?? null) as string | null,
@@ -1277,26 +1495,50 @@ export const apiService = {
   /**
    * Room-to-room path + spoken instructions —
    * GET Navigation/route?fromRoomId=&toRoomId=&lang=
+   * Offline guests: Dijkstra on the cached museum graph (pairs are not snapshotted).
    */
   async getNavigationRoute(
     fromRoomId: number,
     toRoomId: number,
     lang?: string,
   ): Promise<ApiResponse<NavigationRouteResponseDto>> {
+    try {
+      const response = await apiFetch<
+        NavigationRouteResponseDto & Record<string, unknown>
+      >(
+        `Navigation/route${buildQuery({
+          fromRoomId,
+          toRoomId,
+          lang: lang || undefined,
+        })}`,
+      );
+      return {
+        ...response,
+        data: response.data
+          ? normalizeNavigationRoute(response.data)
+          : (null as unknown as NavigationRouteResponseDto),
+      };
+    } catch (error) {
+      const offline = await tryOfflineNavigationRoute(fromRoomId, toRoomId, lang);
+      if (offline) return offline;
+      throw error;
+    }
+  },
+
+  /**
+   * Indoor waypoint graph — GET Navigation/museum/{museumId}/graph
+   */
+  async getNavigationGraph(
+    museumId: number,
+  ): Promise<ApiResponse<NavigationGraphDto>> {
     const response = await apiFetch<
-      NavigationRouteResponseDto & Record<string, unknown>
-    >(
-      `Navigation/route${buildQuery({
-        fromRoomId,
-        toRoomId,
-        lang: lang || undefined,
-      })}`,
-    );
+      NavigationGraphDto & Record<string, unknown>
+    >(`Navigation/museum/${museumId}/graph`);
     return {
       ...response,
       data: response.data
-        ? normalizeNavigationRoute(response.data)
-        : (null as unknown as NavigationRouteResponseDto),
+        ? normalizeNavigationGraph(response.data)
+        : (null as unknown as NavigationGraphDto),
     };
   },
 
@@ -1623,6 +1865,10 @@ export const apiService = {
       throw new ApiError('museumId is required for track-action', 400);
     }
     const actionType = (payload.actionType ?? 'Unknown').slice(0, 30);
+    const exhibitId =
+      payload.exhibitId != null && payload.exhibitId > 0
+        ? payload.exhibitId
+        : null;
     const searchQuery = payload.searchQuery?.trim().slice(0, 200) || null;
     const listeningDuration =
       payload.listeningDuration != null && payload.listeningDuration > 0
@@ -1632,7 +1878,7 @@ export const apiService = {
       method: 'POST',
       body: JSON.stringify({
         museumId,
-        exhibitId: payload.exhibitId ?? null,
+        exhibitId,
         actionType,
         languageUsed: payload.languageUsed ?? null,
         deviceType: payload.deviceType ?? Platform.OS,

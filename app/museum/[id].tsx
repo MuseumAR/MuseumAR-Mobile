@@ -4,10 +4,7 @@ import { useRouter } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useWindowDimensions } from 'react-native';
 import { ARPackCard } from '../../src/components/ARPackCard';
-import {
-  FloorPlanDirectionArrows,
-  RouteNavigationOverlay,
-} from '../../src/components/RouteNavigationOverlay';
+import { NavigationGuideCard, TourItineraryCard } from '../../src/components/RouteNavigationOverlay';
 import { collectMuseumFloors, type MuseumFloor } from '../../src/utils/museumFloors';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import { useExhibitions } from '../../src/hooks/useExhibitions';
@@ -17,14 +14,15 @@ import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
 import { usePackages } from '../../src/hooks/usePackages';
 import { useRooms } from '../../src/hooks/useRooms';
 import { useRoutes } from '../../src/hooks/useRoutes';
+import { useNavigationGraph } from '../../src/hooks/useNavigationGraph';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { AnalyticsAction } from '../../src/constants/analyticsActions';
+import { useVisitorLocation } from '../../src/context/VisitorLocationContext';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import type {
   MuseumMapDto,
   RoomDto,
   TourRouteDto,
-  TourRouteStopDto,
 } from '../../src/services/apiService';
 import {
   ActivityIndicator,
@@ -45,7 +43,9 @@ import {
   openMuseumMap,
 } from '../../src/utils/museumLocation';
 import {
-  buildRouteStepGuide,
+  hydrateTourStops,
+  itineraryPreview,
+  resolveStopRoomId,
   sortRoomsForLayout,
   sortStops,
 } from '../../src/utils/routeNavigation';
@@ -91,10 +91,11 @@ type FloorPlanProps = {
   rooms: RoomDto[];
   accentColor: string;
   selectedZone: string | null;
-  onSelectZone: (name: string) => void;
-  currentStop?: TourRouteStopDto | null;
-  nextStop?: TourRouteStopDto | null;
-  routeMode?: boolean;
+  onSelectRoom: (room: RoomDto) => void;
+  hereRoomId?: number | null;
+  destRoomId?: number | null;
+  tourNextRoomId?: number | null;
+  hereFloorNumber?: number | null;
 };
 
 function FloorPlan({
@@ -102,12 +103,13 @@ function FloorPlan({
   rooms,
   accentColor,
   selectedZone,
-  onSelectZone,
-  currentStop,
-  nextStop,
-  routeMode = false,
+  onSelectRoom,
+  hereRoomId,
+  destRoomId,
+  tourNextRoomId,
+  hereFloorNumber,
 }: FloorPlanProps) {
-  const { t, lang } = useLanguage();
+  const { t } = useLanguage();
   const useRoomsLayout = rooms.length > 0;
   const sortedRooms = useMemo(() => sortRoomsForLayout(rooms), [rooms]);
 
@@ -132,8 +134,8 @@ function FloorPlan({
   );
 
   useEffect(() => {
-    if (routeMode && currentStop?.floorNumber != null) {
-      setActiveFloorNum(currentStop.floorNumber);
+    if (hereFloorNumber != null) {
+      setActiveFloorNum(hereFloorNumber);
       return;
     }
     if (
@@ -142,7 +144,7 @@ function FloorPlan({
     ) {
       setActiveFloorNum(floors[0].floorNumber);
     }
-  }, [floors, activeFloorNum, routeMode, currentStop?.floorNumber]);
+  }, [floors, activeFloorNum, hereFloorNumber]);
 
   const floorRooms = sortedRooms.filter((r) => r.floorNumber === activeFloorNum);
 
@@ -150,28 +152,6 @@ function FloorPlan({
   for (let i = 0; i < floorRooms.length; i += 2) {
     roomRows.push(floorRooms.slice(i, i + 2));
   }
-
-  const stepGuide =
-    routeMode && currentStop && nextStop
-      ? buildRouteStepGuide(currentStop, nextStop, rooms, lang)
-      : null;
-
-  const matchStop = (room: RoomDto, stop?: TourRouteStopDto | null) => {
-    if (!stop) return false;
-    if (stop.roomId != null && stop.roomId === room.id) return true;
-    if (
-      stop.roomCode &&
-      stop.roomCode.trim().toLowerCase() === room.roomCode.trim().toLowerCase()
-    ) {
-      return true;
-    }
-    return false;
-  };
-
-  const showArrowOnFloor =
-    Boolean(stepGuide) &&
-    (currentStop?.floorNumber == null ||
-      currentStop.floorNumber === activeFloorNum);
 
   return (
     <View>
@@ -214,46 +194,48 @@ function FloorPlan({
       <View style={fpS.canvas}>
         <View style={fpS.outerWall} />
 
-        {showArrowOnFloor && stepGuide ? (
-          <FloorPlanDirectionArrows
-            direction={stepGuide.direction}
-            accentColor={accentColor}
-          />
-        ) : null}
-
         <View style={fpS.roomsWrap}>
           {useRoomsLayout
             ? roomRows.map((row, ri) => (
                 <View key={`r-${ri}`} style={fpS.roomRow}>
                   {row.map((room) => {
-                    const isHere = matchStop(room, currentStop);
-                    const isNext = matchStop(room, nextStop);
+                    const isHere = hereRoomId != null && hereRoomId === room.id;
+                    const isDest = destRoomId != null && destRoomId === room.id && !isHere;
+                    const isTourNext =
+                      !isHere &&
+                      !isDest &&
+                      tourNextRoomId != null &&
+                      tourNextRoomId === room.id;
                     const sel =
-                      selectedZone === room.roomName || isHere || isNext;
+                      selectedZone === room.roomName || isHere || isDest || isTourNext;
                     const border = isHere
                       ? C.success
-                      : isNext
+                      : isDest
                         ? accentColor
-                        : sel
-                          ? accentColor
-                          : accentColor + '45';
+                        : isTourNext
+                          ? C.textSecondary
+                          : sel
+                            ? accentColor
+                            : accentColor + '45';
                     const bg = isHere
                       ? C.success + '22'
-                      : isNext
+                      : isDest
                         ? accentColor + '22'
-                        : sel
-                          ? accentColor + '18'
-                          : accentColor + '08';
+                        : isTourNext
+                          ? C.bgElevated
+                          : sel
+                            ? accentColor + '18'
+                            : accentColor + '08';
                     return (
                       <TouchableOpacity
                         key={room.id}
                         style={[
                           fpS.room,
                           { borderColor: border, backgroundColor: bg },
-                          (isHere || isNext) && { borderWidth: 2 },
+                          (isHere || isDest) && { borderWidth: 2 },
                         ]}
                         activeOpacity={0.75}
-                        onPress={() => onSelectZone(room.roomName)}
+                        onPress={() => onSelectRoom(room)}
                       >
                         {isHere && (
                           <View style={fpS.badgeHere}>
@@ -261,16 +243,25 @@ function FloorPlan({
                             <Text style={fpS.badgeHereText}>{t('museum.hereBadge')}</Text>
                           </View>
                         )}
-                        {isNext && !isHere && (
+                        {isDest && !isHere && (
                           <Text style={[fpS.badgeNext, { color: accentColor }]}>
-                            {t('museum.nextBadge')}
+                            {t('nav.destination')}
+                          </Text>
+                        )}
+                        {isTourNext && !isHere && !isDest && (
+                          <Text style={[fpS.badgeNext, { color: C.textSecondary }]}>
+                            {t('museum.tourNextRoom')}
                           </Text>
                         )}
                         <View
                           style={[
                             fpS.dot,
                             {
-                              backgroundColor: isHere ? C.success : accentColor,
+                              backgroundColor: isHere
+                                ? C.success
+                                : isDest
+                                  ? accentColor
+                                  : C.textMuted,
                               opacity: sel ? 1 : 0.55,
                             },
                           ]}
@@ -325,7 +316,7 @@ function FloorPlan({
             />
             <Text style={fpS.entranceLabel}>{t('museum.entrance')}</Text>
           </View>
-          {!routeMode && (
+          {!hereRoomId && (
             <View style={fpS.userWrap}>
               <PulsingDot />
               <Text style={fpS.youLabel}>{t('museum.you')}</Text>
@@ -335,10 +326,10 @@ function FloorPlan({
       </View>
 
       <View style={fpS.legend}>
-        {(routeMode
+        {(hereRoomId || destRoomId
           ? [
               { color: C.success, label: t('museum.youAreHere') },
-              { color: accentColor, label: t('museum.nextStop') },
+              { color: accentColor, label: t('nav.destination') },
               { color: accentColor + '45', label: t('museum.otherRooms') },
             ]
           : [
@@ -585,7 +576,9 @@ export default function MuseumDetailScreen() {
   const { museum } = useMuseumProfile();
   const museumId = Number(museum.id) || 0;
   const { track } = useTrackAction();
+  const { location } = useVisitorLocation();
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
+  const [navTargetRoomId, setNavTargetRoomId] = useState<number | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
   const { checkSync } = useMuseumSyncCheck();
   const { packs: arPacks } = usePackages();
@@ -593,6 +586,11 @@ export default function MuseumDetailScreen() {
     useRoutes();
   const { maps, loading: mapsLoading } = useMaps();
   const { rooms } = useRooms(museumId > 0 ? museumId : null);
+  const {
+    waypointCount,
+    edgeCount,
+    hasGraph,
+  } = useNavigationGraph(museumId > 0 ? museumId : null);
   const { exhibitions, loading: exhibitionsLoading } = useExhibitions(
     museumId > 0 ? museumId : null,
   );
@@ -606,7 +604,6 @@ export default function MuseumDetailScreen() {
     [activeRoute],
   );
   const routeMode = routeStops.length > 0;
-  const currentStop = routeMode ? routeStops[stopIndex] ?? null : null;
   const nextStop =
     routeMode && stopIndex < routeStops.length - 1
       ? routeStops[stopIndex + 1]
@@ -627,8 +624,7 @@ export default function MuseumDetailScreen() {
     [maps],
   );
   const hasMapImage = mapsWithImage.length > 0;
-  // Map images when available; switch to interactive room plan in route mode (or no images).
-  const showInteractivePlan = routeMode || !hasMapImage;
+  const showInteractivePlan = routeMode || Boolean(location) || navTargetRoomId != null || !hasMapImage;
 
   /** Rooms for layout — fall back to unique rooms inferred from active route stops. */
   const layoutRooms = useMemo(() => {
@@ -670,18 +666,25 @@ export default function MuseumDetailScreen() {
   }, [museumId, track, lang]);
 
   const selectedRoom = layoutRooms.find(
-    (r) => r.roomName === selectedZone || r.roomCode === selectedZone,
+    (r) => r.roomName === selectedZone || r.roomCode === selectedZone || r.id === navTargetRoomId,
   );
   const selectedFloor = selectedRoom
     ? floors.find((f) => f.floorNumber === selectedRoom.floorNumber)
     : undefined;
+
+  const tourDestRoomId = resolveStopRoomId(nextStop, layoutRooms);
+  const destRoomId = navTargetRoomId;
+  const destRoom = destRoomId != null
+    ? layoutRooms.find((r) => r.id === destRoomId) ?? null
+    : null;
+  const destHint = destRoom?.roomName ?? destRoom?.roomCode ?? null;
 
   const startRoute = async (route: TourRouteDto) => {
     setStartingRouteId(route.id);
     try {
       const loaded = await loadRouteDetail(route.id);
       const detail = loaded ?? route;
-      const stops = sortStops(detail.stops ?? []);
+      const stops = hydrateTourStops(sortStops(detail.stops ?? []), rooms);
       if (stops.length === 0) {
         setActiveRoute(null);
         setStopIndex(0);
@@ -689,6 +692,7 @@ export default function MuseumDetailScreen() {
       }
       setActiveRoute({ ...detail, stops });
       setStopIndex(0);
+      setNavTargetRoomId(null);
       track({
         actionType: AnalyticsAction.ROUTE_VIEW,
         museumId,
@@ -917,13 +921,15 @@ export default function MuseumDetailScreen() {
               <View style={[styles.livePill, { borderColor: C.success + '40' }]}>
                 <View style={styles.liveDot} />
                 <Text style={styles.liveText}>
-                  {routeMode
-                    ? t('museum.routeMode')
-                    : hasMapImage
-                      ? t('museum.mapImage')
-                      : rooms.length > 0
-                        ? t('museum.rooms')
-                        : t('museum.interactive')}
+                  {location
+                    ? t('nav.located')
+                    : routeMode
+                      ? t('museum.routeMode')
+                      : hasMapImage
+                        ? t('museum.mapImage')
+                        : rooms.length > 0
+                          ? t('museum.rooms')
+                          : t('museum.interactive')}
                 </Text>
               </View>
             </View>
@@ -936,29 +942,60 @@ export default function MuseumDetailScreen() {
                 rooms={layoutRooms}
                 accentColor={museum.color}
                 selectedZone={selectedZone}
-                onSelectZone={(name) =>
-                  setSelectedZone((prev) => (prev === name ? null : name))
-                }
-                routeMode={routeMode}
-                currentStop={currentStop}
-                nextStop={nextStop}
+                onSelectRoom={(room) => {
+                  setSelectedZone(room.roomName);
+                  setNavTargetRoomId((prev) => (prev === room.id ? null : room.id));
+                }}
+                hereRoomId={location?.roomId ?? null}
+                destRoomId={destRoomId}
+                tourNextRoomId={tourDestRoomId}
+                hereFloorNumber={location?.floorNumber ?? null}
               />
             ) : (
               <MuseumMapImages maps={mapsWithImage} accentColor={museum.color} />
             )}
 
             {routeMode && activeRoute ? (
-              <RouteNavigationOverlay
+              <TourItineraryCard
                 stops={routeStops}
                 stopIndex={stopIndex}
-                rooms={layoutRooms}
                 accentColor={museum.color}
                 routeName={activeRoute.name}
-                onPrev={() => setStopIndex((i) => Math.max(0, i - 1))}
-                onNext={() =>
-                  setStopIndex((i) => Math.min(routeStops.length - 1, i + 1))
-                }
+                onPrev={() => {
+                  setNavTargetRoomId(null);
+                  setStopIndex((i) => Math.max(0, i - 1));
+                }}
+                onNext={() => {
+                  setNavTargetRoomId(null);
+                  setStopIndex((i) => Math.min(routeStops.length - 1, i + 1));
+                }}
                 onExit={exitRoute}
+              />
+            ) : null}
+
+            {location || destRoomId ? (
+              <NavigationGuideCard
+                from={
+                  location
+                    ? {
+                        roomId: location.roomId,
+                        roomName: location.roomName,
+                        roomCode: location.roomCode,
+                      }
+                    : null
+                }
+                to={
+                  destRoomId
+                    ? {
+                        roomId: destRoomId,
+                        roomName: destRoom?.roomName ?? nextStop?.roomName,
+                        roomCode: destRoom?.roomCode ?? nextStop?.roomCode,
+                      }
+                    : null
+                }
+                rooms={layoutRooms}
+                accentColor={museum.color}
+                destHint={destHint}
               />
             ) : null}
 
@@ -1003,9 +1040,14 @@ export default function MuseumDetailScreen() {
               </View>
             ) : null}
 
-            {!routeMode && hasMapImage ? (
+            {!routeMode ? (
               <Text style={[styles.routeMeta, { marginTop: 8 }]}>
                 {t('museum.pickTourHint')}
+              </Text>
+            ) : null}
+            {hasGraph ? (
+              <Text style={[styles.routeMeta, { marginTop: 4 }]}>
+                {`${waypointCount} ${t('museum.graphWaypoints')} · ${edgeCount} ${t('museum.graphEdges')}`}
               </Text>
             ) : null}
           </View>
@@ -1031,9 +1073,12 @@ export default function MuseumDetailScreen() {
             </View>
           )}
 
-          {/* ── Tour routes ─────────────────────────────────────────────── */}
+          {/* ── Tour routes (itinerary of exhibits) ────────────────────── */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>{t('content.tour')}</Text>
+            <Text style={[styles.routeMeta, { marginBottom: 10 }]}>
+              {t('content.tourHint')}
+            </Text>
             {routesLoading ? (
               <Text style={styles.routeMeta}>{t('content.loadingRoutes')}</Text>
             ) : routes.length === 0 ? (
@@ -1049,6 +1094,7 @@ export default function MuseumDetailScreen() {
                   (Array.isArray(r.stops) && r.stops.length > 0
                     ? r.stops.length
                     : null);
+                const preview = itineraryPreview(r.stops, lang);
                 return (
                   <TouchableOpacity
                     key={r.id}
@@ -1079,7 +1125,7 @@ export default function MuseumDetailScreen() {
                         <ActivityIndicator size="small" color={museum.color} />
                       ) : (
                         <MaterialCommunityIcons
-                          name={active ? 'navigation-variant' : 'map-marker-path'}
+                          name={active ? 'playlist-play' : 'format-list-numbered'}
                           size={18}
                           color={museum.color}
                         />
@@ -1089,6 +1135,11 @@ export default function MuseumDetailScreen() {
                       <Text style={styles.routeName} numberOfLines={1}>
                         {r.name || `Tour #${r.id}`}
                       </Text>
+                      {preview ? (
+                        <Text style={styles.routePreview} numberOfLines={2}>
+                          {preview}
+                        </Text>
+                      ) : null}
                       <Text style={styles.routeMeta}>
                         {[
                           r.durationMinutes != null
@@ -1275,6 +1326,7 @@ const styles = StyleSheet.create({
   },
   routeInfo: { flex: 1 },
   routeName: { fontSize: 14, fontWeight: '700', color: C.textPrimary },
+  routePreview: { fontSize: 12, color: C.textSecondary, marginTop: 3, lineHeight: 16 },
   routeMeta: { fontSize: 12, color: C.textSecondary, marginTop: 2 },
 
   // AR button

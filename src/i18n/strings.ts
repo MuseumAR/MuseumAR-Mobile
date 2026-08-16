@@ -26,6 +26,11 @@ const vi: Dict = {
   'common.minutes': 'phút',
   'common.stops': 'điểm',
   'common.offline': 'Không có kết nối mạng — Đang dùng dữ liệu offline',
+  'common.offlineGuest': 'Đang xem nội dung đã tải. Đặt vé cần kết nối mạng.',
+  'common.offlineSignedIn':
+    'Vé và tài khoản cần mạng. Đăng xuất để xem nội dung đã tải khi offline (chỉ khách).',
+  'common.offlineNeedPack':
+    'Không có mạng. Tải gói nội dung khi còn online để dùng app với tư cách khách.',
 
   // Auth
   'auth.login': 'Đăng nhập',
@@ -79,6 +84,14 @@ const vi: Dict = {
   'header.bookmarks': 'Hiện vật đã lưu',
   'header.myTickets': 'Vé của tôi',
   'header.ticketDetail': 'Chi tiết vé',
+
+  'packs.headerLabel': 'NỘI DUNG OFFLINE',
+  'packs.title': 'Gói AR',
+  'packs.subtitle': 'Tải gói khi còn mạng để xem hiện vật, AR và chỉ đường khi offline',
+  'packs.empty': 'Chưa có gói nội dung nào.',
+  'packs.downloadNeedNetwork': 'Cần kết nối mạng để tải gói nội dung.',
+  'packs.offlineGuestHint':
+    'Tải gói khi còn mạng. Khi offline, khách có thể xem hiện vật, AR và chỉ đường đã tải — không đặt được vé. Tài khoản đã đăng nhập cần mạng.',
 
   'visited.countOne': 'hiện vật đã xem',
   'visited.countMany': 'hiện vật đã xem',
@@ -139,6 +152,7 @@ const vi: Dict = {
   'scan.rescan': 'Quét lại',
   'scan.resolving': 'Đang tìm hiện vật…',
   'scan.pointCamera': 'Hướng camera vào mã QR',
+  'scan.offlineBlocked': 'Không quét được khi offline',
 
   // Museum about / detail
   'museum.about': 'GIỚI THIỆU',
@@ -154,7 +168,7 @@ const vi: Dict = {
   'museum.floorPlan': 'Sơ đồ tầng',
   'museum.aboutSection': 'Giới thiệu',
   'museum.artifacts': 'Hiện vật',
-  'museum.routeMode': 'Chế độ lộ trình',
+  'museum.routeMode': 'Đang theo tuyến',
   'museum.mapImage': 'Ảnh bản đồ',
   'museum.rooms': 'Phòng',
   'museum.interactive': 'Tương tác',
@@ -163,14 +177,16 @@ const vi: Dict = {
   'museum.otherRooms': 'Phòng khác',
   'museum.hereBadge': 'Bạn đang ở đây',
   'museum.nextBadge': 'Hiện vật tiếp theo 🎯',
+  'museum.tourNextRoom': 'Tuyến: phòng tiếp',
   'museum.pickTourHint':
-    'Chọn một lộ trình bên dưới để mở chỉ đường phòng (mũi tên lên/xuống/trái/phải).',
+    'Quét QR hiện vật để biết phòng hiện tại. Chạm phòng trên sơ đồ để xem rẽ trái / đi thẳng. Gợi ý tuyến chỉ là hiện vật → hiện vật (cùng phòng) hoặc phòng → phòng.',
+  'museum.graphWaypoints': 'điểm chỉ đường',
+  'museum.graphEdges': 'đoạn nối',
   'museum.startAr': 'Bắt đầu trải nghiệm AR',
   'museum.go': 'Đi',
   'museum.arScan': 'Quét AR',
   'museum.audioTour': 'Thuyết minh',
   'museum.arPacks': 'Gói AR',
-  'museum.artifacts': 'Hiện vật',
   'museum.floorsCount': 'Tầng',
   'museum.floors': 'Tầng',
   'museum.noFloors': 'Chưa có tầng từ API.',
@@ -190,22 +206,42 @@ const vi: Dict = {
   'content.exhibition': 'Triển lãm',
   'content.exhibit': 'Hiện vật',
   'content.category': 'Danh mục',
-  'content.tour': 'Tour tham quan',
+  'content.tour': 'Gợi ý tuyến',
+  'content.tourHint':
+    'Thứ tự xem: cùng phòng thì hiện vật → hiện vật, khác phòng thì phòng → phòng. Không gồm hành lang hay cầu thang.',
   'content.noRoutes': 'Chưa có lộ trình tham quan.',
   'content.loadingRoutes': 'Đang tải lộ trình…',
-  'content.startRoute': 'Chạm để chỉ đường',
-  'content.stopRoute': 'Đang chỉ đường · chạm để tắt',
+  'content.startRoute': 'Bắt đầu tuyến',
+  'content.stopRoute': 'Đang theo tuyến · chạm để tắt',
 
-  // Route overlay
-  'route.title': 'Lộ trình di chuyển',
+  // Route overlay — walking directions from the navigation graph
+  'route.title': 'Chỉ đường',
+  'route.graphKicker': 'Đồ thị chỉ đường',
+  'route.howToGo': 'Cách đi',
+  'route.itinerary': 'Thứ tự hiện vật',
   'route.step': 'Bước',
   'route.youAreHere': 'Bạn đang ở đây',
   'route.nextExhibit': 'Hiện vật tiếp theo',
+  'route.fromRoom': 'Từ phòng',
+  'route.toRoom': 'Đến phòng',
+  'route.hopSameRoom': 'Cùng phòng · hiện vật → hiện vật',
+  'route.hopChangeRoom': 'Đổi phòng · phòng → phòng',
   'route.lastStop': 'Điểm cuối',
   'route.finished': 'Bạn đã đến điểm dừng cuối của lộ trình.',
   'route.prev': 'Trước',
   'route.next': 'Tiếp theo',
   'route.done': 'Hoàn thành',
+  'route.thisExhibit': 'Hiện vật này',
+  'route.loadingPath': 'Đang tính đường đi trên đồ thị…',
+  'route.noRoom': 'Điểm này chưa gắn phòng, không tính được đường đi.',
+  'route.sameRoom': 'Bạn đã ở phòng này.',
+  'route.noPath': 'Đồ thị chưa có đường nối giữa hai phòng này.',
+
+  'nav.scanToLocate': 'Quét QR hiện vật để xác định phòng bạn đang đứng.',
+  'nav.pickDestination': 'Chạm một phòng trên sơ đồ để xem rẽ trái / đi thẳng.',
+  'nav.destination': 'Điểm đến',
+  'nav.unknownHere': 'Chưa xác định',
+  'nav.located': 'Đã định vị',
 
   // Tickets
   'ticket.title': 'Đặt vé',
@@ -241,6 +277,9 @@ const vi: Dict = {
   'ticket.pendingExists': 'Bạn đang có đơn chờ thanh toán. Tiếp tục PayOS hoặc huỷ đơn trong Vé của tôi.',
   'ticket.buyMore': 'Mua thêm vé',
   'ticket.onlineHint': 'Đặt vé tham quan trực tuyến',
+  'ticket.offlineUnavailable': 'Không thể đặt vé khi offline. Cần kết nối mạng và đăng nhập.',
+  'ticket.offlineBanner':
+    'Mua vé không khả dụng khi offline. Xem nội dung khi offline chỉ dành cho khách đã tải gói.',
   'ticket.type': 'Loại vé',
   'ticket.quantity': 'Số lượng vé',
   'ticket.qty': 'Số lượng',
@@ -290,6 +329,11 @@ const vi: Dict = {
   'exhibit.bookmarked': 'Đã lưu',
   'exhibit.bookmarkError': 'Không thể cập nhật bookmark. Vui lòng thử lại.',
   'exhibit.error': 'Lỗi',
+  'exhibit.goToRoom': 'Đi tới phòng khác',
+  'exhibit.goToRoomHint':
+    'Chọn phòng để xem hướng dẫn rẽ trái, đi thẳng… từ đồ thị chỉ đường.',
+  'exhibit.scanToLocate': 'Quét QR để định vị',
+  'exhibit.noOtherRooms': 'Chưa có phòng khác trong bảo tàng này.',
   'exhibit.notFoundGuide': 'Không tìm thấy thuyết minh',
 
   'exhibition.notFound': 'Không tìm thấy triển lãm',
@@ -328,6 +372,11 @@ const en: Dict = {
   'common.minutes': 'min',
   'common.stops': 'stops',
   'common.offline': 'No network — Using offline data',
+  'common.offlineGuest': 'Browsing downloaded content. Ticket purchase needs a connection.',
+  'common.offlineSignedIn':
+    'Tickets and account need a network. Sign out to browse downloaded content offline (guests only).',
+  'common.offlineNeedPack':
+    'No network. Download a content pack while online to use the app as a guest.',
 
   'auth.login': 'Sign in',
   'auth.loggingIn': 'Signing in...',
@@ -377,6 +426,14 @@ const en: Dict = {
   'header.bookmarks': 'Saved exhibits',
   'header.myTickets': 'My tickets',
   'header.ticketDetail': 'Ticket detail',
+
+  'packs.headerLabel': 'OFFLINE CONTENT',
+  'packs.title': 'AR Packs',
+  'packs.subtitle': 'Download while online to browse exhibits, AR, and indoor directions offline',
+  'packs.empty': 'No content packs yet.',
+  'packs.downloadNeedNetwork': 'A network connection is required to download a pack.',
+  'packs.offlineGuestHint':
+    'Download while online. Guests can then browse exhibits, AR, and directions offline — ticket purchase is excluded. Signed-in accounts need a network.',
 
   'visited.countOne': 'exhibit viewed',
   'visited.countMany': 'exhibits viewed',
@@ -434,6 +491,7 @@ const en: Dict = {
   'scan.rescan': 'Scan again',
   'scan.resolving': 'Looking up exhibit…',
   'scan.pointCamera': 'Point camera at the QR code',
+  'scan.offlineBlocked': 'Scanning is not available offline',
 
   'museum.about': 'ABOUT',
   'museum.title': 'Museum',
@@ -448,7 +506,7 @@ const en: Dict = {
   'museum.floorPlan': 'Floor Plan',
   'museum.aboutSection': 'About',
   'museum.artifacts': 'Artifacts',
-  'museum.routeMode': 'Route mode',
+  'museum.routeMode': 'Following tour',
   'museum.mapImage': 'Map image',
   'museum.rooms': 'Rooms',
   'museum.interactive': 'Interactive',
@@ -457,8 +515,11 @@ const en: Dict = {
   'museum.otherRooms': 'Other rooms',
   'museum.hereBadge': 'You are here',
   'museum.nextBadge': 'Next exhibit 🎯',
+  'museum.tourNextRoom': 'Tour: next room',
   'museum.pickTourHint':
-    'Pick a tour below to open room directions (up/down/left/right arrows).',
+    'Scan an exhibit QR to set your room. Tap a room for turn-by-turn directions. Suggested tours are exhibit → exhibit (same room) or room → room.',
+  'museum.graphWaypoints': 'waypoints',
+  'museum.graphEdges': 'connections',
   'museum.startAr': 'Start AR Experience',
   'museum.go': 'Go',
   'museum.arScan': 'AR Scan',
@@ -482,21 +543,41 @@ const en: Dict = {
   'content.exhibition': 'Exhibition',
   'content.exhibit': 'Exhibit',
   'content.category': 'Category',
-  'content.tour': 'Tours',
+  'content.tour': 'Suggested tours',
+  'content.tourHint':
+    'Visit order: same room is exhibit → exhibit; different rooms is room → room. No corridors or stairs.',
   'content.noRoutes': 'No tours available yet.',
   'content.loadingRoutes': 'Loading tours…',
-  'content.startRoute': 'Tap to navigate',
-  'content.stopRoute': 'Navigating · tap to stop',
+  'content.startRoute': 'Start tour',
+  'content.stopRoute': 'Following tour · tap to stop',
 
-  'route.title': 'Route navigation',
+  'route.title': 'Directions',
+  'route.graphKicker': 'Navigation graph',
+  'route.howToGo': 'How to go',
+  'route.itinerary': 'Exhibit order',
   'route.step': 'Step',
   'route.youAreHere': 'You are here',
   'route.nextExhibit': 'Next exhibit',
+  'route.fromRoom': 'From room',
+  'route.toRoom': 'To room',
+  'route.hopSameRoom': 'Same room · exhibit → exhibit',
+  'route.hopChangeRoom': 'Change room · room → room',
   'route.lastStop': 'Last stop',
   'route.finished': 'You have reached the last stop of this route.',
   'route.prev': 'Previous',
   'route.next': 'Next',
   'route.done': 'Done',
+  'route.thisExhibit': 'This exhibit',
+  'route.loadingPath': 'Calculating a path on the graph…',
+  'route.noRoom': 'This stop has no room, so a path cannot be calculated.',
+  'route.sameRoom': 'You are already in this room.',
+  'route.noPath': 'The navigation graph has no path between these rooms.',
+
+  'nav.scanToLocate': 'Scan an exhibit QR to set the room you are in.',
+  'nav.pickDestination': 'Tap a room on the floor plan for turn-by-turn directions.',
+  'nav.destination': 'Destination',
+  'nav.unknownHere': 'Not set',
+  'nav.located': 'Located',
 
   'ticket.title': 'Buy tickets',
   'ticket.selectType': 'Select ticket type',
@@ -531,6 +612,9 @@ const en: Dict = {
   'ticket.pendingExists': 'You already have a pending order. Resume PayOS or cancel it in My tickets.',
   'ticket.buyMore': 'Buy more tickets',
   'ticket.onlineHint': 'Book visit tickets online',
+  'ticket.offlineUnavailable': 'Ticket purchase is not available offline. Sign in with a network connection.',
+  'ticket.offlineBanner':
+    'Buying tickets is not available offline. Offline browsing is only for guests who downloaded a pack.',
   'ticket.type': 'Ticket type',
   'ticket.quantity': 'Quantity',
   'ticket.qty': 'Qty',
@@ -578,6 +662,11 @@ const en: Dict = {
   'exhibit.bookmarked': 'Saved',
   'exhibit.bookmarkError': 'Could not update bookmark. Please try again.',
   'exhibit.error': 'Error',
+  'exhibit.goToRoom': 'Go to another room',
+  'exhibit.goToRoomHint':
+    'Pick a room to see turn left, go straight, and similar steps from the navigation graph.',
+  'exhibit.scanToLocate': 'Scan QR to locate',
+  'exhibit.noOtherRooms': 'No other rooms in this museum yet.',
   'exhibit.notFoundGuide': 'Audio guide not found',
 
   'exhibition.notFound': 'Exhibition not found',
