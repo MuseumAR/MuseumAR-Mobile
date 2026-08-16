@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { unzipSync } from 'fflate';
-import { API_ORIGIN } from '../config/apiConfig';
+import { rewriteRemoteImageUrl } from '../utils/mobileImageUrl';
 import { apiService, type ExhibitDto } from './apiService';
 import {
   ensureOfflineDirs,
@@ -20,11 +20,7 @@ import {
 export type DownloadProgressCb = (percent: number) => void;
 
 function resolveUrl(url?: string | null): string | null {
-  const trimmed = url?.trim();
-  if (!trimmed) return null;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  return `${API_ORIGIN}${path}`;
+  return rewriteRemoteImageUrl(url) ?? null;
 }
 
 function logicalKeysFromZipPath(relativePath: string): string[] {

@@ -8,6 +8,7 @@ import {
   resolveOfflineUri,
   thumbLogicalKey,
 } from '../services/offlineMedia';
+import { pickDisplayImageUrl } from './mobileImageUrl';
 import { pickLocalizedRow } from './pickLocalized';
 
 /** Bảng màu chủ đạo dùng khi backend không cung cấp màu cho hiện vật. */
@@ -45,15 +46,6 @@ function readTagIds(dto: ExhibitDto): number[] {
   return [];
 }
 
-/** Tách mô tả dài thành các đoạn transcript ngắn để hiển thị theo audio. */
-function splitTranscript(description?: string): string[] {
-  if (!description) return [];
-  return description
-    .split(/\n+|(?<=[.!?])\s+(?=[A-ZĐÀ-Ỹ])/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
 /**
  * Chuyển ExhibitDto (từ backend) sang ExhibitRecord (định dạng UI đang dùng).
  * Các trường không có trong DTO sẽ được điền giá trị mặc định hợp lý.
@@ -87,9 +79,9 @@ export function mapExhibitDtoToRecord(
     description,
     arAvailable: Boolean(dto.arOverlayUrl || dto.arMarkerUrl),
     arOverlayUrl:
-      resolveOfflineUri(dto.arOverlayUrl, overlayLogicalKey(dto.id)) ?? dto.arOverlayUrl,
+      pickDisplayImageUrl(dto.arOverlayUrl, overlayLogicalKey(dto.id)) ?? dto.arOverlayUrl,
     arMarkerUrl:
-      resolveOfflineUri(dto.arMarkerUrl, markerLogicalKey(dto.id)) ?? dto.arMarkerUrl,
+      pickDisplayImageUrl(dto.arMarkerUrl, markerLogicalKey(dto.id)) ?? dto.arMarkerUrl,
     emoji: '🏺',
     color,
     audioUrl:
@@ -97,7 +89,7 @@ export function mapExhibitDtoToRecord(
       tr?.audioUrl ??
       '',
     audioDuration: tr?.audioDuration ?? 0,
-    transcript: splitTranscript(description),
+    transcript: description.trim() ? [description.trim()] : [],
     highlights: (() => {
       const event =
         lang === 'en' && meta?.historicalEventEn?.trim()
@@ -106,7 +98,7 @@ export function mapExhibitDtoToRecord(
       return event ? [event] : [];
     })(),
     thumbnailUrl:
-      resolveOfflineUri(dto.thumbnailUrl, thumbLogicalKey(dto.id)) ?? dto.thumbnailUrl,
+      pickDisplayImageUrl(dto.thumbnailUrl, thumbLogicalKey(dto.id)) ?? dto.thumbnailUrl,
     roomId: dto.roomId ?? null,
     roomName: dto.roomName ?? null,
     roomCode: dto.roomCode ?? null,

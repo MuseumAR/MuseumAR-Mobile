@@ -9,7 +9,7 @@ import {
   saveCachedResponse,
 } from './offlineCache';
 import { canUseOfflineContent, isTicketingEndpoint } from './offlineMode';
-import { resolveOfflineUri } from './offlineMedia';
+import { pickDisplayImageUrl, rewriteRemoteImageUrl } from '../utils/mobileImageUrl';
 import { routeFromGraph } from '../utils/offlineNavigation';
 
 // Giao diện dữ liệu phản hồi chung từ API
@@ -420,8 +420,8 @@ export function normalizeExhibitionDto(
     descriptionEn:
       String(raw.descriptionEn ?? raw.DescriptionEn ?? '').trim() || null,
     thumbnailUrl:
-      resolveOfflineUri(remoteThumb, `exhibition:${exhibitionId}`) ??
-      (remoteThumb || null),
+      pickDisplayImageUrl(remoteThumb, `exhibition:${exhibitionId}`) ??
+      null,
     startDate: (raw.startDate ?? raw.StartDate) as string | null | undefined ?? null,
     endDate: (raw.endDate ?? raw.EndDate) as string | null | undefined ?? null,
     status: String(raw.status ?? raw.Status ?? 'Active'),
@@ -632,7 +632,7 @@ export function normalizeMuseumMap(
       ? floorRaw
       : parseFloorNumber(mapName) ?? parseFloorNumber(mapType);
   const imageUrl =
-    resolveOfflineUri(remoteImage, `map:${id}`) ?? remoteImage;
+    pickDisplayImageUrl(remoteImage, `map:${id}`) ?? remoteImage;
   const label =
     mapName ||
     (floorNumber != null ? `Tầng ${floorNumber}` : mapType && mapType.toLowerCase() !== 'floor'
@@ -973,7 +973,7 @@ export function normalizeMuseumProfile(
   const contactEmail = String(row.contactEmail ?? row.ContactEmail ?? row.email ?? row.Email ?? '').trim();
   const remoteThumb = String(row.thumbnailUrl ?? row.ThumbnailUrl ?? row.logoUrl ?? '').trim();
   const thumbnailUrl =
-    resolveOfflineUri(remoteThumb, `museum:${id}`) ?? remoteThumb;
+    pickDisplayImageUrl(remoteThumb, `museum:${id}`) ?? remoteThumb;
 
   return {
     id,
@@ -1395,11 +1395,20 @@ export const apiService = {
           const n = Number(raw.floorNumber ?? raw.FloorNumber);
           return Number.isFinite(n) && n > 0 ? n : null;
         })(),
-        thumbnailUrl: (raw.thumbnailUrl ?? raw.ThumbnailUrl ?? null) as string | null,
-        aroverlayUrl: (raw.aroverlayUrl ?? raw.AroverlayUrl ?? null) as string | null,
-        armarkerUrl: (raw.armarkerUrl ?? raw.ArmarkerUrl ?? null) as string | null,
+        thumbnailUrl: pickDisplayImageUrl(
+          String(raw.thumbnailUrl ?? raw.ThumbnailUrl ?? ''),
+          `thumb:${exhibitId}`,
+        ) ?? null,
+        aroverlayUrl: rewriteRemoteImageUrl(
+          String(raw.aroverlayUrl ?? raw.AroverlayUrl ?? ''),
+        ) ?? null,
+        armarkerUrl: rewriteRemoteImageUrl(
+          String(raw.armarkerUrl ?? raw.ArmarkerUrl ?? ''),
+        ) ?? null,
         images: Array.isArray(raw.images ?? raw.Images)
           ? ((raw.images ?? raw.Images) as string[])
+              .map((item) => rewriteRemoteImageUrl(item))
+              .filter((item): item is string => Boolean(item))
           : [],
         arAssets: Array.isArray(raw.arAssets ?? raw.ArAssets)
           ? ((raw.arAssets ?? raw.ArAssets) as ExhibitScanResultDto['arAssets'])

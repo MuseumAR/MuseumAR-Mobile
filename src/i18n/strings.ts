@@ -347,6 +347,7 @@ const vi: Dict = {
 
   // AR view
   'ar.transcript': 'Nội dung thuyết minh',
+  'ar.replay': 'Phát lại',
   'ar.noAudio': 'Chưa có file audio',
 };
 
@@ -679,6 +680,7 @@ const en: Dict = {
   'exhibition.emptyFiltered': 'No exhibitions in this theme.',
 
   'ar.transcript': 'Transcript',
+  'ar.replay': 'Replay',
   'ar.noAudio': 'No audio file yet',
 };
 

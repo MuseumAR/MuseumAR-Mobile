@@ -1,0 +1,65 @@
+import { API_ORIGIN } from '../config/apiConfig';
+import { resolveOfflineUri } from '../services/offlineMedia';
+
+function isLoopbackHost(host: string): boolean {
+  return (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host === '[::1]'
+  );
+}
+
+/**
+ * React Native Image cannot decode many Cloudinary `f_auto` payloads (AVIF/WebP).
+ * Chrome can, which looks like "the URL works but the app is blank".
+ */
+function rewriteCloudinaryForRn(url: string): string {
+  if (!/res\.cloudinary\.com/i.test(url) || !/\/image\/upload\//i.test(url)) {
+    return url;
+  }
+  let out = url.replace(/([,/])f_(?:auto|avif|webp)(?=[,/])/gi, '$1f_jpg');
+  if (!/\/image\/upload\/[^/]*f_jpg/i.test(out)) {
+    out = out.replace(/(\/image\/upload\/)/i, '$1f_jpg/');
+  }
+  return out;
+}
+
+/** Turn a BE media URL into something RN Image can fetch on a phone. */
+export function rewriteRemoteImageUrl(url?: string | null): string | undefined {
+  const trimmed = url?.trim();
+  if (!trimmed || trimmed.startsWith('file:')) return trimmed || undefined;
+
+  let out = trimmed;
+  if (!/^https?:\/\//i.test(out)) {
+    const path = out.startsWith('/') ? out : `/${out}`;
+    out = `${API_ORIGIN}${path}`;
+  } else {
+    try {
+      const parsed = new URL(out);
+      if (isLoopbackHost(parsed.hostname)) {
+        const origin = new URL(API_ORIGIN);
+        parsed.protocol = origin.protocol;
+        parsed.host = origin.host;
+        out = parsed.toString();
+      }
+    } catch {
+      // keep original
+    }
+  }
+
+  return rewriteCloudinaryForRn(out);
+}
+
+/**
+ * Prefer a live, phone-reachable URL. Use a downloaded file:// only when there
+ * is no remote URL (offline pack with a missing remote field).
+ */
+export function pickDisplayImageUrl(
+  remote?: string | null,
+  logicalKey?: string,
+): string | undefined {
+  const rewritten = rewriteRemoteImageUrl(remote);
+  if (rewritten) return rewritten;
+  return resolveOfflineUri(remote, logicalKey);
+}

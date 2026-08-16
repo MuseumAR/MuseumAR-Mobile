@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -31,7 +31,7 @@ function formatTime(seconds: number): string {
 export default function ARViewScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
-  const { lang } = useLanguage();
+  const { lang, t } = useLanguage();
   const { exhibit: data, loading: dataLoading } = useExhibitDetail(id);
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(data?.museumId);
@@ -46,9 +46,10 @@ export default function ARViewScreen() {
   const { track } = useTrackAction();
   const mountTimeRef = useRef(Date.now());
   const wasPlayingRef = useRef(false);
-  const lastPlaySecondsRef = useRef(0);
+  /** Wall-clock start of this play so ListeningDuration is seconds heard, not seek position. */
+  const playStartedAtRef = useRef<number | null>(null);
+  const lastListenSecondsRef = useRef(0);
 
-  const [activeTranscript, setActiveTranscript] = useState(0);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const rotateAnim = useRef(new Animated.Value(0)).current;
 
@@ -78,6 +79,25 @@ export default function ARViewScreen() {
     },
     [player],
   );
+
+  const replayAudio = useCallback(() => {
+    try {
+      const seek = player.seekTo(0) as Promise<void> | void;
+      if (seek && typeof (seek as Promise<void>).then === 'function') {
+        void (seek as Promise<void>).then(() => {
+          try {
+            player.play();
+          } catch {
+            // ignore
+          }
+        });
+        return;
+      }
+      player.play();
+    } catch {
+      // ignore
+    }
+  }, [player]);
 
   // Pulse + rotate animation when playing
   useEffect(() => {
@@ -117,21 +137,6 @@ export default function ARViewScreen() {
     pulseAnim.setValue(1);
   }, [status.playing, pulseAnim, rotateAnim]);
 
-  // Auto-advance transcript based on playback position
-  useEffect(() => {
-    if (!data || !status.playing) return;
-    const totalSegments = data.transcript.length;
-    if (totalSegments < 1) return;
-    const duration = status.duration ?? data.audioDuration;
-    if (!duration || duration <= 0) return;
-    const segmentDuration = duration / totalSegments;
-    const idx = Math.min(
-      Math.floor((status.currentTime ?? 0) / segmentDuration),
-      totalSegments - 1,
-    );
-    setActiveTranscript(idx);
-  }, [status.currentTime, status.playing, data, status.duration]);
-
   // Auto-play only after a real source exists and the player finished loading
   useEffect(() => {
     if (!audioSource || !status.isLoaded) return;
@@ -156,12 +161,20 @@ export default function ARViewScreen() {
     const playing = Boolean(status.playing);
     if (playing === wasPlayingRef.current) return;
 
-    const playedSeconds = Math.max(0, Math.round(status.currentTime ?? 0));
-    lastPlaySecondsRef.current = playedSeconds;
+    const position = Math.max(0, status.currentTime ?? 0);
     const duration = status.duration ?? 0;
-    const finished = duration > 0 && playedSeconds >= Math.max(0, duration - 0.5);
+    const finished = duration > 0 && position >= Math.max(0, duration - 0.5);
+
+    const sessionSeconds = (): number => {
+      const started = playStartedAtRef.current;
+      if (started == null) return 0;
+      const heard = Math.round((Date.now() - started) / 1000);
+      const cap = duration > 0 ? Math.ceil(duration) : heard;
+      return Math.max(0, Math.min(heard, cap));
+    };
 
     if (playing) {
+      playStartedAtRef.current = Date.now();
       track({
         actionType: AnalyticsAction.AUDIO_PLAY,
         exhibitId,
@@ -169,29 +182,40 @@ export default function ARViewScreen() {
         languageUsed: lang,
       });
     } else {
-      track({
-        actionType: finished
-          ? AnalyticsAction.AUDIO_COMPLETE
-          : AnalyticsAction.AUDIO_PAUSE,
-        exhibitId,
-        museumId,
-        languageUsed: lang,
-        listeningDuration: Math.max(playedSeconds, 1),
-      });
+      const listeningDuration = sessionSeconds();
+      playStartedAtRef.current = null;
+      lastListenSecondsRef.current = listeningDuration;
+      if (listeningDuration > 0) {
+        track({
+          actionType: finished
+            ? AnalyticsAction.AUDIO_COMPLETE
+            : AnalyticsAction.AUDIO_PAUSE,
+          exhibitId,
+          museumId,
+          languageUsed: lang,
+          listeningDuration,
+        });
+      }
     }
     wasPlayingRef.current = playing;
-  }, [status.playing, exhibitId, museumId, track, lang]);
+  }, [status.playing, exhibitId, museumId, track, lang, status.duration]);
 
   useEffect(() => {
     return () => {
       if (!wasPlayingRef.current || exhibitId == null) return;
       wasPlayingRef.current = false;
+      const started = playStartedAtRef.current;
+      playStartedAtRef.current = null;
+      const listeningDuration = started
+        ? Math.max(0, Math.round((Date.now() - started) / 1000))
+        : lastListenSecondsRef.current;
+      if (listeningDuration <= 0) return;
       track({
         actionType: AnalyticsAction.AUDIO_PAUSE,
         exhibitId,
         museumId,
         languageUsed: lang,
-        listeningDuration: Math.max(lastPlaySecondsRef.current, 1),
+        listeningDuration,
       });
     };
   }, [exhibitId, museumId, track, lang]);
@@ -276,50 +300,44 @@ export default function ARViewScreen() {
 
           {/* Controls */}
           <View style={styles.controls}>
-            <TouchableOpacity style={styles.skipBtn} onPress={() => skip(-10)}>
-              <MaterialCommunityIcons name="rewind-10" size={28} color={C.textSecondary} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.playBtn, { backgroundColor: data.color }]}
-              onPress={() => (status.playing ? safePause() : safePlay())}
-            >
-              <MaterialCommunityIcons
-                name={status.playing ? 'pause' : 'play'}
-                size={32}
-                color={C.onAccent}
-              />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.skipBtn} onPress={() => skip(10)}>
-              <MaterialCommunityIcons name="fast-forward-10" size={28} color={C.textSecondary} />
-            </TouchableOpacity>
+            <View style={styles.controlSlot}>
+              <TouchableOpacity
+                style={[styles.playBtn, { backgroundColor: data.color }]}
+                onPress={() => (status.playing ? safePause() : safePlay())}
+              >
+                <MaterialCommunityIcons
+                  name={status.playing ? 'pause' : 'play'}
+                  size={32}
+                  color={C.onAccent}
+                />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.controlSlot}>
+              <TouchableOpacity style={styles.skipBtn} onPress={replayAudio} accessibilityLabel={t('ar.replay')}>
+                <MaterialCommunityIcons name="replay" size={28} color={C.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.controlSlot}>
+              <TouchableOpacity style={styles.skipBtn} onPress={() => skip(-10)}>
+                <MaterialCommunityIcons name="rewind-10" size={28} color={C.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.controlSlot}>
+              <TouchableOpacity style={styles.skipBtn} onPress={() => skip(10)}>
+                <MaterialCommunityIcons name="fast-forward-10" size={28} color={C.textSecondary} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
 
-        {/* Transcript */}
-        <View style={styles.transcriptSection}>
-          <Text style={styles.transcriptHeader}>Nội dung thuyết minh</Text>
-          {data.transcript.map((para, i) => (
-            <View
-              key={i}
-              style={[
-                styles.transcriptPara,
-                i === activeTranscript && status.playing && styles.transcriptParaActive,
-              ]}
-            >
-              {i === activeTranscript && status.playing && (
-                <View style={[styles.activeBar, { backgroundColor: data.color }]} />
-              )}
-              <Text
-                style={[
-                  styles.transcriptText,
-                  i === activeTranscript && status.playing && { color: C.textPrimary, fontWeight: '600' },
-                ]}
-              >
-                {para}
-              </Text>
+        {data.description.trim() ? (
+          <View style={styles.transcriptSection}>
+            <Text style={styles.transcriptHeader}>{t('ar.transcript')}</Text>
+            <View style={styles.transcriptPara}>
+              <Text style={styles.transcriptText}>{data.description}</Text>
             </View>
-          ))}
-        </View>
+          </View>
+        ) : null}
 
         {/* Detail button */}
         <TouchableOpacity
@@ -387,7 +405,8 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', borderRadius: 3 },
   timeRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 6 },
   timeText: { fontSize: 12, color: C.textMuted },
-  controls: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 24, marginTop: 16 },
+  controls: { flexDirection: 'row', alignItems: 'center', marginTop: 16 },
+  controlSlot: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   skipBtn: { padding: 8 },
   playBtn: {
     width: 64,
@@ -407,15 +426,10 @@ const styles = StyleSheet.create({
     backgroundColor: C.bgSurface,
     borderRadius: 14,
     padding: 16,
-    marginBottom: 10,
-    flexDirection: 'row',
-    gap: 10,
     borderWidth: 1,
     borderColor: C.border,
   },
-  transcriptParaActive: { backgroundColor: C.accentMuted, borderColor: C.accent + '50' },
-  activeBar: { width: 3, borderRadius: 2, alignSelf: 'stretch' },
-  transcriptText: { flex: 1, fontSize: 15, color: C.textSecondary, lineHeight: 24 },
+  transcriptText: { fontSize: 15, color: C.textSecondary, lineHeight: 24 },
   detailBtn: {
     flexDirection: 'row',
     alignItems: 'center',
