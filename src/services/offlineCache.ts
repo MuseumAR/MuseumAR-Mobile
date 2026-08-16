@@ -36,6 +36,7 @@ export function isCacheableEndpoint(endpoint: string, method?: string): boolean 
   if (verb !== 'GET') return false;
   const path = endpoint.split('?')[0].toLowerCase();
   if (path.startsWith('content/')) return true;
+  if (path.startsWith('navigation/')) return true;
   if (path.startsWith('admin/museum-profile')) return true;
   if (path.startsWith('visitor/sync-check')) return true;
   return false;
@@ -60,6 +61,64 @@ export async function readCachedResponse<T>(endpoint: string): Promise<T | null>
   } catch {
     return null;
   }
+}
+
+function swapLangParam(endpoint: string): string | null {
+  if (!/[?&]lang=/i.test(endpoint)) return null;
+  return endpoint.replace(/([?&]lang=)(vi|en)/i, (_, prefix: string, lang: string) =>
+    `${prefix}${lang.toLowerCase() === 'en' ? 'vi' : 'en'}`,
+  );
+}
+
+/** Match a GET snapshot even if lang/query differ from the live request. */
+export async function readCachedResponseFlexible<T>(endpoint: string): Promise<T | null> {
+  const exact = await readCachedResponse<T>(endpoint);
+  if (exact) return exact;
+
+  const pathOnly = endpoint.split('?')[0];
+  if (pathOnly !== endpoint) {
+    const bare = await readCachedResponse<T>(pathOnly);
+    if (bare) return bare;
+  }
+
+  const swapped = swapLangParam(endpoint);
+  if (swapped) {
+    const other = await readCachedResponse<T>(swapped);
+    if (other) return other;
+    if (swapped.split('?')[0] !== swapped) {
+      const otherBare = await readCachedResponse<T>(swapped.split('?')[0]);
+      if (otherBare) return otherBare;
+    }
+  }
+
+  try {
+    await ensureOfflineDirs();
+    const names = await FileSystem.readDirectoryAsync(RESPONSES_DIR);
+    const needle = pathOnly.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const match = names.find(
+      (name) => name === `${needle}.json` || name.startsWith(`${needle}_`),
+    );
+    if (!match) return null;
+    const raw = await FileSystem.readAsStringAsync(`${RESPONSES_DIR}${match}`);
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function hasCachedResponses(): Promise<boolean> {
+  try {
+    await ensureOfflineDirs();
+    const names = await FileSystem.readDirectoryAsync(RESPONSES_DIR);
+    return names.some((name) => name.endsWith('.json'));
+  } catch {
+    return false;
+  }
+}
+
+export async function hasDownloadedPacks(): Promise<boolean> {
+  const index = await readPackIndex();
+  return Object.keys(index).length > 0;
 }
 
 export async function readPackIndex(): Promise<Record<string, OfflinePackRecord>> {

@@ -107,14 +107,23 @@ async function snapshotContentApis(museumId?: number): Promise<ExhibitDto[]> {
         run: () => apiService.getRoomsByMuseum(museumId),
       },
       {
+        key: `Content/rooms/museum/${museumId}?lang=vi`,
+        run: () => apiService.getRoomsByMuseum(museumId, 'vi'),
+      },
+      {
         key: `Content/rooms/museum/${museumId}?lang=en`,
         run: () => apiService.getRoomsByMuseum(museumId, 'en'),
+      },
+      {
+        key: `Navigation/museum/${museumId}/graph`,
+        run: () => apiService.getNavigationGraph(museumId),
       },
     );
   }
 
   let exhibits: ExhibitDto[] = [];
   let exhibitionIds: number[] = [];
+  let routeIds: number[] = [];
   for (const job of jobs) {
     try {
       const result = await job.run();
@@ -131,8 +140,22 @@ async function snapshotContentApis(museumId?: number): Promise<ExhibitDto[]> {
           exhibitionIds = data.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
         }
       }
+      if (job.key === 'Content/routes' && result && typeof result === 'object') {
+        const data = (result as { data?: Array<{ id?: number }> }).data;
+        if (Array.isArray(data)) {
+          routeIds = data.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
+        }
+      }
     } catch {
       // keep going — partial snapshot is still useful
+    }
+  }
+
+  for (const routeId of routeIds) {
+    try {
+      await apiService.getRouteById(routeId);
+    } catch {
+      // ignore per-route failures
     }
   }
 

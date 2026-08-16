@@ -12,8 +12,10 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ExhibitRoomNavigator } from '../../src/components/ExhibitRoomNavigator';
 import { ARPackCard } from '../../src/components/ARPackCard';
 import { AnalyticsAction } from '../../src/constants/analyticsActions';
+import { useVisitorLocation } from '../../src/context/VisitorLocationContext';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import { useBookmarks } from '../../src/hooks/useBookmarks';
 import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
@@ -35,10 +37,11 @@ type ActionItem = {
 };
 
 export default function ExhibitDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, fromScan } = useLocalSearchParams<{ id: string; fromScan?: string }>();
   const router = useRouter();
   const { lang, t } = useLanguage();
   const { exhibit, loading: exhibitLoading } = useExhibitDetail(id);
+  const { setLocationFromScan } = useVisitorLocation();
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(exhibit?.museumId);
   const { hasAr, hasAudio, audioAsset } = useExhibitArAssets(exhibitId);
@@ -88,6 +91,20 @@ export default function ExhibitDetailScreen() {
       recordVisit(exhibitId, seconds);
     };
   }, [exhibitId, museumId, track, recordVisit, lang]);
+
+  useEffect(() => {
+    if (fromScan !== '1' && fromScan !== 'true') return;
+    if (exhibitId == null) return;
+    const roomId = exhibit?.roomId;
+    if (roomId == null || roomId <= 0) return;
+    setLocationFromScan({
+      roomId,
+      roomName: exhibit.roomName,
+      roomCode: exhibit.roomCode,
+      floorNumber: exhibit.floorNumber,
+      exhibitId,
+    });
+  }, [fromScan, exhibitId, exhibit, setLocationFromScan]);
 
   const handleToggleBookmark = useCallback(async () => {
     if (exhibitId == null) return;
@@ -184,6 +201,16 @@ export default function ExhibitDetailScreen() {
         <View style={styles.content}>
           <Text style={styles.title}>{exhibit.title}</Text>
           <Text style={styles.era}>{exhibit.era}</Text>
+          {exhibit.roomName || exhibit.roomCode ? (
+            <Text style={styles.roomLine}>
+              {exhibit.roomCode
+                ? `${t('museum.room')} ${exhibit.roomCode}`
+                : exhibit.roomName}
+              {exhibit.roomCode && exhibit.roomName ? ` · ${exhibit.roomName}` : ''}
+            </Text>
+          ) : (
+            <View style={{ marginBottom: 16 }} />
+          )}
 
           <View style={styles.actionGrid}>
             {actions.map((action) => (
@@ -208,6 +235,11 @@ export default function ExhibitDetailScreen() {
               </TouchableOpacity>
             ))}
           </View>
+
+          <ExhibitRoomNavigator
+            museumId={museumId}
+            accentColor={exhibit.color || C.accent}
+          />
 
           {(arAvailable || audioAvailable) && (
             <View style={styles.ctaColumn}>
@@ -305,7 +337,8 @@ const styles = StyleSheet.create({
   heroHint: { color: C.textMuted, fontSize: 14 },
   content: { padding: 24 },
   title: { fontSize: 26, fontWeight: '800', color: C.textPrimary },
-  era: { fontSize: 15, color: C.textSecondary, marginTop: 6, marginBottom: 20 },
+  era: { fontSize: 15, color: C.textSecondary, marginTop: 6, marginBottom: 4 },
+  roomLine: { fontSize: 13, color: C.textMuted, marginBottom: 16 },
   actionGrid: {
     flexDirection: 'row',
     gap: 10,

@@ -107,5 +107,9 @@ export function mapExhibitDtoToRecord(
     })(),
     thumbnailUrl:
       resolveOfflineUri(dto.thumbnailUrl, thumbLogicalKey(dto.id)) ?? dto.thumbnailUrl,
+    roomId: dto.roomId ?? null,
+    roomName: dto.roomName ?? null,
+    roomCode: dto.roomCode ?? null,
+    floorNumber: dto.floorNumber ?? null,
   };
 }

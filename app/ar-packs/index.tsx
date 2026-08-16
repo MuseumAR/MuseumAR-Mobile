@@ -5,11 +5,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ARPackCard } from '../../src/components/ARPackCard';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import { usePackages } from '../../src/hooks/usePackages';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
 
 const TOTAL_STORAGE_MB = 2048;
 
 export default function ARPacksScreen() {
+  const { t } = useLanguage();
   const { downloadPack, deletePack, getState } = useARPacks();
   const { packs, loading, error } = usePackages();
 
@@ -26,9 +28,9 @@ export default function ARPacksScreen() {
         {/* ── Header ───────────────────────────────────────────────────── */}
         <View style={styles.header}>
           <View>
-            <Text style={styles.headerLabel}>OFFLINE CONTENT</Text>
-            <Text style={styles.title}>AR Packs</Text>
-            <Text style={styles.subtitle}>Download packs to explore artifacts in 3D</Text>
+            <Text style={styles.headerLabel}>{t('packs.headerLabel')}</Text>
+            <Text style={styles.title}>{t('packs.title')}</Text>
+            <Text style={styles.subtitle}>{t('packs.subtitle')}</Text>
           </View>
           <View style={[styles.headerIcon, { backgroundColor: C.accentDark, borderColor: C.accent + '40' }]}>
             <MaterialCommunityIcons name="package-variant-closed" size={22} color={C.accent} />
@@ -101,7 +103,7 @@ export default function ARPacksScreen() {
           {loading && packs.length === 0 ? (
             <ActivityIndicator color={C.accent} style={{ paddingVertical: 24 }} />
           ) : packs.length === 0 ? (
-            <Text style={styles.emptyText}>{error ?? 'Chưa có gói nội dung nào.'}</Text>
+            <Text style={styles.emptyText}>{error ?? t('packs.empty')}</Text>
           ) : (
             packs.map((pack) => (
               <ARPackCard
@@ -117,9 +119,7 @@ export default function ARPacksScreen() {
 
         <View style={styles.tip}>
           <MaterialCommunityIcons name="information-outline" size={14} color={C.textMuted} />
-          <Text style={styles.tipText}>
-            Downloaded packs work offline. Scan artifacts at the museum to launch AR view.
-          </Text>
+          <Text style={styles.tipText}>{t('packs.offlineGuestHint')}</Text>
         </View>
 
         <View style={{ height: 24 }} />

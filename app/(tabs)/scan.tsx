@@ -10,11 +10,14 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import NetInfo from '@react-native-community/netinfo';
 import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { parseQRCode } from '../../src/data/qrData';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
+import { useVisitorLocation } from '../../src/context/VisitorLocationContext';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService } from '../../src/services/apiService';
+import { canUseOfflineContent, isGuestSession } from '../../src/services/offlineMode';
 import { getVisitorId } from '../../src/services/sessionStorage';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
@@ -23,10 +26,43 @@ export default function ScanScreen() {
   const router = useRouter();
   const { t, lang } = useLanguage();
   const { track } = useTrackAction();
+  const { setLocationFromScan } = useVisitorLocation();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [resolving, setResolving] = useState(false);
+
+  const rememberRoom = useCallback(
+    async (exhibitId: number, scannedRoomId?: number | null, scanned?: {
+      roomName?: string | null;
+      roomCode?: string | null;
+      floorNumber?: number | null;
+    }) => {
+      if (scannedRoomId != null && scannedRoomId > 0) {
+        setLocationFromScan({
+          roomId: scannedRoomId,
+          roomName: scanned?.roomName,
+          roomCode: scanned?.roomCode,
+          floorNumber: scanned?.floorNumber,
+          exhibitId,
+        });
+        return;
+      }
+      try {
+        const detail = await apiService.getExhibitDetail(exhibitId, lang);
+        setLocationFromScan({
+          roomId: detail.data?.roomId,
+          roomName: detail.data?.roomName,
+          roomCode: detail.data?.roomCode,
+          floorNumber: detail.data?.floorNumber,
+          exhibitId,
+        });
+      } catch {
+        // Scan still opens the exhibit even if the room cannot be resolved.
+      }
+    },
+    [lang, setLocationFromScan],
+  );
 
   const openExhibit = useCallback(
     (exhibitId: number) => {
@@ -37,7 +73,7 @@ export default function ScanScreen() {
       });
       setScanning(false);
       setResolving(false);
-      router.push(`/exhibit/${exhibitId}`);
+      router.push(`/exhibit/${exhibitId}?fromScan=1`);
     },
     [router, track],
   );
@@ -76,18 +112,41 @@ export default function ScanScreen() {
 
       setResolving(true);
       try {
-        // Newest WebBE: GET /Content/exhibits/scan-qr
-        // Matches exact QrcodeData (MUSEUM_EX_…), ExhibitCode, or numeric Id.
-        const visitorId = await getVisitorId();
-        const response = await apiService.scanExhibitQr({
-          qrData: raw,
-          lang,
-          visitorId,
-        });
-        const exhibitId = response.data?.exhibitId;
-        if (exhibitId != null && exhibitId > 0) {
-          openExhibit(exhibitId);
+        const net = await NetInfo.fetch();
+        const offline = net.isConnected === false || net.isInternetReachable === false;
+        const guestOffline = offline && (await canUseOfflineContent());
+
+        if (offline && !guestOffline) {
+          Alert.alert(
+            t('scan.offlineBlocked'),
+            (await isGuestSession())
+              ? t('common.offlineNeedPack')
+              : t('common.offlineSignedIn'),
+            [{ text: t('scan.rescan'), onPress: () => setScanned(false) }],
+          );
+          setResolving(false);
           return;
+        }
+
+        if (!guestOffline) {
+          // Newest WebBE: GET /Content/exhibits/scan-qr
+          // Matches exact QrcodeData (MUSEUM_EX_…), ExhibitCode, or numeric Id.
+          const visitorId = await getVisitorId();
+          const response = await apiService.scanExhibitQr({
+            qrData: raw,
+            lang,
+            visitorId,
+          });
+          const exhibitId = response.data?.exhibitId;
+          if (exhibitId != null && exhibitId > 0) {
+            await rememberRoom(exhibitId, response.data?.roomId, {
+              roomName: response.data?.roomName,
+              roomCode: response.data?.roomCode,
+              floorNumber: response.data?.floorNumber,
+            });
+            openExhibit(exhibitId);
+            return;
+          }
         }
       } catch {
         // Fall through to local parse (offline / deep-link payloads).
@@ -97,6 +156,7 @@ export default function ScanScreen() {
       if (local.type === 'exhibit') {
         const exhibitId = parseNumericId(local.id);
         if (exhibitId != null) {
+          await rememberRoom(exhibitId);
           openExhibit(exhibitId);
           return;
         }
@@ -104,7 +164,7 @@ export default function ScanScreen() {
 
       showInvalid(raw);
     },
-    [scanned, resolving, router, lang, openExhibit, showInvalid],
+    [scanned, resolving, router, lang, openExhibit, showInvalid, rememberRoom, t],
   );
 
   if (!permission) {

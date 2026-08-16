@@ -6,6 +6,7 @@ import { NavigationBar } from 'expo-navigation-bar';
 import * as WebBrowser from 'expo-web-browser';
 import { UnityArHostOverlay } from '../src/components/UnityArHostOverlay';
 import { UnityArHostProvider } from '../src/context/UnityArHostContext';
+import { VisitorLocationProvider } from '../src/context/VisitorLocationContext';
 import { OfflineBanner } from '../src/components/OfflineBanner';
 import { LanguageProvider, useLanguage } from '../src/i18n/LanguageContext';
 import { loadMediaMap } from '../src/services/offlineMedia';
@@ -103,12 +104,14 @@ export default function RootLayout() {
 
   return (
     <LanguageProvider>
-      <UnityArHostProvider>
-        <View style={{ flex: 1 }}>
-          <RootStack />
-          <UnityArHostOverlay />
-        </View>
-      </UnityArHostProvider>
+      <VisitorLocationProvider>
+        <UnityArHostProvider>
+          <View style={{ flex: 1 }}>
+            <RootStack />
+            <UnityArHostOverlay />
+          </View>
+        </UnityArHostProvider>
+      </VisitorLocationProvider>
     </LanguageProvider>
   );
 }

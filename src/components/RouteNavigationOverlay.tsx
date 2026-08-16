@@ -1,36 +1,25 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import type { TourRouteStopDto } from '../services/apiService';
-import { useLanguage } from '../i18n/LanguageContext';
 import { useNavigationRoute } from '../hooks/useNavigationRoute';
+import { useLanguage } from '../i18n/LanguageContext';
+import type { RoomDto, TourRouteStopDto } from '../services/apiService';
 import { C } from '../theme/colors';
+import { actionIconName } from '../utils/navigationGraph';
 import {
   arrowIconName,
-  buildRouteStepGuide,
+  buildTourHops,
+  formatRoomRef,
   roomLabel,
   type CardinalDirection,
-  type RouteStepGuide,
 } from '../utils/routeNavigation';
-import type { RoomDto } from '../services/apiService';
-
-type Props = {
-  stops: TourRouteStopDto[];
-  /** Index of current stop (you are here). Next = stopIndex + 1. */
-  stopIndex: number;
-  rooms: RoomDto[];
-  accentColor: string;
-  routeName?: string | null;
-  onPrev: () => void;
-  onNext: () => void;
-  onExit: () => void;
-};
 
 function PulsingArrow({
   direction,
@@ -88,7 +77,6 @@ function PulsingArrow({
   );
 }
 
-/** Quick direction pads — highlight the active move direction. */
 function DirectionPads({
   active,
   accentColor,
@@ -125,39 +113,36 @@ function DirectionPads({
   );
 }
 
-export function RouteNavigationOverlay({
+/** Suggested tour = exhibit→exhibit in one room, room→room when rooms differ. */
+export function TourItineraryCard({
   stops,
   stopIndex,
-  rooms,
   accentColor,
   routeName,
   onPrev,
   onNext,
   onExit,
-}: Props) {
+}: {
+  stops: TourRouteStopDto[];
+  stopIndex: number;
+  accentColor: string;
+  routeName?: string | null;
+  onPrev: () => void;
+  onNext: () => void;
+  onExit: () => void;
+}) {
   const { t, lang } = useLanguage();
+  const hops = buildTourHops(stops, lang);
   const safeIndex = Math.max(0, Math.min(stopIndex, Math.max(0, stops.length - 1)));
   const current = stops[safeIndex];
-  const next = stops[safeIndex + 1];
+  const hop = hops[safeIndex] ?? null;
   const isLast = safeIndex >= stops.length - 1;
-
-  const { instructionText: beInstruction } = useNavigationRoute(
-    current?.roomId,
-    next?.roomId,
-  );
-
-  let guide: RouteStepGuide | null = null;
-  if (current && next) {
-    guide = buildRouteStepGuide(current, next, rooms, lang);
-  }
-
-  const instructionDisplay = beInstruction || guide?.instructionVi || null;
 
   return (
     <View style={[s.wrap, { borderColor: accentColor + '55' }]}>
       <View style={s.header}>
         <View style={{ flex: 1 }}>
-          <Text style={s.kicker}>{t('route.title')}</Text>
+          <Text style={s.kicker}>{t('content.tour')}</Text>
           <Text style={[s.title, { color: accentColor }]} numberOfLines={1}>
             {routeName || t('content.tour')}
           </Text>
@@ -168,61 +153,71 @@ export function RouteNavigationOverlay({
       </View>
 
       <Text style={s.progress}>
-        {t('route.step')} {safeIndex + 1}/{stops.length}
-        {current ? ` · ${roomLabel(current, lang)}` : ''}
+        {t('route.itinerary')} {safeIndex + 1}/{stops.length}
       </Text>
 
-      <View style={s.markers}>
-        <View style={s.markerCol}>
-          <Text style={s.markerEmoji}>📍</Text>
-          <Text style={s.markerLabel}>{t('route.youAreHere')}</Text>
-          <Text style={[s.markerRoom, { color: C.success }]} numberOfLines={2}>
-            {current ? roomLabel(current, lang) : '—'}
-          </Text>
-          {current?.exhibitName ? (
-            <Text style={s.markerExhibit} numberOfLines={1}>
-              {current.exhibitName}
+      {isLast || !hop ? (
+        <View style={s.markers}>
+          <View style={s.markerCol}>
+            <Text style={s.markerEmoji}>🏁</Text>
+            <Text style={s.markerLabel}>{t('route.lastStop')}</Text>
+            <Text style={[s.markerRoom, { color: C.success }]} numberOfLines={2}>
+              {current?.exhibitName || t('content.exhibit')}
             </Text>
-          ) : null}
+            {current ? (
+              <Text style={s.markerExhibit} numberOfLines={1}>
+                {roomLabel(current, lang)}
+              </Text>
+            ) : null}
+          </View>
         </View>
-
-        <View style={s.arrowMid}>
-          {guide ? (
-            <PulsingArrow direction={guide.direction} color={accentColor} size={32} />
-          ) : (
-            <MaterialCommunityIcons name="flag-checkered" size={28} color={accentColor} />
-          )}
-        </View>
-
-        <View style={s.markerCol}>
-          <Text style={s.markerEmoji}>{isLast ? '🏁' : '🎯'}</Text>
-          <Text style={s.markerLabel}>
-            {isLast ? t('route.lastStop') : t('route.nextExhibit')}
-          </Text>
-          <Text style={[s.markerRoom, { color: accentColor }]} numberOfLines={2}>
-            {next
-              ? roomLabel(next, lang)
-              : current
-                ? roomLabel(current, lang)
-                : '—'}
-          </Text>
-          {(next ?? current)?.exhibitName ? (
-            <Text style={s.markerExhibit} numberOfLines={1}>
-              {(next ?? current)?.exhibitName}
-            </Text>
-          ) : null}
-        </View>
-      </View>
-
-      {instructionDisplay ? (
-        <>
-          <Text style={s.instruction}>{instructionDisplay}</Text>
-          {guide ? (
-            <DirectionPads active={guide.directions} accentColor={accentColor} />
-          ) : null}
-        </>
       ) : (
-        <Text style={s.instruction}>{t('route.finished')}</Text>
+        <>
+          <Text style={s.hopKind}>
+            {hop.kind === 'exhibit' ? t('route.hopSameRoom') : t('route.hopChangeRoom')}
+          </Text>
+          <View style={s.markers}>
+            <View style={s.markerCol}>
+              <Text style={s.markerEmoji}>{hop.kind === 'exhibit' ? '👁' : '🚪'}</Text>
+              <Text style={s.markerLabel}>
+                {hop.kind === 'exhibit' ? t('route.thisExhibit') : t('route.fromRoom')}
+              </Text>
+              <Text style={[s.markerRoom, { color: C.success }]} numberOfLines={2}>
+                {hop.fromLabel}
+              </Text>
+              {hop.kind === 'exhibit' ? (
+                <Text style={s.markerExhibit} numberOfLines={1}>
+                  {roomLabel(hop.fromStop, lang)}
+                </Text>
+              ) : (
+                <Text style={s.markerExhibit} numberOfLines={1}>
+                  {hop.fromStop.exhibitName}
+                </Text>
+              )}
+            </View>
+            <View style={s.arrowMid}>
+              <MaterialCommunityIcons name="arrow-right" size={22} color={accentColor} />
+            </View>
+            <View style={s.markerCol}>
+              <Text style={s.markerEmoji}>{hop.kind === 'exhibit' ? '🎯' : '🚪'}</Text>
+              <Text style={s.markerLabel}>
+                {hop.kind === 'exhibit' ? t('route.nextExhibit') : t('route.toRoom')}
+              </Text>
+              <Text style={[s.markerRoom, { color: accentColor }]} numberOfLines={2}>
+                {hop.toLabel}
+              </Text>
+              {hop.kind === 'exhibit' ? (
+                <Text style={s.markerExhibit} numberOfLines={1}>
+                  {roomLabel(hop.toStop, lang)}
+                </Text>
+              ) : (
+                <Text style={s.markerExhibit} numberOfLines={1}>
+                  {hop.toStop.exhibitName}
+                </Text>
+              )}
+            </View>
+          </View>
+        </>
       )}
 
       <View style={s.navRow}>
@@ -236,16 +231,10 @@ export function RouteNavigationOverlay({
             size={22}
             color={safeIndex <= 0 ? C.textMuted : C.textPrimary}
           />
-          <Text
-            style={[
-              s.navBtnText,
-              safeIndex <= 0 && { color: C.textMuted },
-            ]}
-          >
+          <Text style={[s.navBtnText, safeIndex <= 0 && { color: C.textMuted }]}>
             {t('route.prev')}
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[
             s.navBtnPrimary,
@@ -267,17 +256,150 @@ export function RouteNavigationOverlay({
   );
 }
 
-/** Compact arrows drawn between two room tiles on the floor-plan canvas. */
-export function FloorPlanDirectionArrows({
-  direction,
+type GuideRoom = {
+  roomId: number | null;
+  roomName?: string | null;
+  roomCode?: string | null;
+};
+
+/** Indoor path = graph only. from = scanned room, to = chosen room. */
+export function NavigationGuideCard({
+  from,
+  to,
+  rooms,
   accentColor,
+  destHint,
 }: {
-  direction: CardinalDirection;
+  from: GuideRoom | null;
+  to: GuideRoom | null;
+  rooms: RoomDto[];
   accentColor: string;
+  destHint?: string | null;
 }) {
+  const { t, lang } = useLanguage();
+  const fromId = from?.roomId ?? null;
+  const toId = to?.roomId ?? null;
+  const enabled = fromId != null && toId != null && fromId > 0 && toId > 0;
+
+  const {
+    route,
+    instructions,
+    primaryDirection,
+    padDirections,
+    hasPath,
+    sameRoom,
+    missingRooms,
+    loading,
+    error,
+  } = useNavigationRoute(fromId, toId, { enabled });
+
+  const fromRoom =
+    rooms.find((r) => r.id === fromId) ??
+    (from
+      ? {
+          roomCode: from.roomCode,
+          roomName: from.roomName,
+        }
+      : null);
+  const toRoom =
+    rooms.find((r) => r.id === toId) ??
+    (to ? { roomCode: to.roomCode, roomName: to.roomName } : null);
+
+  const distanceLabel =
+    route && route.totalDistance > 0 ? `${route.totalDistance} m` : null;
+
+  let body: ReactNode;
+  if (!fromId) {
+    body = <Text style={s.instruction}>{t('nav.scanToLocate')}</Text>;
+  } else if (!toId) {
+    body = <Text style={s.instruction}>{t('nav.pickDestination')}</Text>;
+  } else if (loading) {
+    body = (
+      <View style={s.loadingRow}>
+        <ActivityIndicator size="small" color={accentColor} />
+        <Text style={s.instructionMuted}>{t('route.loadingPath')}</Text>
+      </View>
+    );
+  } else if (sameRoom) {
+    body = <Text style={s.instruction}>{t('route.sameRoom')}</Text>;
+  } else if (missingRooms) {
+    body = <Text style={s.instruction}>{t('route.noRoom')}</Text>;
+  } else if (error) {
+    body = <Text style={s.instruction}>{error}</Text>;
+  } else if (hasPath && instructions.length > 0) {
+    body = (
+      <>
+        {distanceLabel ? <Text style={s.distance}>{distanceLabel}</Text> : null}
+        {instructions.map((step, i) => (
+          <View key={`${step.waypointId}-${i}`} style={s.stepRow}>
+            <MaterialCommunityIcons
+              name={actionIconName(step.action)}
+              size={18}
+              color={accentColor}
+            />
+            <Text style={s.stepText}>{step.instruction}</Text>
+          </View>
+        ))}
+        {padDirections.length > 0 ? (
+          <DirectionPads active={padDirections} accentColor={accentColor} />
+        ) : null}
+      </>
+    );
+  } else if (instructions.length > 0) {
+    body = (
+      <Text style={s.instruction}>
+        {instructions.map((step) => step.instruction).filter(Boolean).join('\n')}
+      </Text>
+    );
+  } else {
+    body = <Text style={s.instruction}>{t('route.noPath')}</Text>;
+  }
+
   return (
-    <View style={s.canvasArrow} pointerEvents="none">
-      <PulsingArrow direction={direction} color={accentColor} size={26} />
+    <View style={[s.wrap, { borderColor: accentColor + '40' }]}>
+      <View style={s.header}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.kicker}>{t('route.graphKicker')}</Text>
+          <Text style={[s.title, { color: accentColor }]} numberOfLines={1}>
+            {t('route.howToGo')}
+          </Text>
+        </View>
+      </View>
+
+      <View style={s.markers}>
+        <View style={s.markerCol}>
+          <Text style={s.markerEmoji}>📍</Text>
+          <Text style={s.markerLabel}>{t('route.youAreHere')}</Text>
+          <Text style={[s.markerRoom, { color: C.success }]} numberOfLines={2}>
+            {fromId ? formatRoomRef(fromRoom, lang) : t('nav.unknownHere')}
+          </Text>
+        </View>
+        <View style={s.arrowMid}>
+          {primaryDirection ? (
+            <PulsingArrow direction={primaryDirection} color={accentColor} size={32} />
+          ) : (
+            <MaterialCommunityIcons
+              name="vector-polyline"
+              size={24}
+              color={accentColor}
+            />
+          )}
+        </View>
+        <View style={s.markerCol}>
+          <Text style={s.markerEmoji}>🎯</Text>
+          <Text style={s.markerLabel}>{t('nav.destination')}</Text>
+          <Text style={[s.markerRoom, { color: accentColor }]} numberOfLines={2}>
+            {toId ? formatRoomRef(toRoom, lang) : '—'}
+          </Text>
+          {destHint ? (
+            <Text style={s.markerExhibit} numberOfLines={1}>
+              {destHint}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+
+      {body}
     </View>
   );
 }
@@ -311,6 +433,13 @@ const s = StyleSheet.create({
     borderColor: C.border,
   },
   progress: { fontSize: 12, color: C.textSecondary, fontWeight: '600' },
+  hopKind: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
   markers: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -323,6 +452,23 @@ const s = StyleSheet.create({
   markerExhibit: { fontSize: 11, color: C.textSecondary },
   arrowMid: { width: 40, alignItems: 'center', justifyContent: 'center' },
   instruction: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: C.textPrimary,
+    fontWeight: '600',
+  },
+  instructionMuted: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: C.textSecondary,
+    fontWeight: '600',
+    flex: 1,
+  },
+  loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  distance: { fontSize: 12, color: C.textMuted, fontWeight: '600' },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  stepText: {
+    flex: 1,
     fontSize: 14,
     lineHeight: 20,
     color: C.textPrimary,
@@ -373,13 +519,4 @@ const s = StyleSheet.create({
     borderRadius: 12,
   },
   navBtnPrimaryText: { fontSize: 14, fontWeight: '800', color: C.onAccent },
-  canvasArrow: {
-    position: 'absolute',
-    alignSelf: 'center',
-    top: '42%',
-    zIndex: 5,
-    backgroundColor: 'rgba(12,15,28,0.72)',
-    borderRadius: 20,
-    padding: 6,
-  },
 });

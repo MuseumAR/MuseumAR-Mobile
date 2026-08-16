@@ -1,33 +1,47 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import {
   apiService,
+  type NavigationInstructionDto,
   type NavigationRouteResponseDto,
 } from '../services/apiService';
+import {
+  graphPathFound,
+  padsFromInstructions,
+  primaryDirectionFromInstructions,
+} from '../utils/navigationGraph';
+import type { CardinalDirection } from '../utils/routeNavigation';
+
+type Options = {
+  /** Skip fetch (last itinerary stop, overlay hidden, etc.). */
+  enabled?: boolean;
+};
 
 /**
- * Room-to-room navigation from BE —
- * GET /Navigation/route?fromRoomId=&toRoomId=&lang=
+ * How to walk between two rooms — GET /Navigation/route
+ * Uses the CMS navigation graph (waypoints/edges), not the tour exhibit list.
  */
 export function useNavigationRoute(
   fromRoomId: number | null | undefined,
   toRoomId: number | null | undefined,
+  options?: Options,
 ) {
   const { lang } = useLanguage();
+  const enabled = options?.enabled !== false;
+  const from = Number(fromRoomId);
+  const to = Number(toRoomId);
+  const hasFrom = Number.isFinite(from) && from > 0;
+  const hasTo = Number.isFinite(to) && to > 0;
+  const missingRooms = enabled && (!hasFrom || !hasTo);
+  const sameRoom = enabled && hasFrom && hasTo && from === to;
   const [route, setRoute] = useState<NavigationRouteResponseDto | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(
+    () => enabled && hasFrom && hasTo && from !== to,
+  );
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const from = Number(fromRoomId);
-    const to = Number(toRoomId);
-    if (
-      !Number.isFinite(from) ||
-      from <= 0 ||
-      !Number.isFinite(to) ||
-      to <= 0 ||
-      from === to
-    ) {
+    if (!enabled || missingRooms || sameRoom) {
       setRoute(null);
       setLoading(false);
       setError(null);
@@ -47,17 +61,39 @@ export function useNavigationRoute(
     } finally {
       setLoading(false);
     }
-  }, [fromRoomId, toRoomId, lang]);
+  }, [enabled, missingRooms, sameRoom, from, to, lang]);
 
   useEffect(() => {
     refresh();
   }, [refresh]);
 
+  const instructions: NavigationInstructionDto[] = route?.instructions ?? [];
+  const hasPath = graphPathFound(route);
+  const padDirections: CardinalDirection[] = useMemo(
+    () => (hasPath ? padsFromInstructions(instructions) : []),
+    [hasPath, instructions],
+  );
+  const primaryDirection = hasPath
+    ? primaryDirectionFromInstructions(instructions)
+    : null;
+
   const instructionText =
-    route?.instructions
-      ?.map((s) => s.instruction?.trim())
+    instructions
+      .map((s) => s.instruction?.trim())
       .filter(Boolean)
       .join('\n') || null;
 
-  return { route, instructionText, loading, error, refresh };
+  return {
+    route,
+    instructions,
+    instructionText,
+    primaryDirection,
+    padDirections,
+    hasPath,
+    sameRoom,
+    missingRooms,
+    loading,
+    error,
+    refresh,
+  };
 }

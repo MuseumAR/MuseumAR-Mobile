@@ -35,7 +35,7 @@ export function useVisitedExhibits() {
 
   const recordVisit = useCallback(async (exhibitId: number, timeSpentSeconds: number) => {
     const token = await getToken();
-    if (!token || timeSpentSeconds < 1) return;
+    if (!token || exhibitId <= 0 || timeSpentSeconds < 1) return;
     try {
       await apiService.recordVisitedExhibit(exhibitId, timeSpentSeconds);
     } catch (error) {

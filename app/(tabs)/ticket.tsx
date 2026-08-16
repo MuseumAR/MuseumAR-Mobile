@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useCreateOrder, usePendingOrder, useTicketTypes } from '../../src/hooks/useTicketing';
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
+import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { TicketTypeDto } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
@@ -47,6 +48,7 @@ export default function TicketScreen() {
   const { types, loading: typesLoading, error: typesError } = useTicketTypes();
   const { submit, submitting } = useCreateOrder();
   const { pending, refresh: refreshPending } = usePendingOrder();
+  const { isOffline } = useNetworkStatus();
 
   const days = useMemo(() => nextDays(7, lang), [lang]);
   const [selectedType, setSelectedType] = useState<TicketTypeDto | null>(null);
@@ -70,6 +72,11 @@ export default function TicketScreen() {
   const total = (selectedType?.price ?? 0) * quantity;
 
   const handleConfirm = async () => {
+    if (isOffline) {
+      Alert.alert(t('ticket.title'), t('ticket.offlineUnavailable'));
+      return;
+    }
+
     if (!selectedType) {
       Alert.alert(t('ticket.selectType'), t('ticket.selectTypeHint'));
       return;
@@ -145,6 +152,13 @@ export default function TicketScreen() {
             <MaterialCommunityIcons name="clock-outline" size={18} color={C.accent} />
             <Text style={styles.pendingBannerText}>{t('ticket.pendingExists')}</Text>
           </TouchableOpacity>
+        ) : null}
+
+        {isOffline ? (
+          <View style={styles.offlineBanner}>
+            <MaterialCommunityIcons name="wifi-off" size={18} color={C.danger} />
+            <Text style={styles.offlineBannerText}>{t('ticket.offlineBanner')}</Text>
+          </View>
         ) : null}
 
         {/* Museum (fixed) */}
@@ -288,9 +302,9 @@ export default function TicketScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.buyBtn, (submitting || !selectedType) && styles.buyBtnDisabled]}
+          style={[styles.buyBtn, (submitting || !selectedType || isOffline) && styles.buyBtnDisabled]}
           onPress={handleConfirm}
-          disabled={submitting || !selectedType}
+          disabled={submitting || !selectedType || isOffline}
         >
           {submitting ? (
             <ActivityIndicator color={C.onAccent} size="small" />
@@ -344,6 +358,24 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     color: C.textSecondary,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: C.danger + '12',
+    borderWidth: 1,
+    borderColor: C.danger + '40',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  offlineBannerText: {
+    flex: 1,
+    fontSize: 13,
+    color: C.danger,
     lineHeight: 18,
     fontWeight: '600',
   },

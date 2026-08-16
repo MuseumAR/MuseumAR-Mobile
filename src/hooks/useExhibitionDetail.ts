@@ -32,7 +32,7 @@ export function useExhibitionDetail(id: string | number | undefined) {
       ]);
       const found =
         (listRes.data ?? []).find((item) => item.id === exhibitionId) ?? null;
-      setExhibition(found);
+      setExhibition(found ? localizeExhibition(found, lang) : null);
 
       const raw = exhibitsRes.data ?? [];
       const enriched = await Promise.all(raw.map((dto) => apiService.enrichExhibit(dto)));

@@ -59,6 +59,11 @@ export type ExhibitRecord = {
   highlights: string[];
   /** Ảnh đại diện (khi lấy từ backend); mock không có */
   thumbnailUrl?: string;
+  /** Phòng trưng bày — từ GET Content/exhibits/{id} (không có trong mock). */
+  roomId?: number | null;
+  roomName?: string | null;
+  roomCode?: string | null;
+  floorNumber?: number | null;
 };
 
 // ─────────────────────────────────────────────

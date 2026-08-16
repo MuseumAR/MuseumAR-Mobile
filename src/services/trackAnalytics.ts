@@ -1,3 +1,4 @@
+import NetInfo from '@react-native-community/netinfo';
 import { AppState, type NativeEventSubscription } from 'react-native';
 import { AnalyticsAction } from '../constants/analyticsActions';
 import { isIgnorableVisitorError } from '../utils/visitorErrors';
@@ -7,9 +8,26 @@ import { getCachedMuseumId } from './museumContext';
 
 let sessionOpen = false;
 
+const EXHIBIT_BOUND_ACTIONS = new Set<string>([
+  AnalyticsAction.QR_SCAN,
+  AnalyticsAction.AUDIO_PLAY,
+  AnalyticsAction.AUDIO_PAUSE,
+  AnalyticsAction.AUDIO_COMPLETE,
+  AnalyticsAction.AR_VIEW,
+  AnalyticsAction.EXHIBIT_VIEW,
+  AnalyticsAction.BOOKMARK_ADD,
+  AnalyticsAction.BOOKMARK_REMOVE,
+]);
+
+function validExhibitId(exhibitId: number | null | undefined): boolean {
+  const id = Number(exhibitId);
+  return Number.isFinite(id) && id > 0;
+}
+
 /**
  * Fire-and-forget POST /Visitor/track-action.
  * Skips until a real museumId is known (FK on AnalyticsLogs).
+ * Exhibit-bound actions are skipped when exhibitId is null/0.
  */
 export async function trackAnalytics(payload: TrackActionRequest): Promise<void> {
   const museumId =
@@ -18,6 +36,16 @@ export async function trackAnalytics(payload: TrackActionRequest): Promise<void>
       : getCachedMuseumId();
 
   if (museumId == null || museumId <= 0) return;
+
+  const net = await NetInfo.fetch();
+  if (net.isConnected === false || net.isInternetReachable === false) return;
+
+  if (
+    EXHIBIT_BOUND_ACTIONS.has(payload.actionType) &&
+    !validExhibitId(payload.exhibitId)
+  ) {
+    return;
+  }
 
   const languageUsed =
     payload.languageUsed?.trim() || (await getStoredLanguage());
