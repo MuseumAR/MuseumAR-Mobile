@@ -1,7 +1,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { unzipSync } from 'fflate';
 import { rewriteRemoteImageUrl } from '../utils/mobileImageUrl';
-import { apiService, type ExhibitDto } from './apiService';
+import { apiService, type ArAssetDto, type ExhibitDto } from './apiService';
 import {
   ensureOfflineDirs,
   getPackExtractDir,
@@ -19,8 +19,8 @@ import {
 
 export type DownloadProgressCb = (percent: number) => void;
 
-function resolveUrl(url?: string | null): string | null {
-  return rewriteRemoteImageUrl(url) ?? null;
+function resolveUrl(url?: string | null, preserveAlpha = false): string | null {
+  return rewriteRemoteImageUrl(url, { preserveAlpha }) ?? null;
 }
 
 function logicalKeysFromZipPath(relativePath: string): string[] {
@@ -303,45 +303,71 @@ async function downloadExhibitMedia(exhibits: ExhibitDto[]): Promise<Record<stri
   const mediaDir = `${FileSystem.documentDirectory}offline/media/`;
   await FileSystem.makeDirectoryAsync(mediaDir, { intermediates: true });
 
+  const enqueue = async (url: string | null, key: string, file: string) => {
+    if (!url || map[key]) return;
+    const ext = url.split('?')[0].split('.').pop() || 'bin';
+    const dest = `${mediaDir}${file}.${ext}`;
+    const ok = await downloadFile(url, dest);
+    if (!ok) return;
+    const uri = dest.startsWith('file://') ? dest : `file://${dest}`;
+    map[key] = uri;
+    map[url] = uri;
+  };
+
   for (const exhibit of exhibits) {
-    const jobs: Array<{ url: string | null; key: string; file: string }> = [
-      {
-        url: resolveUrl(exhibit.thumbnailUrl),
-        key: thumbLogicalKey(exhibit.id),
-        file: `exhibit_${exhibit.id}_thumb`,
-      },
-      {
-        url: resolveUrl(exhibit.arOverlayUrl),
-        key: overlayLogicalKey(exhibit.id),
-        file: `exhibit_${exhibit.id}_overlay`,
-      },
-      {
-        url: resolveUrl(exhibit.arMarkerUrl),
-        key: markerLogicalKey(exhibit.id),
-        file: `exhibit_${exhibit.id}_marker`,
-      },
-    ];
+    await enqueue(resolveUrl(exhibit.thumbnailUrl), thumbLogicalKey(exhibit.id), `exhibit_${exhibit.id}_thumb`);
+    await enqueue(
+      resolveUrl(exhibit.arOverlayUrl, true),
+      overlayLogicalKey(exhibit.id),
+      `exhibit_${exhibit.id}_overlay`,
+    );
+    await enqueue(
+      resolveUrl(exhibit.arMarkerUrl),
+      markerLogicalKey(exhibit.id),
+      `exhibit_${exhibit.id}_marker`,
+    );
+
     for (const tr of exhibit.translations ?? []) {
       const lang = (tr.languageCode || 'vi').toLowerCase();
-      jobs.push({
-        url: resolveUrl(tr.audioUrl),
-        key: audioLogicalKey(exhibit.id, lang),
-        file: `exhibit_${exhibit.id}_${lang}`,
-      });
+      await enqueue(
+        resolveUrl(tr.audioUrl),
+        audioLogicalKey(exhibit.id, lang),
+        `exhibit_${exhibit.id}_${lang}`,
+      );
     }
 
-    for (const job of jobs) {
-      if (!job.url) continue;
-      const ext = job.url.split('?')[0].split('.').pop() || 'bin';
-      const dest = `${mediaDir}${job.file}.${ext}`;
-      const ok = await downloadFile(job.url, dest);
-      if (!ok) continue;
-      const uri = dest.startsWith('file://') ? dest : `file://${dest}`;
-      map[job.key] = uri;
-      map[job.url] = uri;
+    try {
+      const assetsRes = await apiService.getExhibitArAssets(exhibit.id);
+      for (const asset of assetsRes.data ?? []) {
+        if (!isOverlayArAsset(asset)) continue;
+        const remote = String(asset.url ?? asset.assetUrl ?? '').trim();
+        await enqueue(
+          resolveUrl(remote, true),
+          overlayLogicalKey(exhibit.id),
+          `exhibit_${exhibit.id}_overlay`,
+        );
+      }
+    } catch {
+      // AR asset list optional during pack build
     }
   }
   return map;
+}
+
+function isOverlayArAsset(asset: ArAssetDto): boolean {
+  const type = String(asset.assetType ?? '').toLowerCase();
+  if (type === 'markerimage' || type === 'marker') return false;
+  if (
+    type === 'overlayimage' ||
+    type === 'overlay' ||
+    type === 'image' ||
+    type === '2d' ||
+    type === 'texture'
+  ) {
+    return true;
+  }
+  const url = String(asset.url ?? asset.assetUrl ?? '');
+  return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
 }
 
 export async function downloadOfflinePack(options: {

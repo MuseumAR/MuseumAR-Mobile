@@ -442,6 +442,35 @@ type MuseumMapImagesProps = {
 /** Horizontal padding of the screen content — page width must exclude it. */
 const CONTENT_PADDING = 20;
 
+function MapPhotoSlide({ uri, width }: { uri: string; width: number }) {
+  const [aspect, setAspect] = useState(2.2);
+
+  useEffect(() => {
+    if (!uri) return;
+    Image.getSize(
+      uri,
+      (w, h) => {
+        if (w > 0 && h > 0) setAspect(w / h);
+      },
+      () => {},
+    );
+  }, [uri]);
+
+  return (
+    <View style={[mapImgS.frame, { width }]}>
+      <Image
+        source={{ uri }}
+        style={{ width: '100%', aspectRatio: aspect }}
+        resizeMode="contain"
+        onLoad={(e) => {
+          const { width: iw, height: ih } = e.nativeEvent.source;
+          if (iw > 0 && ih > 0) setAspect(iw / ih);
+        }}
+      />
+    </View>
+  );
+}
+
 function MuseumMapImages({ maps, accentColor }: MuseumMapImagesProps) {
   const { width: windowWidth } = useWindowDimensions();
   const pageWidth = Math.max(1, windowWidth - CONTENT_PADDING * 2);
@@ -511,13 +540,7 @@ function MuseumMapImages({ maps, accentColor }: MuseumMapImagesProps) {
         }}
       >
         {maps.map((m) => (
-          <View key={m.id} style={[mapImgS.frame, { width: pageWidth }]}>
-            <Image
-              source={{ uri: m.imageUrl }}
-              style={mapImgS.image}
-              resizeMode="contain"
-            />
-          </View>
+          <MapPhotoSlide key={m.id} uri={m.imageUrl ?? ''} width={pageWidth} />
         ))}
       </ScrollView>
 
@@ -552,11 +575,6 @@ const mapImgS = StyleSheet.create({
     backgroundColor: C.bgElevated,
     borderWidth: 1,
     borderColor: C.border,
-    minHeight: 220,
-  },
-  image: {
-    width: '100%',
-    height: 280,
   },
   footer: { marginTop: 8, alignItems: 'center', gap: 8 },
   caption: {
@@ -612,7 +630,11 @@ export default function MuseumDetailScreen() {
   const mapsWithImage = useMemo(
     () =>
       maps
-        .filter((m) => Boolean(m.imageUrl))
+        .filter((m) => {
+          if (!m.imageUrl) return false;
+          if (museumId <= 0 || m.museumId == null) return true;
+          return m.museumId === museumId;
+        })
         .sort((a, b) => {
           const fa = a.floorNumber;
           const fb = b.floorNumber;
@@ -621,10 +643,10 @@ export default function MuseumDetailScreen() {
           if (fa == null && fb != null) return 1;
           return a.id - b.id;
         }),
-    [maps],
+    [maps, museumId],
   );
   const hasMapImage = mapsWithImage.length > 0;
-  const showInteractivePlan = routeMode || Boolean(location) || navTargetRoomId != null || !hasMapImage;
+  const showInteractivePlan = !hasMapImage;
 
   /** Rooms for layout — fall back to unique rooms inferred from active route stops. */
   const layoutRooms = useMemo(() => {
@@ -673,7 +695,7 @@ export default function MuseumDetailScreen() {
     : undefined;
 
   const tourDestRoomId = resolveStopRoomId(nextStop, layoutRooms);
-  const destRoomId = navTargetRoomId;
+  const destRoomId = navTargetRoomId ?? tourDestRoomId;
   const destRoom = destRoomId != null
     ? layoutRooms.find((r) => r.id === destRoomId) ?? null
     : null;
@@ -1000,7 +1022,7 @@ export default function MuseumDetailScreen() {
             ) : null}
 
             {/* Selected zone info card — only when not in route mode */}
-            {!routeMode && selectedRoom && !hasMapImage ? (
+            {!routeMode && selectedRoom ? (
               <View style={[styles.zoneInfoCard, { borderColor: museum.color + '50' }]}>
                 <LinearGradient
                   colors={[museum.color + '10', 'transparent']}

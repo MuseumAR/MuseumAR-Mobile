@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   cameraOff: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -297,7 +297,7 @@ const styles = StyleSheet.create({
   cameraHint: { color: C.textPrimary, fontSize: 16, fontWeight: '600' },
   cameraSubHint: { color: C.textMuted, fontSize: 12, marginTop: 6, textAlign: 'center' },
   resolvingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.45)',

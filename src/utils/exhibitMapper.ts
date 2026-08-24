@@ -79,7 +79,9 @@ export function mapExhibitDtoToRecord(
     description,
     arAvailable: Boolean(dto.arOverlayUrl || dto.arMarkerUrl),
     arOverlayUrl:
-      pickDisplayImageUrl(dto.arOverlayUrl, overlayLogicalKey(dto.id)) ?? dto.arOverlayUrl,
+      pickDisplayImageUrl(dto.arOverlayUrl, overlayLogicalKey(dto.id), {
+        preserveAlpha: true,
+      }) ?? dto.arOverlayUrl,
     arMarkerUrl:
       pickDisplayImageUrl(dto.arMarkerUrl, markerLogicalKey(dto.id)) ?? dto.arMarkerUrl,
     emoji: '🏺',

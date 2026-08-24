@@ -10,23 +10,36 @@ function isLoopbackHost(host: string): boolean {
   );
 }
 
+export type ImageRewriteOptions = {
+  /** Keep PNG alpha (AR overlays). Default jpg is for RN Image thumbnails. */
+  preserveAlpha?: boolean;
+};
+
 /**
  * React Native Image cannot decode many Cloudinary `f_auto` payloads (AVIF/WebP).
  * Chrome can, which looks like "the URL works but the app is blank".
+ * AR overlays must stay PNG or Unity/Image flatten onto a white background.
  */
-function rewriteCloudinaryForRn(url: string): string {
+function rewriteCloudinaryForRn(url: string, preserveAlpha = false): string {
   if (!/res\.cloudinary\.com/i.test(url) || !/\/image\/upload\//i.test(url)) {
     return url;
   }
-  let out = url.replace(/([,/])f_(?:auto|avif|webp)(?=[,/])/gi, '$1f_jpg');
-  if (!/\/image\/upload\/[^/]*f_jpg/i.test(out)) {
-    out = out.replace(/(\/image\/upload\/)/i, '$1f_jpg/');
+  const fmt = preserveAlpha ? 'f_png' : 'f_jpg';
+  const formats = preserveAlpha
+    ? /([,/])f_(?:auto|avif|webp|jpg|jpeg)(?=[,/])/gi
+    : /([,/])f_(?:auto|avif|webp)(?=[,/])/gi;
+  let out = url.replace(formats, `$1${fmt}`);
+  if (!new RegExp(`/image/upload/[^/]*${fmt}`, 'i').test(out)) {
+    out = out.replace(/(\/image\/upload\/)/i, `$1${fmt}/`);
   }
   return out;
 }
 
 /** Turn a BE media URL into something RN Image can fetch on a phone. */
-export function rewriteRemoteImageUrl(url?: string | null): string | undefined {
+export function rewriteRemoteImageUrl(
+  url?: string | null,
+  options?: ImageRewriteOptions,
+): string | undefined {
   const trimmed = url?.trim();
   if (!trimmed || trimmed.startsWith('file:')) return trimmed || undefined;
 
@@ -48,7 +61,7 @@ export function rewriteRemoteImageUrl(url?: string | null): string | undefined {
     }
   }
 
-  return rewriteCloudinaryForRn(out);
+  return rewriteCloudinaryForRn(out, options?.preserveAlpha === true);
 }
 
 /**
@@ -58,8 +71,9 @@ export function rewriteRemoteImageUrl(url?: string | null): string | undefined {
 export function pickDisplayImageUrl(
   remote?: string | null,
   logicalKey?: string,
+  options?: ImageRewriteOptions,
 ): string | undefined {
-  const rewritten = rewriteRemoteImageUrl(remote);
+  const rewritten = rewriteRemoteImageUrl(remote, options);
   if (rewritten) return rewritten;
   return resolveOfflineUri(remote, logicalKey);
 }

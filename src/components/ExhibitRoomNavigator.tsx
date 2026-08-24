@@ -9,15 +9,41 @@ import {
   View,
 } from 'react-native';
 import { useVisitorLocation } from '../context/VisitorLocationContext';
+import { useMaps } from '../hooks/useMaps';
+import { useNavigationGraph } from '../hooks/useNavigationGraph';
+import { useNavigationRoute } from '../hooks/useNavigationRoute';
 import { useRooms } from '../hooks/useRooms';
 import { useLanguage } from '../i18n/LanguageContext';
+import type { MuseumMapDto, RoomDto } from '../services/apiService';
 import { C } from '../theme/colors';
 import { formatRoomRef, sortRoomsForLayout } from '../utils/routeNavigation';
+import { FloorPathMap } from './FloorPathMap';
 import { NavigationGuideCard } from './RouteNavigationOverlay';
+
+function pickFloorMap(
+  maps: MuseumMapDto[],
+  room: RoomDto | null | undefined,
+  floorNumber?: number | null,
+): MuseumMapDto | null {
+  const withImage = maps.filter((m) => Boolean(m.imageUrl));
+  if (withImage.length === 0) return null;
+  const mapId = room?.mapId != null ? Number(room.mapId) : 0;
+  if (mapId > 0) {
+    const byId = withImage.find((m) => m.id === mapId);
+    if (byId) return byId;
+  }
+  const floor = room?.floorNumber ?? floorNumber;
+  if (floor != null && floor > 0) {
+    const byFloor = withImage.find((m) => m.floorNumber === floor);
+    if (byFloor) return byFloor;
+  }
+  return withImage[0] ?? null;
+}
 
 /**
  * After a QR scan, current room is set. Buttons choose another room;
- * walking steps come from GET Navigation/route (existing BE).
+ * walking steps come from GET Navigation/route. Floor photo stays clean
+ * until a destination is chosen, then only that path is drawn.
  */
 export function ExhibitRoomNavigator({
   museumId,
@@ -30,15 +56,30 @@ export function ExhibitRoomNavigator({
   const router = useRouter();
   const { location } = useVisitorLocation();
   const { rooms, loading } = useRooms(museumId);
+  const { maps } = useMaps();
+  const { graph } = useNavigationGraph(museumId);
   const [destRoomId, setDestRoomId] = useState<number | null>(null);
 
   const hereId = location?.roomId ?? null;
+  const hereRoom = hereId != null ? rooms.find((r) => r.id === hereId) : null;
+  const destRoom = destRoomId != null ? rooms.find((r) => r.id === destRoomId) : null;
+
+  const { route, hasPath } = useNavigationRoute(hereId, destRoomId, {
+    enabled: Boolean(hereId && destRoomId),
+  });
+
+  const floorMap = useMemo(
+    () => pickFloorMap(maps, hereRoom, location?.floorNumber),
+    [maps, hereRoom, location?.floorNumber],
+  );
+
   const sorted = useMemo(() => sortRoomsForLayout(rooms), [rooms]);
   const otherRooms = useMemo(
     () => sorted.filter((r) => hereId == null || r.id !== hereId),
     [sorted, hereId],
   );
-  const destRoom = destRoomId != null ? rooms.find((r) => r.id === destRoomId) : null;
+
+  const showPath = Boolean(hereId && destRoomId && hasPath);
 
   return (
     <View style={styles.section}>
@@ -64,11 +105,25 @@ export function ExhibitRoomNavigator({
         </TouchableOpacity>
       )}
 
+      {hereId && floorMap ? (
+        <FloorPathMap
+          map={floorMap}
+          waypoints={graph?.waypoints ?? []}
+          edges={graph?.edges ?? []}
+          rooms={rooms}
+          pathWaypoints={route?.pathWaypoints}
+          instructions={route?.instructions}
+          hereRoomId={hereId}
+          destRoomId={destRoomId}
+          showPath={showPath}
+        />
+      ) : null}
+
       {loading ? (
         <ActivityIndicator color={accentColor} style={{ marginVertical: 8 }} />
       ) : otherRooms.length === 0 ? (
         <Text style={styles.empty}>{t('exhibit.noOtherRooms')}</Text>
-      ) : (
+      ) : hereId ? (
         <View style={styles.chipWrap}>
           {otherRooms.map((room) => {
             const selected = destRoomId === room.id;
@@ -104,7 +159,7 @@ export function ExhibitRoomNavigator({
             );
           })}
         </View>
-      )}
+      ) : null}
 
       {hereId || destRoomId ? (
         <NavigationGuideCard

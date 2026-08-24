@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { resolveArOverlayUrl } from '../../src/utils/arOverlayUrl';
 import {
   ActivityIndicator,
   Alert,
@@ -53,7 +54,23 @@ export default function ArModelScreen() {
   }, [availableModes, mode]);
 
   // Prefer OverlayImage asset only — never MarkerImage / Model3D URLs.
-  const overlayUrl = imageAsset?.url || exhibit?.arOverlayUrl || null;
+  const overlayRemoteUrl = imageAsset?.url || exhibit?.arOverlayUrl || null;
+
+  const [overlayDisplayUrl, setOverlayDisplayUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (exhibitId == null || !overlayRemoteUrl) {
+      setOverlayDisplayUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void resolveArOverlayUrl(exhibitId, overlayRemoteUrl).then((url) => {
+      if (!cancelled) setOverlayDisplayUrl(url ?? overlayRemoteUrl);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [exhibitId, overlayRemoteUrl]);
 
   const modelPreviewUrl =
     modelAsset?.previewImageUrl ||
@@ -63,7 +80,7 @@ export default function ArModelScreen() {
 
   const loading = exhibitLoading || assetsLoading;
 
-  const openAr = useCallback(() => {
+  const openAr = useCallback(async () => {
     if (mode === '3d') {
       Alert.alert(
         'AR 3D',
@@ -72,7 +89,7 @@ export default function ArModelScreen() {
       return;
     }
 
-    if (exhibitId == null || !overlayUrl) {
+    if (exhibitId == null || !overlayRemoteUrl) {
       Alert.alert('AR', 'Chưa có ảnh overlay cho hiện vật này.');
       return;
     }
@@ -85,12 +102,18 @@ export default function ArModelScreen() {
       return;
     }
 
-    if (__DEV__) {
-      console.log('[MuseumAR] Opening Unity AR with OverlayImage URL:', overlayUrl);
+    const url = await resolveArOverlayUrl(exhibitId, overlayRemoteUrl);
+    if (!url) {
+      Alert.alert('AR', 'Chưa có ảnh overlay cho hiện vật này.');
+      return;
     }
 
-    void openUnityAr(exhibitId, overlayUrl);
-  }, [mode, exhibitId, overlayUrl, openUnityAr]);
+    if (__DEV__) {
+      console.log('[MuseumAR] Opening Unity AR with OverlayImage URL:', url);
+    }
+
+    void openUnityAr(exhibitId, url);
+  }, [mode, exhibitId, overlayRemoteUrl, openUnityAr]);
 
   if (loading && !exhibit) {
     return (
@@ -163,8 +186,12 @@ export default function ArModelScreen() {
 
         <View style={styles.previewCard}>
           {mode === '2d' ? (
-            overlayUrl ? (
-              <Image source={{ uri: overlayUrl }} style={styles.previewImage} resizeMode="contain" />
+            overlayRemoteUrl ? (
+              <Image
+                source={{ uri: overlayDisplayUrl ?? overlayRemoteUrl }}
+                style={styles.previewImage}
+                resizeMode="contain"
+              />
             ) : (
               <View style={styles.previewEmpty}>
                 <MaterialCommunityIcons name="image-off-outline" size={40} color={C.textMuted} />
@@ -209,9 +236,9 @@ export default function ArModelScreen() {
         </Text>
 
         <TouchableOpacity
-          style={[styles.primaryBtn, mode === '2d' && !overlayUrl && styles.primaryBtnDisabled]}
-          onPress={openAr}
-          disabled={mode === '2d' && !overlayUrl}
+          style={[styles.primaryBtn, mode === '2d' && !overlayRemoteUrl && styles.primaryBtnDisabled]}
+          onPress={() => void openAr()}
+          disabled={mode === '2d' && !overlayRemoteUrl}
         >
           <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
           <Text style={styles.primaryBtnText}>

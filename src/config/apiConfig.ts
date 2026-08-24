@@ -9,35 +9,24 @@ type Extra = {
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Extra;
 
-function fromEnvOrExtra(envName: string, extraVal?: string): string {
-  return process.env[envName]?.trim() || extraVal?.trim() || '';
-}
-
-const EXPLICIT_BASE = fromEnvOrExtra(
-  'EXPO_PUBLIC_API_BASE_URL',
-  extra.apiBaseUrl,
-);
+/** Literal env names so Expo release inlines EXPO_PUBLIC_* (process.env[var] does not). */
+const EXPLICIT_BASE = (
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  extra.apiBaseUrl ||
+  ''
+).trim();
 
 const API_PORT =
   Number(
     process.env.EXPO_PUBLIC_API_PORT?.trim() || extra.apiPort || 5149,
   ) || 5149;
 
-/**
- * Optional override (e.g. when Metro hostUri is wrong).
- * Set EXPO_PUBLIC_API_HOST in .env, e.g. "192.168.1.42".
- * Leave empty to auto-detect from Expo's Metro host (works for emulator + physical).
- */
 const FORCE_DEV_HOST: string | null =
-  fromEnvOrExtra('EXPO_PUBLIC_API_HOST', extra.apiHost) || null;
+  (process.env.EXPO_PUBLIC_API_HOST || extra.apiHost || '').trim() || null;
 
 /**
- * Dev API host — one path for emulator and physical device.
- *
- * Uses Metro's LAN IP from hostUri (e.g. "192.168.1.42:8081" → "192.168.1.42").
- * Backend must listen on 0.0.0.0:{API_PORT} (not localhost-only).
- *
- * Fallbacks: Android emulator → 10.0.2.2, else localhost.
+ * Dev API host when EXPO_PUBLIC_API_BASE_URL is empty.
+ * Metro LAN IP, else emulator 10.0.2.2 / localhost.
  */
 function getDevHost(): string {
   if (FORCE_DEV_HOST) return FORCE_DEV_HOST;

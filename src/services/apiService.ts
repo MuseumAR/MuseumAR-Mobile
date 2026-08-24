@@ -503,7 +503,10 @@ export interface ArAssetDto {
 export function normalizeArAsset(
   raw: Partial<ArAssetDto> & { assetUrl?: string | null },
 ): ArAssetDto {
-  const url = String(raw.url ?? raw.assetUrl ?? '').trim();
+  const url =
+    rewriteRemoteImageUrl(String(raw.url ?? raw.assetUrl ?? '').trim(), {
+      preserveAlpha: true,
+    }) ?? '';
   const formatFromUrl = (() => {
     const m = url.match(/\.([a-z0-9]+)(?:\?|$)/i);
     return m?.[1]?.toLowerCase();
@@ -513,7 +516,7 @@ export function normalizeArAsset(
     id: Number(raw.id) || 0,
     exhibitId: Number(raw.exhibitId) || 0,
     assetType: raw.assetType,
-    assetUrl: (raw.assetUrl ?? url) || undefined,
+    assetUrl: url || undefined,
     url,
     format: raw.format ?? formatFromUrl,
     description: raw.description,
@@ -1401,6 +1404,7 @@ export const apiService = {
         ) ?? null,
         aroverlayUrl: rewriteRemoteImageUrl(
           String(raw.aroverlayUrl ?? raw.AroverlayUrl ?? ''),
+          { preserveAlpha: true },
         ) ?? null,
         armarkerUrl: rewriteRemoteImageUrl(
           String(raw.armarkerUrl ?? raw.ArmarkerUrl ?? ''),

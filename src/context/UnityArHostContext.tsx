@@ -1,6 +1,7 @@
 import { AnalyticsAction } from '../constants/analyticsActions';
 import { useLanguage } from '../i18n/LanguageContext';
 import { isUnityNativeAvailable } from '../services/unityAr';
+import { resolveArOverlayUrl } from '../utils/arOverlayUrl';
 import { trackAnalytics } from '../services/trackAnalytics';
 import {
   createContext,
@@ -43,8 +44,11 @@ export function UnityArHostProvider({ children }: { children: ReactNode }) {
 
   const openAr = useCallback(
     async (exhibitId: number, overlayUrl: string) => {
-      const url = overlayUrl.trim();
-      if (exhibitId <= 0 || !url) return;
+      const remote = overlayUrl.trim();
+      if (exhibitId <= 0 || !remote) return;
+
+      const url = (await resolveArOverlayUrl(exhibitId, remote)) ?? remote;
+      if (!url) return;
 
       void prefetchOverlay(url);
 
