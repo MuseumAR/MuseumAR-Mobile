@@ -12,7 +12,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  openPayOsCheckout,
   useMyTickets,
   usePendingOrder,
 } from '../../src/hooks/useTicketing';
@@ -70,7 +69,7 @@ function PendingOrderCard({
     return () => clearInterval(id);
   }, [secondsLeft > 0, pending.orderCode]);
 
-  const canResume = Boolean(pending.checkoutUrl) && secondsLeft > 0;
+  const canResume = Boolean(pending.orderCode) && secondsLeft > 0;
   const expired = secondsLeft <= 0;
 
   return (
@@ -123,7 +122,7 @@ function PendingOrderCard({
               ) : (
                 <>
                   <MaterialCommunityIcons name="credit-card-outline" size={16} color={C.onAccent} />
-                  <Text style={styles.resumeBtnText}>{t('ticket.resumePayos')}</Text>
+                  <Text style={styles.resumeBtnText}>{t('ticket.continuePayment')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -239,79 +238,11 @@ export default function MyTicketsScreen() {
   }, [pending?.orderCode, pending?.remainingSeconds, refreshAll]);
 
   const handleResumePending = async () => {
-    if (!pending?.checkoutUrl) return;
-    const orderCode = pending.orderCode;
-    const checkoutUrl = pending.checkoutUrl;
-    const paidBefore = tickets.filter(
-      (item) => (item.status ?? '').toLowerCase() === 'paid',
-    ).length;
-
-    setBusy(true);
-    try {
-      try {
-        const check = await apiService.checkPayment(orderCode);
-        if (check.data?.isPaid) {
-          await refreshAll();
-          router.push({
-            pathname: '/payment-result',
-            params: {
-              status: 'success',
-              orderCode,
-              paidBefore: String(Math.max(0, paidBefore - 1)),
-            },
-          });
-          return;
-        }
-        if (check.data?.isCancelled) {
-          await refreshAll();
-          return;
-        }
-      } catch {
-        // still try checkout
-      }
-
-      const outcome = await openPayOsCheckout(checkoutUrl);
-
-      if (outcome === 'cancel') {
-        try {
-          await apiService.cancelOrder(orderCode);
-        } catch {
-          // ignore
-        }
-        await refreshAll();
-        router.push({
-          pathname: '/payment-result',
-          params: { status: 'cancel', orderCode, paidBefore: String(paidBefore) },
-        });
-        return;
-      }
-
-      if (outcome === 'success') {
-        router.push({
-          pathname: '/payment-result',
-          params: {
-            status: 'success',
-            orderCode,
-            paidBefore: String(paidBefore),
-            checkoutUrl,
-          },
-        });
-        return;
-      }
-
-      await refreshAll();
-      router.push({
-        pathname: '/payment-result',
-        params: {
-          status: 'pending',
-          orderCode,
-          paidBefore: String(paidBefore),
-          checkoutUrl,
-        },
-      });
-    } finally {
-      setBusy(false);
-    }
+    if (!pending?.orderCode) return;
+    router.push({
+      pathname: '/payment-checkout',
+      params: { orderCode: pending.orderCode },
+    });
   };
 
   const handleCancelPending = () => {

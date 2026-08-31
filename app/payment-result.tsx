@@ -11,10 +11,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   countPaidTickets,
-  openPayOsCheckout,
   resolveResumeCheckout,
   waitForPaidTickets,
 } from '../src/hooks/useTicketing';
+import { useLanguage } from '../src/i18n/LanguageContext';
 import { apiService, MyTicketDto } from '../src/services/apiService';
 import { C } from '../src/theme/colors';
 
@@ -22,6 +22,7 @@ type UiStatus = 'checking' | 'paid' | 'pending' | 'cancel';
 
 export default function PaymentResultScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const params = useLocalSearchParams<{
     status?: string | string[];
     orderCode?: string | string[];
@@ -61,7 +62,6 @@ export default function PaymentResultScreen() {
   const [hint, setHint] = useState('');
   const [orderCode, setOrderCode] = useState(orderCodeParam);
   const [checkoutUrl, setCheckoutUrl] = useState(initialCheckout);
-  const [resuming, setResuming] = useState(false);
   const started = useRef(false);
 
   useEffect(() => {
@@ -197,63 +197,17 @@ export default function PaymentResultScreen() {
     };
   }, [uiStatus, orderCode, orderCodeParam]);
 
-  const handleResume = async () => {
-    setResuming(true);
-    try {
-      const resume = await resolveResumeCheckout(orderCode || undefined);
-      if (resume.isPaid) {
-        const list = (await apiService.getMyTickets()).data ?? [];
-        setTickets(list);
-        setUiStatus('paid');
-        setHint('Thanh toán thành công — vé đã sẵn sàng.');
-        return;
-      }
-      if (resume.isCancelled) {
-        setCheckoutUrl('');
-        setUiStatus('cancel');
-        setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
-        return;
-      }
-
-      const url = resume.checkoutUrl || checkoutUrl;
-      if (resume.orderCode) setOrderCode(resume.orderCode);
-      if (resume.checkoutUrl) setCheckoutUrl(resume.checkoutUrl);
-      if (!url) return;
-
-      const before = countPaidTickets(tickets);
-      const outcome = await openPayOsCheckout(url);
-      if (outcome === 'success') {
-        const probe = await waitForPaidTickets({
-          attempts: 12,
-          intervalMs: 1500,
-          minCountBefore: before,
-        });
-        setTickets(probe.tickets);
-        setUiStatus(probe.confirmed ? 'paid' : 'pending');
-        setHint(
-          probe.confirmed
-            ? 'Thanh toán thành công — vé đã sẵn sàng.'
-            : 'Đang chờ xác nhận thanh toán…',
-        );
-      } else if (outcome === 'cancel') {
-        const code = resume.orderCode || orderCode;
-        if (code) {
-          try {
-            await apiService.cancelOrder(code);
-          } catch {
-            // ignore
-          }
-        }
-        setUiStatus('cancel');
-        setHint('Bạn đã huỷ thanh toán. Vé được đánh dấu Cancelled.');
-        setCheckoutUrl('');
-      } else {
-        setUiStatus('pending');
-        setHint('Vẫn chưa thanh toán. Bạn có thể mở lại PayOS hoặc vào Vé của tôi.');
-      }
-    } finally {
-      setResuming(false);
-    }
+  const handleResume = () => {
+    const code = orderCode || orderCodeParam;
+    if (!code) return;
+    router.push({
+      pathname: '/payment-checkout',
+      params: {
+        orderCode: code,
+        checkoutUrl: checkoutUrl || '',
+        paidBefore: String(paidBefore),
+      },
+    });
   };
 
   const icon =
@@ -283,12 +237,12 @@ export default function PaymentResultScreen() {
           ? 'Chờ thanh toán'
           : 'Đang kiểm tra…';
 
-  const canResume = uiStatus === 'pending' && Boolean(checkoutUrl);
+  const canResume = uiStatus === 'pending' && Boolean(orderCode || orderCodeParam);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.body}>
-        {uiStatus === 'checking' || resuming ? (
+        {uiStatus === 'checking' ? (
           <ActivityIndicator size="large" color={C.accent} />
         ) : (
           <MaterialCommunityIcons name={icon as 'check-circle'} size={64} color={iconColor} />
@@ -304,12 +258,8 @@ export default function PaymentResultScreen() {
 
         <View style={styles.actions}>
           {canResume ? (
-            <TouchableOpacity
-              style={styles.primaryBtn}
-              onPress={handleResume}
-              disabled={resuming}
-            >
-              <Text style={styles.primaryText}>Tiếp tục thanh toán PayOS</Text>
+            <TouchableOpacity style={styles.primaryBtn} onPress={handleResume}>
+              <Text style={styles.primaryText}>{t('payment.resume')}</Text>
             </TouchableOpacity>
           ) : null}
 

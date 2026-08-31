@@ -246,15 +246,13 @@ export type CreateOrderSubmitResult =
   | {
       ok: true;
       order: CreateOrderResponse;
-      paymentOpened: boolean;
-      browserOutcome: PaymentBrowserOutcome;
       paidCountBefore: number;
     }
   | { ok: false; authRequired?: boolean; message: string };
 
 /**
- * Đặt vé + PayOS:
- * success → Paid screen | cancel → Payment/cancel | close → Pending (resume via pending-order)
+ * Create ticket order — does NOT open PayOS browser.
+ * Caller navigates to in-app payment-checkout with the order / pending data.
  */
 export function useCreateOrder() {
   const { lang, t } = useLanguage();
@@ -294,40 +292,18 @@ export function useCreateOrder() {
         }
 
         const checkoutUrl = (order.checkoutUrl || order.paymentUrl || '').trim();
-        if (!checkoutUrl) {
+        if (!checkoutUrl && !order.qrCode) {
           return {
             ok: false,
             message:
               response.message ||
-              'Đơn đã tạo nhưng không nhận được link thanh toán PayOS.',
+              'Đơn đã tạo nhưng không nhận được link / QR thanh toán PayOS.',
           };
-        }
-
-        let browserOutcome = await openPayOsCheckout(checkoutUrl);
-
-        // If closed without redirect, webhook may still have paid — quick probe.
-        if (browserOutcome === 'pending') {
-          const probe = await waitForPaidTickets({
-            attempts: 4,
-            intervalMs: 1200,
-            minCountBefore: paidCountBefore,
-          });
-          if (probe.confirmed) browserOutcome = 'success';
-        }
-
-        if (browserOutcome === 'cancel' && order.orderCode) {
-          try {
-            await apiService.cancelOrder(order.orderCode);
-          } catch (cancelErr) {
-            console.warn('Payment/cancel failed:', cancelErr);
-          }
         }
 
         return {
           ok: true,
           order,
-          paymentOpened: true,
-          browserOutcome,
           paidCountBefore,
         };
       } catch (err: unknown) {

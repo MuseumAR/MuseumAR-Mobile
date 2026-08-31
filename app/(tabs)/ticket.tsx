@@ -83,9 +83,17 @@ export default function TicketScreen() {
     }
 
     // Newest BE: only one pending order (<15 min). Guide user instead of silent reuse.
-    if (pending?.checkoutUrl) {
+    if (pending?.checkoutUrl || pending?.orderCode) {
       Alert.alert(t('ticket.statusPending'), t('ticket.pendingExists'), [
         { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('ticket.continuePayment'),
+          onPress: () =>
+            router.push({
+              pathname: '/payment-checkout',
+              params: { orderCode: pending.orderCode ?? '' },
+            }),
+        },
         {
           text: t('ticket.myTickets'),
           onPress: () => router.push('/my-tickets'),
@@ -100,19 +108,15 @@ export default function TicketScreen() {
     });
 
     if (result.ok) {
-      const status =
-        result.browserOutcome === 'success'
-          ? 'success'
-          : result.browserOutcome === 'cancel'
-            ? 'cancel'
-            : 'pending';
-      router.replace({
-        pathname: '/payment-result',
+      router.push({
+        pathname: '/payment-checkout',
         params: {
-          status,
           orderCode: result.order.orderCode ?? '',
-          paidBefore: String(result.paidCountBefore),
           checkoutUrl: result.order.checkoutUrl || result.order.paymentUrl || '',
+          amount: String(result.order.amount ?? result.order.totalAmount ?? total),
+          ticketTypeName: selectedType.name ?? '',
+          quantity: String(quantity),
+          paidBefore: String(result.paidCountBefore),
         },
       });
       return;
