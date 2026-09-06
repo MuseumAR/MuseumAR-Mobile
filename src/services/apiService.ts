@@ -285,6 +285,8 @@ export interface PendingOrderDto {
 export interface TicketDetailDto {
   id: number;
   ticketCode: string;
+  /** Unit price snapshot from BE (same as ticketType.price). */
+  price?: number;
   status: string;
   purchaseDate: string;
   validDate?: string | null;
@@ -313,6 +315,23 @@ export interface TicketDetailDto {
   };
   qrCodeData?: string | null;
   qrCodeImageUrl?: string | null;
+}
+
+/**
+ * Resolve payment method label from BE (string or nested Name/DisplayName).
+ * App checkout is PayOS only — map legacy VNPay labels and empty values to PayOS.
+ */
+export function normalizePaymentMethodName(raw?: unknown): string {
+  let name = '';
+  if (typeof raw === 'string') {
+    name = raw.trim();
+  } else if (raw && typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    const nested = o.name ?? o.Name ?? o.displayName ?? o.DisplayName;
+    if (typeof nested === 'string') name = nested.trim();
+  }
+  if (!name || /vnpay/i.test(name)) return 'PayOS';
+  return name;
 }
 
 /**
@@ -1706,18 +1725,23 @@ export const apiService = {
     const order = asRecord(raw.order ?? raw.Order);
     const hasExhibition = Object.keys(exhibition).length > 0;
 
+    const unitPrice = Number(
+      raw.price ?? raw.Price ?? ticketType.price ?? ticketType.Price ?? 0,
+    );
+
     return {
       ...response,
       data: {
         id: Number(raw.id ?? raw.Id ?? ticketId),
         ticketCode: String(raw.ticketCode ?? raw.TicketCode ?? ''),
+        price: unitPrice,
         status: String(raw.status ?? raw.Status ?? ''),
         purchaseDate: String(raw.purchaseDate ?? raw.PurchaseDate ?? ''),
         validDate: (raw.validDate ?? raw.ValidDate ?? null) as string | null,
         ticketType: {
           id: Number(ticketType.id ?? ticketType.Id ?? 0),
           name: String(ticketType.name ?? ticketType.Name ?? ''),
-          price: Number(ticketType.price ?? ticketType.Price ?? 0),
+          price: Number(ticketType.price ?? ticketType.Price ?? unitPrice),
           description: (ticketType.description ?? ticketType.Description ?? null) as
             | string
             | null,
@@ -1738,9 +1762,9 @@ export const apiService = {
           totalAmount: Number(order.totalAmount ?? order.TotalAmount ?? 0),
           currency: String(order.currency ?? order.Currency ?? 'VND'),
           paymentStatus: String(order.paymentStatus ?? order.PaymentStatus ?? ''),
-          paymentMethod: (order.paymentMethod ?? order.PaymentMethod ?? null) as
-            | string
-            | null,
+          paymentMethod: normalizePaymentMethodName(
+            order.paymentMethod ?? order.PaymentMethod,
+          ),
           paidAt: (order.paidAt ?? order.PaidAt ?? null) as string | null,
         },
         qrCodeData: (raw.qrCodeData ?? raw.QrCodeData ?? null) as string | null,

@@ -13,6 +13,7 @@ import {
   audioLogicalKey,
   markerLogicalKey,
   mergeMediaMap,
+  modelLogicalKey,
   overlayLogicalKey,
   thumbLogicalKey,
 } from './offlineMedia';
@@ -32,6 +33,8 @@ function logicalKeysFromZipPath(relativePath: string): string[] {
   if (thumb) keys.push(thumbLogicalKey(Number(thumb[1])));
   const overlay = name.match(/ar\/exhibit_(\d+)_overlay/i);
   if (overlay) keys.push(overlayLogicalKey(Number(overlay[1])));
+  const model = name.match(/ar\/exhibit_(\d+)_model/i);
+  if (model) keys.push(modelLogicalKey(Number(model[1])));
   const marker = name.match(/ar\/exhibit_(\d+)_marker/i);
   if (marker) keys.push(markerLogicalKey(Number(marker[1])));
   return keys;
@@ -339,13 +342,23 @@ async function downloadExhibitMedia(exhibits: ExhibitDto[]): Promise<Record<stri
     try {
       const assetsRes = await apiService.getExhibitArAssets(exhibit.id);
       for (const asset of assetsRes.data ?? []) {
-        if (!isOverlayArAsset(asset)) continue;
-        const remote = String(asset.url ?? asset.assetUrl ?? '').trim();
-        await enqueue(
-          resolveUrl(remote, true),
-          overlayLogicalKey(exhibit.id),
-          `exhibit_${exhibit.id}_overlay`,
-        );
+        if (isOverlayArAsset(asset)) {
+          const remote = String(asset.url ?? asset.assetUrl ?? '').trim();
+          await enqueue(
+            resolveUrl(remote, true),
+            overlayLogicalKey(exhibit.id),
+            `exhibit_${exhibit.id}_overlay`,
+          );
+          continue;
+        }
+        if (isModel3dArAsset(asset)) {
+          const remote = String(asset.url ?? asset.assetUrl ?? '').trim();
+          await enqueue(
+            remote,
+            modelLogicalKey(exhibit.id),
+            `exhibit_${exhibit.id}_model`,
+          );
+        }
       }
     } catch {
       // AR asset list optional during pack build
@@ -368,6 +381,21 @@ function isOverlayArAsset(asset: ArAssetDto): boolean {
   }
   const url = String(asset.url ?? asset.assetUrl ?? '');
   return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+}
+
+function isModel3dArAsset(asset: ArAssetDto): boolean {
+  const type = String(asset.assetType ?? '').toLowerCase();
+  if (
+    type === 'model3d' ||
+    type === '3dmodel' ||
+    type === 'model' ||
+    type === '3d' ||
+    type === 'mesh'
+  ) {
+    return true;
+  }
+  const url = String(asset.url ?? asset.assetUrl ?? '');
+  return /\.(glb|gltf|usdz|fbx|obj)(\?|$)/i.test(url);
 }
 
 export async function downloadOfflinePack(options: {

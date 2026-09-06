@@ -1,15 +1,23 @@
-import { useEffect, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { StyleSheet, View, ViewStyle } from 'react-native';
 import {
-  buildUnityOverlayPayload,
+  buildUnityModelPayload,
   UNITY_AR_GAME_OBJECT,
   UNITY_AR_METHOD,
+  UNITY_AR_RESET_METHOD,
 } from '../services/unityAr';
 
-export type UnityOverlayStatus =
+export type UnityArStatus =
   | { state: 'loading' }
   | { state: 'loaded' }
   | { state: 'error'; message: string };
+
+/** @deprecated Use UnityArStatus */
+export type UnityOverlayStatus = UnityArStatus;
+
+export type UnityArPlayerHandle = {
+  resetPlacement: () => void;
+};
 
 type UnityLoaderEvent = {
   type?: string;
@@ -26,12 +34,14 @@ type UnityViewHandle = {
 
 type Props = {
   exhibitId: number;
-  overlayUrl: string;
+  modelUrl: string;
   /** When false, pause Unity but keep the native view mounted. */
   active: boolean;
   style?: ViewStyle;
   onUnityMessage?: (message: string) => void;
-  onOverlayStatus?: (status: UnityOverlayStatus) => void;
+  onArStatus?: (status: UnityArStatus) => void;
+  /** @deprecated Use onArStatus */
+  onOverlayStatus?: (status: UnityArStatus) => void;
 };
 
 const RETRY_INTERVAL_MS = 1500;
@@ -60,24 +70,45 @@ function pausePlayer(player: UnityViewHandle | null) {
  * Must stay mounted for the app lifetime after first use — UnityView
  * unloads the engine on React unmount, which crashes the next session.
  */
-export function UnityArPlayer({
-  exhibitId,
-  overlayUrl,
-  active,
-  style,
-  onUnityMessage,
-  onOverlayStatus,
-}: Props) {
+export const UnityArPlayer = forwardRef<UnityArPlayerHandle, Props>(function UnityArPlayer(
+  {
+    exhibitId,
+    modelUrl,
+    active,
+    style,
+    onUnityMessage,
+    onArStatus,
+    onOverlayStatus,
+  },
+  ref,
+) {
   // Require at runtime so Expo Go / web metro still bundles without native module crash at import time.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const UnityView = require('@azesmway/react-native-unity').default;
   const unityRef = useRef<UnityViewHandle | null>(null);
 
   const ackedRef = useRef(false);
-  const statusRef = useRef(onOverlayStatus);
-  statusRef.current = onOverlayStatus;
+  const lastSentRef = useRef<{ exhibitId: number; modelUrl: string } | null>(null);
+  const statusRef = useRef(onArStatus ?? onOverlayStatus);
+  statusRef.current = onArStatus ?? onOverlayStatus;
   const onMessageRef = useRef(onUnityMessage);
   onMessageRef.current = onUnityMessage;
+
+  useImperativeHandle(ref, () => ({
+    resetPlacement: () => {
+      ackedRef.current = false;
+      statusRef.current?.({ state: 'loading' });
+      try {
+        resumePlayer(unityRef.current);
+        unityRef.current?.postMessage(UNITY_AR_GAME_OBJECT, UNITY_AR_RESET_METHOD, '');
+      } catch {
+        statusRef.current?.({
+          state: 'error',
+          message: 'Không thể đặt lại mô hình AR.',
+        });
+      }
+    },
+  }));
 
   useEffect(() => {
     if (!active) {
@@ -86,10 +117,22 @@ export function UnityArPlayer({
     }
 
     resumePlayer(unityRef.current);
+
+    const sameSession =
+      lastSentRef.current?.exhibitId === exhibitId &&
+      lastSentRef.current?.modelUrl === modelUrl;
+
+    if (sameSession) {
+      // Reopen same exhibit — keep placed model, do not resend payload.
+      ackedRef.current = true;
+      statusRef.current?.({ state: 'loaded' });
+      return;
+    }
+
     ackedRef.current = false;
     statusRef.current?.({ state: 'loading' });
 
-    const payload = buildUnityOverlayPayload({ exhibitId, overlayUrl });
+    const payload = buildUnityModelPayload({ exhibitId, modelUrl });
 
     const send = () => {
       if (ackedRef.current) return;
@@ -109,12 +152,14 @@ export function UnityArPlayer({
     const interval = setInterval(send, RETRY_INTERVAL_MS);
     const stop = setTimeout(() => clearInterval(interval), MAX_RETRY_MS);
 
+    lastSentRef.current = { exhibitId, modelUrl };
+
     return () => {
       clearTimeout(first);
       clearTimeout(stop);
       clearInterval(interval);
     };
-  }, [active, exhibitId, overlayUrl]);
+  }, [active, exhibitId, modelUrl]);
 
   const handleUnityMessage = (message: string) => {
     let event: UnityLoaderEvent | null = null;
@@ -124,13 +169,13 @@ export function UnityArPlayer({
       // Not a loader event — forward as-is below.
     }
 
-    if (event?.type === 'overlayLoaded') {
+    if (event?.type === 'modelLoaded' || event?.type === 'overlayLoaded') {
       ackedRef.current = true;
       statusRef.current?.({ state: 'loaded' });
     } else if (event?.type === 'error') {
       statusRef.current?.({
         state: 'error',
-        message: event.message || 'Unity không tải được ảnh overlay.',
+        message: event.message || 'Unity không tải được mô hình 3D.',
       });
     }
 
@@ -151,7 +196,7 @@ export function UnityArPlayer({
       />
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   wrap: { flex: 1, backgroundColor: '#000' },

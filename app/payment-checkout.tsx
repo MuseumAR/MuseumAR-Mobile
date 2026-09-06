@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Image,
   ScrollView,
   StyleSheet,
@@ -13,10 +14,18 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  waitForPaidTickets,
+  confirmOrderPayment,
+  countPaidTickets,
 } from '../src/hooks/useTicketing';
 import { useLanguage } from '../src/i18n/LanguageContext';
 import { apiService, PendingOrderDto } from '../src/services/apiService';
+import {
+  clearPaymentCheckoutSession,
+  getPaymentCheckoutSession,
+  lockPaymentCheckoutSession,
+  setPaymentCheckoutSession,
+  unlockPaymentCheckoutSession,
+} from '../src/services/paymentCheckoutSession';
 import { C } from '../src/theme/colors';
 
 function formatCountdown(totalSeconds: number): string {
@@ -57,18 +66,37 @@ export default function PaymentCheckoutScreen() {
   }>();
 
   const initialOrderCode = paramOne(params.orderCode);
-  const paidBefore = Number(paramOne(params.paidBefore) || '0') || 0;
+  const paidBeforeParam = Number(paramOne(params.paidBefore) || '');
+  const seeded = getPaymentCheckoutSession(initialOrderCode || undefined);
+  const paidBefore =
+    (Number.isFinite(paidBeforeParam) ? paidBeforeParam : undefined) ??
+    seeded?.paidBefore ??
+    0;
 
-  const [orderCode, setOrderCode] = useState(initialOrderCode);
-  const [checkoutUrl, setCheckoutUrl] = useState(paramOne(params.checkoutUrl));
-  const [qrCode, setQrCode] = useState(paramOne(params.qrCode));
-  const [ticketTypeName, setTicketTypeName] = useState(paramOne(params.ticketTypeName));
-  const [quantity, setQuantity] = useState(Number(paramOne(params.quantity) || '1') || 1);
-  const [amount, setAmount] = useState(Number(paramOne(params.amount) || '0') || 0);
+  const [orderCode, setOrderCode] = useState(
+    initialOrderCode || seeded?.orderCode || '',
+  );
+  const [checkoutUrl, setCheckoutUrl] = useState(
+    paramOne(params.checkoutUrl) || seeded?.checkoutUrl || '',
+  );
+  const [qrCode, setQrCode] = useState(
+    paramOne(params.qrCode) || seeded?.qrCode || '',
+  );
+  const [ticketTypeName, setTicketTypeName] = useState(
+    paramOne(params.ticketTypeName) || seeded?.ticketTypeName || '',
+  );
+  const [quantity, setQuantity] = useState(
+    Number(paramOne(params.quantity) || '') || seeded?.quantity || 1,
+  );
+  const [amount, setAmount] = useState(
+    Number(paramOne(params.amount) || '') || seeded?.amount || 0,
+  );
   const [secondsLeft, setSecondsLeft] = useState(15 * 60);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const navigatingRef = useRef(false);
+  const orderCodeRef = useRef(orderCode);
+  orderCodeRef.current = orderCode;
 
   const locale = lang === 'en' ? 'en-US' : 'vi-VN';
   const qrUri = useMemo(() => resolveQrImageUri(qrCode), [qrCode]);
@@ -81,7 +109,16 @@ export default function PaymentCheckoutScreen() {
     if (pending.quantity != null) setQuantity(pending.quantity);
     if (pending.totalAmount != null) setAmount(Number(pending.totalAmount));
     setSecondsLeft(Math.max(0, pending.remainingSeconds ?? 0));
-  }, []);
+    setPaymentCheckoutSession({
+      orderCode: pending.orderCode,
+      checkoutUrl: pending.checkoutUrl,
+      qrCode: pending.qrCode,
+      amount: pending.totalAmount,
+      ticketTypeName: pending.ticketTypeName,
+      quantity: pending.quantity,
+      paidBefore,
+    });
+  }, [paidBefore]);
 
   const refreshPending = useCallback(async () => {
     try {
@@ -96,17 +133,99 @@ export default function PaymentCheckoutScreen() {
     return null;
   }, [applyPending, lang]);
 
+  const goResult = useCallback(
+    (status: 'success' | 'cancel' | 'pending') => {
+      if (navigatingRef.current) return;
+      navigatingRef.current = true;
+      const code = orderCodeRef.current;
+      unlockPaymentCheckoutSession(code);
+      if (status === 'success' || status === 'cancel') {
+        clearPaymentCheckoutSession(code);
+      }
+      router.replace({
+        pathname: '/payment-result',
+        params: {
+          status,
+          orderCode: code || '',
+          paidBefore: String(paidBefore),
+          checkoutUrl: checkoutUrl || '',
+        },
+      });
+    },
+    [checkoutUrl, paidBefore, router],
+  );
+
+  const probePaid = useCallback(async (): Promise<'paid' | 'cancel' | 'pending'> => {
+    const code = orderCodeRef.current;
+    if (!code) return 'pending';
+    const status = await confirmOrderPayment(code);
+    if (status.isPaid) return 'paid';
+    if (status.isCancelled) return 'cancel';
+    // Fallback: webhook may mark tickets Paid even if check-status lags.
+    if (paidBefore >= 0) {
+      try {
+        const list = (await apiService.getMyTickets(lang)).data ?? [];
+        if (countPaidTickets(list) > paidBefore) return 'paid';
+      } catch {
+        // ignore
+      }
+    }
+    return 'pending';
+  }, [lang, paidBefore]);
+
+  // Lock so other screens do not regenerate the PayOS link mid-payment.
+  useEffect(() => {
+    const code = initialOrderCode || seeded?.orderCode || '';
+    if (code) lockPaymentCheckoutSession(code);
+    return () => {
+      unlockPaymentCheckoutSession(code);
+    };
+  }, [initialOrderCode, seeded?.orderCode]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setLoading(true);
-      await refreshPending();
-      if (!cancelled) setLoading(false);
+      try {
+        if (initialOrderCode) {
+          lockPaymentCheckoutSession(initialOrderCode);
+          const status = await confirmOrderPayment(initialOrderCode);
+          if (cancelled) return;
+          if (status.isPaid) {
+            goResult('success');
+            return;
+          }
+          if (status.isCancelled) {
+            goResult('cancel');
+            return;
+          }
+        }
+        const hasQr = Boolean(
+          (qrCode || getPaymentCheckoutSession(initialOrderCode)?.qrCode || '').trim(),
+        );
+        // Only regenerate PayOS link when we truly have no QR (resume path).
+        if (!hasQr) {
+          unlockPaymentCheckoutSession(initialOrderCode);
+          await refreshPending();
+          if (initialOrderCode || orderCodeRef.current) {
+            lockPaymentCheckoutSession(initialOrderCode || orderCodeRef.current);
+          }
+        } else {
+          const cached = getPaymentCheckoutSession(initialOrderCode);
+          if (cached?.qrCode && !qrCode) setQrCode(cached.qrCode);
+          if (cached?.checkoutUrl && !checkoutUrl) {
+            setCheckoutUrl(cached.checkoutUrl);
+          }
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [refreshPending]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOrderCode]);
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
@@ -116,66 +235,61 @@ export default function PaymentCheckoutScreen() {
     return () => clearInterval(id);
   }, [secondsLeft > 0, orderCode]);
 
-  const goResult = useCallback(
-    (status: 'success' | 'cancel' | 'pending') => {
-      if (navigatingRef.current) return;
-      navigatingRef.current = true;
-      router.replace({
-        pathname: '/payment-result',
-        params: {
-          status,
-          orderCode: orderCode || '',
-          paidBefore: String(paidBefore),
-          checkoutUrl: checkoutUrl || '',
-        },
-      });
-    },
-    [checkoutUrl, orderCode, paidBefore, router],
-  );
-
-  // Poll payment status while QR is on screen.
+  // Poll PayOS + my-tickets until this order is paid.
   useEffect(() => {
     if (!orderCode || loading) return;
     let stopped = false;
 
     const tick = async () => {
       if (stopped || navigatingRef.current) return;
-      try {
-        const check = await apiService.checkPayment(orderCode);
-        if (check.data?.isPaid) {
-          goResult('success');
-          return;
-        }
-        if (check.data?.isCancelled) {
-          goResult('cancel');
-          return;
-        }
-      } catch {
-        // ignore transient errors
-      }
-      try {
-        const probe = await waitForPaidTickets({
-          attempts: 1,
-          intervalMs: 0,
-          minCountBefore: paidBefore,
-        });
-        if (probe.confirmed) goResult('success');
-      } catch {
-        // ignore
-      }
+      const result = await probePaid();
+      if (stopped || navigatingRef.current) return;
+      if (result === 'paid') goResult('success');
+      else if (result === 'cancel') goResult('cancel');
     };
 
     void tick();
     const id = setInterval(() => {
       void tick();
-    }, 4000);
+    }, 2500);
     return () => {
       stopped = true;
       clearInterval(id);
     };
-  }, [goResult, loading, orderCode, paidBefore]);
+  }, [goResult, loading, orderCode, probePaid]);
 
-  const handleClose = () => {
+  // When returning from banking / PayOS app, re-check immediately.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !orderCodeRef.current || navigatingRef.current) {
+        return;
+      }
+      void (async () => {
+        const result = await probePaid();
+        if (result === 'paid') goResult('success');
+        else if (result === 'cancel') goResult('cancel');
+      })();
+    });
+    return () => sub.remove();
+  }, [goResult, probePaid]);
+
+  const handleClose = async () => {
+    if (orderCode) {
+      setBusy(true);
+      try {
+        const result = await probePaid();
+        if (result === 'paid') {
+          goResult('success');
+          return;
+        }
+        if (result === 'cancel') {
+          goResult('cancel');
+          return;
+        }
+      } finally {
+        setBusy(false);
+      }
+    }
     goResult('pending');
   };
 
@@ -202,6 +316,20 @@ export default function PaymentCheckoutScreen() {
         },
       },
     ]);
+  };
+
+  const handleReloadOrder = async () => {
+    setBusy(true);
+    try {
+      unlockPaymentCheckoutSession(orderCode);
+      const pending = await refreshPending();
+      if (pending?.orderCode) lockPaymentCheckoutSession(pending.orderCode);
+      if (!pending?.qrCode && !pending?.checkoutUrl) {
+        Alert.alert(t('exhibit.error'), t('payment.qrMissing'));
+      }
+    } finally {
+      setBusy(false);
+    }
   };
 
   const expired = secondsLeft <= 0;
@@ -289,6 +417,15 @@ export default function PaymentCheckoutScreen() {
                   <Text style={styles.qrPlaceholderText}>
                     {expired ? t('payment.qrExpired') : t('payment.qrMissing')}
                   </Text>
+                  {!expired ? (
+                    <TouchableOpacity
+                      style={styles.reloadBtn}
+                      onPress={() => void handleReloadOrder()}
+                      disabled={busy}
+                    >
+                      <Text style={styles.reloadBtnText}>{t('payment.reloadOrder')}</Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               )}
             </View>
@@ -453,6 +590,20 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: 'center',
     color: C.textSecondary,
+  },
+  reloadBtn: {
+    marginTop: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.accent + '66',
+    backgroundColor: C.accent + '14',
+  },
+  reloadBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.accent,
   },
   actions: {
     flexDirection: 'row',

@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { resolveArOverlayUrl } from '../../src/utils/arOverlayUrl';
+import { useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,61 +15,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useExhibitArAssets } from '../../src/hooks/useExhibitArAssets';
 import { useExhibitDetail } from '../../src/hooks/useExhibitDetail';
 import { useUnityArHost } from '../../src/context/UnityArHostContext';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { isExpoGo, isUnityNativeAvailable } from '../../src/services/unityAr';
+import { resolveArModelUrl } from '../../src/utils/arModelUrl';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
-
-type ArMode = '2d' | '3d';
 
 export default function ArModelScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { t } = useLanguage();
   const exhibitId = parseNumericId(id);
   const { openAr: openUnityAr } = useUnityArHost();
   const { exhibit, loading: exhibitLoading } = useExhibitDetail(id);
-  const {
-    imageAsset,
-    modelAsset,
-    hasAr2d,
-    hasAr3d,
-    loading: assetsLoading,
-  } = useExhibitArAssets(exhibitId);
+  const { modelAsset, hasAr3d, loading: assetsLoading } = useExhibitArAssets(exhibitId);
 
-  const availableModes = useMemo(() => {
-    const modes: ArMode[] = [];
-    if (hasAr2d || exhibit?.arOverlayUrl) modes.push('2d');
-    if (hasAr3d) modes.push('3d');
-    if (modes.length === 0 && exhibit?.arAvailable && exhibit.thumbnailUrl) {
-      modes.push('2d');
-    }
-    return modes;
-  }, [hasAr2d, hasAr3d, exhibit]);
-
-  const [mode, setMode] = useState<ArMode | null>(null);
-
-  useEffect(() => {
-    if (mode && availableModes.includes(mode)) return;
-    setMode(availableModes[0] ?? null);
-  }, [availableModes, mode]);
-
-  // Prefer OverlayImage asset only — never MarkerImage / Model3D URLs.
-  const overlayRemoteUrl = imageAsset?.url || exhibit?.arOverlayUrl || null;
-
-  const [overlayDisplayUrl, setOverlayDisplayUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (exhibitId == null || !overlayRemoteUrl) {
-      setOverlayDisplayUrl(null);
-      return;
-    }
-    let cancelled = false;
-    void resolveArOverlayUrl(exhibitId, overlayRemoteUrl).then((url) => {
-      if (!cancelled) setOverlayDisplayUrl(url ?? overlayRemoteUrl);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [exhibitId, overlayRemoteUrl]);
+  const modelRemoteUrl =
+    modelAsset?.url || modelAsset?.assetUrl || null;
 
   const modelPreviewUrl =
     modelAsset?.previewImageUrl ||
@@ -81,39 +42,28 @@ export default function ArModelScreen() {
   const loading = exhibitLoading || assetsLoading;
 
   const openAr = useCallback(async () => {
-    if (mode === '3d') {
-      Alert.alert(
-        'AR 3D',
-        'Xem mô hình 3D sẽ được hỗ trợ ở bước sau. Hiện tại chỉ mở được AR overlay ảnh 2D.',
-      );
-      return;
-    }
-
-    if (exhibitId == null || !overlayRemoteUrl) {
-      Alert.alert('AR', 'Chưa có ảnh overlay cho hiện vật này.');
+    if (exhibitId == null || !modelRemoteUrl) {
+      Alert.alert(t('ar.title'), t('ar.noModel'));
       return;
     }
 
     if (isExpoGo() || !isUnityNativeAvailable()) {
-      Alert.alert(
-        'Cần Development Build',
-        'Unity AR không chạy trong Expo Go. Export Unity vào unity/builds rồi chạy:\n\nnpx expo prebuild\nnpx expo run:android',
-      );
+      Alert.alert(t('ar.devBuildRequired'), t('ar.devBuildHint'));
       return;
     }
 
-    const url = await resolveArOverlayUrl(exhibitId, overlayRemoteUrl);
+    const url = await resolveArModelUrl(exhibitId, modelRemoteUrl);
     if (!url) {
-      Alert.alert('AR', 'Chưa có ảnh overlay cho hiện vật này.');
+      Alert.alert(t('ar.title'), t('ar.noModel'));
       return;
     }
 
     if (__DEV__) {
-      console.log('[MuseumAR] Opening Unity AR with OverlayImage URL:', url);
+      console.log('[MuseumAR] Opening Unity AR 3D:', url);
     }
 
     void openUnityAr(exhibitId, url);
-  }, [mode, exhibitId, overlayRemoteUrl, openUnityAr]);
+  }, [exhibitId, modelRemoteUrl, openUnityAr, t]);
 
   if (loading && !exhibit) {
     return (
@@ -125,16 +75,14 @@ export default function ArModelScreen() {
     );
   }
 
-  if (!exhibit || availableModes.length === 0) {
+  if (!exhibit || !hasAr3d || !modelRemoteUrl) {
     return (
       <SafeAreaView style={styles.safe} edges={['bottom']}>
         <View style={styles.center}>
-          <Text style={styles.emptyTitle}>Chưa có mô hình AR</Text>
-          <Text style={styles.emptyText}>
-            Hiện vật này chưa có asset 2D overlay hoặc mô hình 3D.
-          </Text>
+          <Text style={styles.emptyTitle}>{t('ar.noModelTitle')}</Text>
+          <Text style={styles.emptyText}>{t('ar.noModelHint')}</Text>
           <TouchableOpacity style={styles.secondaryBtn} onPress={() => router.back()}>
-            <Text style={styles.secondaryBtnText}>Quay lại</Text>
+            <Text style={styles.secondaryBtnText}>{t('common.back')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -145,105 +93,38 @@ export default function ArModelScreen() {
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>{exhibit.title}</Text>
-        <Text style={styles.subtitle}>
-          {mode === '2d' ? 'Xem overlay ảnh 2D' : 'Xem mô hình 3D'}
-        </Text>
-
-        {availableModes.length > 1 && (
-          <View style={styles.modeRow}>
-            {availableModes.includes('2d') && (
-              <TouchableOpacity
-                style={[styles.modeChip, mode === '2d' && styles.modeChipActive]}
-                onPress={() => setMode('2d')}
-              >
-                <MaterialCommunityIcons
-                  name="image-outline"
-                  size={18}
-                  color={mode === '2d' ? C.onAccent : C.accent}
-                />
-                <Text style={[styles.modeChipText, mode === '2d' && styles.modeChipTextActive]}>
-                  AR 2D
-                </Text>
-              </TouchableOpacity>
-            )}
-            {availableModes.includes('3d') && (
-              <TouchableOpacity
-                style={[styles.modeChip, mode === '3d' && styles.modeChipActive]}
-                onPress={() => setMode('3d')}
-              >
-                <MaterialCommunityIcons
-                  name="cube-outline"
-                  size={18}
-                  color={mode === '3d' ? C.onAccent : C.accent}
-                />
-                <Text style={[styles.modeChipText, mode === '3d' && styles.modeChipTextActive]}>
-                  AR 3D
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
+        <Text style={styles.subtitle}>{t('ar.previewSubtitle')}</Text>
 
         <View style={styles.previewCard}>
-          {mode === '2d' ? (
-            overlayRemoteUrl ? (
+          <View style={styles.modelWrap}>
+            {modelPreviewUrl ? (
               <Image
-                source={{ uri: overlayDisplayUrl ?? overlayRemoteUrl }}
+                source={{ uri: modelPreviewUrl }}
                 style={styles.previewImage}
                 resizeMode="contain"
               />
             ) : (
               <View style={styles.previewEmpty}>
-                <MaterialCommunityIcons name="image-off-outline" size={40} color={C.textMuted} />
-                <Text style={styles.previewEmptyText}>Không có ảnh overlay</Text>
+                <MaterialCommunityIcons name="cube-outline" size={48} color={C.accent} />
               </View>
-            )
-          ) : (
-            <View style={styles.modelWrap}>
-              {modelPreviewUrl ? (
-                <Image
-                  source={{ uri: modelPreviewUrl }}
-                  style={styles.previewImage}
-                  resizeMode="contain"
-                />
-              ) : (
-                <View style={styles.previewEmpty}>
-                  <MaterialCommunityIcons name="cube-outline" size={48} color={C.accent} />
-                </View>
-              )}
-              <View style={styles.modelMeta}>
-                <Text style={styles.modelMetaLabel}>Mô hình 3D</Text>
-                <Text style={styles.modelMetaValue}>
-                  {modelAsset?.format?.toUpperCase() || 'MODEL'}
-                  {modelAsset?.fileSizeBytes
-                    ? ` · ${(modelAsset.fileSizeBytes / (1024 * 1024)).toFixed(1)} MB`
-                    : ''}
-                </Text>
-                {modelAsset?.url ? (
-                  <Text style={styles.modelUrl} numberOfLines={2}>
-                    {modelAsset.url}
-                  </Text>
-                ) : null}
-              </View>
+            )}
+            <View style={styles.modelMeta}>
+              <Text style={styles.modelMetaLabel}>{t('ar.modelLabel')}</Text>
+              <Text style={styles.modelMetaValue}>
+                {modelAsset?.format?.toUpperCase() || 'GLB'}
+                {modelAsset?.fileSizeBytes
+                  ? ` · ${(modelAsset.fileSizeBytes / (1024 * 1024)).toFixed(1)} MB`
+                  : ''}
+              </Text>
             </View>
-          )}
+          </View>
         </View>
 
-        <Text style={styles.hint}>
-          {mode === '2d'
-            ? 'Mở Unity trong app (không deep link). Chạm mặt phẳng trong camera để đặt overlay 2D.'
-            : 'Xem mô hình 3D trong Unity sẽ được bổ sung sau. Hiện chỉ hỗ trợ overlay ảnh 2D.'}
-        </Text>
+        <Text style={styles.hint}>{t('ar.openHint')}</Text>
 
-        <TouchableOpacity
-          style={[styles.primaryBtn, mode === '2d' && !overlayRemoteUrl && styles.primaryBtnDisabled]}
-          onPress={() => void openAr()}
-          disabled={mode === '2d' && !overlayRemoteUrl}
-        >
+        <TouchableOpacity style={styles.primaryBtn} onPress={() => void openAr()}>
           <MaterialCommunityIcons name="augmented-reality" size={22} color={C.onAccent} />
-          <Text style={styles.primaryBtnText}>
-            {mode === '2d' ? 'Mở AR trong app (Unity)' : 'AR 3D (sắp có)'}
-          </Text>
+          <Text style={styles.primaryBtnText}>{t('ar.openUnity')}</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
@@ -256,21 +137,6 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   title: { fontSize: 22, fontWeight: '800', color: C.textPrimary },
   subtitle: { fontSize: 14, color: C.textSecondary, marginTop: 6, marginBottom: 16 },
-  modeRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
-  modeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: C.border,
-    backgroundColor: C.bgSurface,
-  },
-  modeChipActive: { backgroundColor: C.accent, borderColor: C.accent },
-  modeChipText: { fontSize: 13, fontWeight: '700', color: C.accent },
-  modeChipTextActive: { color: C.onAccent },
   previewCard: {
     backgroundColor: C.bgSurface,
     borderRadius: 18,
@@ -289,12 +155,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
   },
-  previewEmptyText: { color: C.textMuted, fontSize: 14 },
   modelWrap: { width: '100%' },
   modelMeta: { padding: 16, borderTopWidth: 1, borderTopColor: C.divider },
   modelMetaLabel: { fontSize: 12, fontWeight: '700', color: C.accent, textTransform: 'uppercase' },
   modelMetaValue: { fontSize: 15, fontWeight: '700', color: C.textPrimary, marginTop: 4 },
-  modelUrl: { fontSize: 11, color: C.textMuted, marginTop: 8, lineHeight: 16 },
   hint: {
     fontSize: 13,
     color: C.textMuted,
@@ -311,7 +175,6 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     paddingVertical: 16,
   },
-  primaryBtnDisabled: { opacity: 0.55 },
   primaryBtnText: { color: C.onAccent, fontWeight: '700', fontSize: 16 },
   secondaryBtn: {
     marginTop: 16,

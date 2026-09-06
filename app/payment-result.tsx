@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  confirmOrderPayment,
   countPaidTickets,
   resolveResumeCheckout,
   waitForPaidTickets,
@@ -76,7 +77,24 @@ export default function PaymentResultScreen() {
       setHint(
         'Bạn đã đóng PayOS chưa thanh toán. Đơn vẫn Pending (tối đa 15 phút) — mở lại PayOS hoặc xem Vé của tôi.',
       );
-      void resolveResumeCheckout(orderCodeParam || undefined).then((res) => {
+      void (async () => {
+        if (orderCodeParam) {
+          const status = await confirmOrderPayment(orderCodeParam);
+          if (status.isPaid) {
+            const list = (await apiService.getMyTickets()).data ?? [];
+            setTickets(list);
+            setUiStatus('paid');
+            setHint('Thanh toán thành công — vé đã sẵn sàng.');
+            return;
+          }
+          if (status.isCancelled) {
+            setCheckoutUrl('');
+            setUiStatus('cancel');
+            setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
+            return;
+          }
+        }
+        const res = await resolveResumeCheckout(orderCodeParam || undefined);
         if (res.isPaid) {
           setUiStatus('paid');
           setHint('Thanh toán thành công — vé đã sẵn sàng.');
@@ -90,7 +108,7 @@ export default function PaymentResultScreen() {
         }
         if (res.orderCode) setOrderCode(res.orderCode);
         if (res.checkoutUrl) setCheckoutUrl(res.checkoutUrl);
-      });
+      })();
       return;
     }
 
@@ -103,9 +121,11 @@ export default function PaymentResultScreen() {
       setHint('Đang kiểm tra vé đã thanh toán…');
 
       if (orderCodeParam) {
-        try {
-          const check = await apiService.checkPayment(orderCodeParam);
-          if (check.data?.isPaid) {
+        // Poll this order specifically (updates BE Pending → Completed).
+        for (let i = 0; i < 12; i += 1) {
+          const status = await confirmOrderPayment(orderCodeParam);
+          if (cancelled) return;
+          if (status.isPaid) {
             const list = (await apiService.getMyTickets()).data ?? [];
             if (cancelled) return;
             setTickets(list);
@@ -113,43 +133,44 @@ export default function PaymentResultScreen() {
             setHint('Thanh toán thành công — vé đã sẵn sàng.');
             return;
           }
-          if (check.data?.isCancelled) {
-            if (cancelled) return;
+          if (status.isCancelled) {
             setUiStatus('cancel');
             setHint('Thanh toán đã huỷ hoặc hết hạn.');
             return;
           }
-        } catch {
-          // fall through to poll my-tickets
+          if (i < 11) {
+            await new Promise((r) => setTimeout(r, 1500));
+          }
+        }
+      } else {
+        // No order code — fall back to paid-count increase only.
+        const { tickets: list, confirmed } = await waitForPaidTickets({
+          attempts: 20,
+          intervalMs: 1500,
+          minCountBefore: paidBefore,
+        });
+        if (cancelled) return;
+        setTickets(list);
+        if (confirmed || countPaidTickets(list) > paidBefore) {
+          setUiStatus('paid');
+          setHint('Thanh toán thành công — vé đã sẵn sàng.');
+          return;
         }
       }
 
-      const { tickets: list, confirmed } = await waitForPaidTickets({
-        attempts: 20,
-        intervalMs: 1500,
-        minCountBefore: paidBefore,
-      });
-
       if (cancelled) return;
-      setTickets(list);
-
-      if (confirmed || countPaidTickets(list) > paidBefore) {
-        setUiStatus('paid');
-        setHint('Thanh toán thành công — vé đã sẵn sàng.');
+      setUiStatus('pending');
+      setHint(
+        'Chưa xác nhận Paid. Bạn có thể mở lại PayOS hoặc kiểm tra Vé của tôi sau vài giây.',
+      );
+      const resume = await resolveResumeCheckout(orderCodeParam || undefined);
+      if (resume.isCancelled) {
+        setCheckoutUrl('');
+        setUiStatus('cancel');
+        setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
       } else {
-        setUiStatus('pending');
-        setHint(
-          'Chưa xác nhận Paid. Bạn có thể mở lại PayOS hoặc kiểm tra Vé của tôi sau vài giây.',
-        );
-        const resume = await resolveResumeCheckout(orderCodeParam || undefined);
-        if (resume.isCancelled) {
-          setCheckoutUrl('');
-          setUiStatus('cancel');
-          setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
-        } else {
-          if (resume.orderCode) setOrderCode(resume.orderCode);
-          if (resume.checkoutUrl) setCheckoutUrl(resume.checkoutUrl);
-        }
+        if (resume.orderCode) setOrderCode(resume.orderCode);
+        if (resume.checkoutUrl) setCheckoutUrl(resume.checkoutUrl);
       }
     })();
 
@@ -166,24 +187,20 @@ export default function PaymentResultScreen() {
 
     let cancelled = false;
     const tick = async () => {
-      try {
-        const check = await apiService.checkPayment(code);
+      const status = await confirmOrderPayment(code);
+      if (cancelled) return;
+      if (status.isPaid) {
+        const list = (await apiService.getMyTickets()).data ?? [];
         if (cancelled) return;
-        if (check.data?.isPaid) {
-          const list = (await apiService.getMyTickets()).data ?? [];
-          if (cancelled) return;
-          setTickets(list);
-          setUiStatus('paid');
-          setHint('Thanh toán thành công — vé đã sẵn sàng.');
-          return;
-        }
-        if (check.data?.isCancelled) {
-          setCheckoutUrl('');
-          setUiStatus('cancel');
-          setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
-        }
-      } catch {
-        // keep pending
+        setTickets(list);
+        setUiStatus('paid');
+        setHint('Thanh toán thành công — vé đã sẵn sàng.');
+        return;
+      }
+      if (status.isCancelled) {
+        setCheckoutUrl('');
+        setUiStatus('cancel');
+        setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
       }
     };
 

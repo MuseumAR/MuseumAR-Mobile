@@ -13,6 +13,12 @@ import {
 } from '../services/apiService';
 import { useLanguage } from '../i18n/LanguageContext';
 import { ensureVisitorSynced } from '../services/ensureVisitorSynced';
+import {
+  getPaymentCheckoutSession,
+  isPaymentCheckoutLocked,
+  pendingFromCheckoutSession,
+  setPaymentCheckoutSession,
+} from '../services/paymentCheckoutSession';
 import { getToken } from '../services/tokenStorage';
 
 async function isNetworkOffline(): Promise<boolean> {
@@ -212,6 +218,28 @@ export function useMyTickets() {
   return { tickets, loading, authRequired, error, refresh };
 }
 
+/**
+ * Confirm a specific order via GET /Payment/check-status/{orderCode}.
+ * Prefer this over "paid ticket count increased" — that false-positives when
+ * the user already has other Paid tickets and resume forgot paidBefore.
+ */
+export async function confirmOrderPayment(orderCode: string): Promise<{
+  isPaid: boolean;
+  isCancelled: boolean;
+}> {
+  const code = orderCode.trim();
+  if (!code) return { isPaid: false, isCancelled: false };
+  try {
+    const check = await apiService.checkPayment(code);
+    return {
+      isPaid: Boolean(check.data?.isPaid),
+      isCancelled: Boolean(check.data?.isCancelled),
+    };
+  } catch {
+    return { isPaid: false, isCancelled: false };
+  }
+}
+
 /** Active pending PayOS order — GET /Ticketing/pending-order. */
 export function usePendingOrder() {
   const { lang } = useLanguage();
@@ -229,8 +257,46 @@ export function usePendingOrder() {
     setError(null);
     try {
       await ensureVisitorSynced().catch(() => undefined);
+
+      // While QR checkout is open, do NOT call pending-order (regenerates PayOS link).
+      const locked = pendingFromCheckoutSession();
+      if (locked) {
+        const status = await confirmOrderPayment(locked.orderCode);
+        if (status.isPaid || status.isCancelled) {
+          setPending(null);
+          return;
+        }
+        setPending({
+          orderCode: locked.orderCode,
+          checkoutUrl: locked.checkoutUrl,
+          qrCode: locked.qrCode,
+          ticketTypeName: locked.ticketTypeName,
+          quantity: locked.quantity,
+          totalAmount: locked.totalAmount,
+          remainingSeconds: locked.remainingSeconds,
+        });
+        return;
+      }
+
       const response = await apiService.getPendingOrder(lang);
-      setPending(response.data ?? null);
+      let next = response.data ?? null;
+      if (next?.orderCode) {
+        const status = await confirmOrderPayment(next.orderCode);
+        if (status.isPaid || status.isCancelled) {
+          next = null;
+        } else if (!isPaymentCheckoutLocked(next.orderCode)) {
+          setPaymentCheckoutSession({
+            orderCode: next.orderCode,
+            checkoutUrl: next.checkoutUrl,
+            qrCode: next.qrCode,
+            amount: next.totalAmount,
+            ticketTypeName: next.ticketTypeName,
+            quantity: next.quantity,
+            paidBefore: getPaymentCheckoutSession(next.orderCode)?.paidBefore,
+          });
+        }
+      }
+      setPending(next);
     } catch (err: unknown) {
       setError(getAuthErrorMessage(err, 'Không thể tải đơn chờ thanh toán'));
       setPending(null);
@@ -343,8 +409,23 @@ export async function resolveResumeCheckout(orderCode?: string): Promise<{
         return { orderCode, isPaid: false, isCancelled: true };
       }
     } catch {
-      // continue to pending-order
+      // continue
     }
+  }
+
+  const cached = getPaymentCheckoutSession(orderCode);
+  if (cached?.checkoutUrl || cached?.qrCode) {
+    return {
+      orderCode: cached.orderCode,
+      checkoutUrl: cached.checkoutUrl ?? undefined,
+      isPaid: false,
+      isCancelled: false,
+    };
+  }
+
+  // Avoid regenerating PayOS link while checkout UI is locked.
+  if (orderCode && isPaymentCheckoutLocked(orderCode)) {
+    return { orderCode, isPaid: false, isCancelled: false };
   }
 
   try {

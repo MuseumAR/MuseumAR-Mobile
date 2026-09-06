@@ -239,9 +239,40 @@ export default function MyTicketsScreen() {
 
   const handleResumePending = async () => {
     if (!pending?.orderCode) return;
+    const paidBefore = tickets.filter(
+      (item) => (item.status ?? '').toLowerCase() === 'paid',
+    ).length;
+    // Re-check before opening QR — clears the loop when order is already paid.
+    setBusy(true);
+    try {
+      const status = await apiService.checkPayment(pending.orderCode);
+      if (status.data?.isPaid) {
+        await refreshAll();
+        router.push({
+          pathname: '/payment-result',
+          params: {
+            status: 'success',
+            orderCode: pending.orderCode,
+            paidBefore: String(paidBefore),
+          },
+        });
+        return;
+      }
+      if (status.data?.isCancelled) {
+        await refreshAll();
+        return;
+      }
+    } catch {
+      // still open checkout
+    } finally {
+      setBusy(false);
+    }
     router.push({
       pathname: '/payment-checkout',
-      params: { orderCode: pending.orderCode },
+      params: {
+        orderCode: pending.orderCode,
+        paidBefore: String(paidBefore),
+      },
     });
   };
 

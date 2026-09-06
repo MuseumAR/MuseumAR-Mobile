@@ -1,7 +1,7 @@
 import { AnalyticsAction } from '../constants/analyticsActions';
 import { useLanguage } from '../i18n/LanguageContext';
 import { isUnityNativeAvailable } from '../services/unityAr';
-import { resolveArOverlayUrl } from '../utils/arOverlayUrl';
+import { resolveArModelUrl } from '../utils/arModelUrl';
 import { trackAnalytics } from '../services/trackAnalytics';
 import {
   createContext,
@@ -11,30 +11,21 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Image } from 'react-native';
 
 export type UnityArSession = {
   exhibitId: number;
-  overlayUrl: string;
+  modelUrl: string;
 };
 
 type UnityArHostValue = {
   session: UnityArSession | null;
   visible: boolean;
   playerMounted: boolean;
-  openAr: (exhibitId: number, overlayUrl: string) => Promise<void>;
+  openAr: (exhibitId: number, modelUrl: string) => Promise<void>;
   closeAr: () => void;
 };
 
 const UnityArHostContext = createContext<UnityArHostValue | null>(null);
-
-async function prefetchOverlay(url: string): Promise<void> {
-  try {
-    await Image.prefetch(url);
-  } catch {
-    // Unity will still fetch the URL itself.
-  }
-}
 
 export function UnityArHostProvider({ children }: { children: ReactNode }) {
   const { lang } = useLanguage();
@@ -43,19 +34,17 @@ export function UnityArHostProvider({ children }: { children: ReactNode }) {
   const [playerMounted, setPlayerMounted] = useState(false);
 
   const openAr = useCallback(
-    async (exhibitId: number, overlayUrl: string) => {
-      const remote = overlayUrl.trim();
+    async (exhibitId: number, modelUrl: string) => {
+      const remote = modelUrl.trim();
       if (exhibitId <= 0 || !remote) return;
 
-      const url = (await resolveArOverlayUrl(exhibitId, remote)) ?? remote;
+      const url = (await resolveArModelUrl(exhibitId, remote)) ?? remote;
       if (!url) return;
-
-      void prefetchOverlay(url);
 
       if (isUnityNativeAvailable()) {
         setPlayerMounted(true);
       }
-      setSession({ exhibitId, overlayUrl: url });
+      setSession({ exhibitId, modelUrl: url });
       setVisible(true);
       void trackAnalytics({
         actionType: AnalyticsAction.AR_VIEW,

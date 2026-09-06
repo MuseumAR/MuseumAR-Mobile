@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   BackHandler,
@@ -10,24 +10,37 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useUnityArHost } from '../context/UnityArHostContext';
+import { useLanguage } from '../i18n/LanguageContext';
 import { isUnityNativeAvailable } from '../services/unityAr';
 import { C } from '../theme/colors';
-import { UnityArPlayer, type UnityOverlayStatus } from './UnityArPlayer';
+import {
+  UnityArPlayer,
+  type UnityArPlayerHandle,
+  type UnityArStatus,
+} from './UnityArPlayer';
 
 /**
  * Full-screen Unity overlay. After the first AR open, the native player stays
  * mounted (hidden + paused) so the next exhibit does not re-init Unity.
  */
 export function UnityArHostOverlay() {
+  const { t } = useLanguage();
   const { session, visible, playerMounted, closeAr } = useUnityArHost();
-  const [overlayStatus, setOverlayStatus] = useState<UnityOverlayStatus>({
-    state: 'loading',
-  });
+  const [arStatus, setArStatus] = useState<UnityArStatus>({ state: 'loading' });
+  const playerRef = useRef<UnityArPlayerHandle | null>(null);
+  const lastSessionKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!visible) return;
-    setOverlayStatus({ state: 'loading' });
-  }, [visible, session?.exhibitId, session?.overlayUrl]);
+    if (!visible || !session) return;
+    const key = `${session.exhibitId}:${session.modelUrl}`;
+    if (lastSessionKeyRef.current === key) {
+      // Same exhibit reopen — keep "loaded" instead of flashing loading.
+      setArStatus({ state: 'loaded' });
+      return;
+    }
+    lastSessionKeyRef.current = key;
+    setArStatus({ state: 'loading' });
+  }, [visible, session?.exhibitId, session?.modelUrl]);
 
   useEffect(() => {
     if (!visible) return;
@@ -42,6 +55,11 @@ export function UnityArHostOverlay() {
 
   const native = isUnityNativeAvailable();
 
+  const handleReset = () => {
+    setArStatus({ state: 'loading' });
+    playerRef.current?.resetPlacement();
+  };
+
   return (
     <View
       pointerEvents={visible ? 'auto' : 'none'}
@@ -49,45 +67,56 @@ export function UnityArHostOverlay() {
     >
       {native ? (
         <UnityArPlayer
+          ref={playerRef}
           exhibitId={session.exhibitId}
-          overlayUrl={session.overlayUrl}
+          modelUrl={session.modelUrl}
           active={visible}
-          onOverlayStatus={setOverlayStatus}
+          onArStatus={setArStatus}
         />
       ) : (
         <View style={styles.center}>
-          <Text style={styles.body}>Unity AR chưa sẵn sàng trên bản dựng này.</Text>
+          <Text style={styles.body}>{t('ar.unityUnavailable')}</Text>
         </View>
       )}
 
       {visible ? (
         <>
           <SafeAreaView style={styles.overlayBar} edges={['top']}>
-            <TouchableOpacity style={styles.closeBtn} onPress={closeAr}>
-              <MaterialCommunityIcons name="close" size={22} color="#fff" />
-              <Text style={styles.closeText}>Đóng AR</Text>
-            </TouchableOpacity>
+            <View style={styles.topRow}>
+              <TouchableOpacity style={styles.closeBtn} onPress={closeAr}>
+                <MaterialCommunityIcons name="close" size={22} color="#fff" />
+                <Text style={styles.closeText}>{t('ar.close')}</Text>
+              </TouchableOpacity>
+              {native ? (
+                <TouchableOpacity
+                  style={styles.resetBtn}
+                  onPress={handleReset}
+                  disabled={arStatus.state === 'loading'}
+                >
+                  <MaterialCommunityIcons name="refresh" size={20} color="#fff" />
+                  <Text style={styles.closeText}>{t('ar.reset')}</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
           </SafeAreaView>
           <SafeAreaView style={styles.statusBar} edges={['bottom']}>
-            {overlayStatus.state === 'loading' && (
+            {arStatus.state === 'loading' && (
               <View style={styles.statusChip}>
                 <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.statusText}>Đang tải ảnh overlay…</Text>
+                <Text style={styles.statusText}>{t('ar.loadingModel')}</Text>
               </View>
             )}
-            {overlayStatus.state === 'loaded' && (
+            {arStatus.state === 'loaded' && (
               <View style={[styles.statusChip, styles.statusChipOk]}>
                 <MaterialCommunityIcons name="check-circle" size={18} color="#fff" />
-                <Text style={styles.statusText}>
-                  Ảnh đã sẵn sàng — chạm vào ô vuông để đặt
-                </Text>
+                <Text style={styles.statusText}>{t('ar.modelReady')}</Text>
               </View>
             )}
-            {overlayStatus.state === 'error' && (
+            {arStatus.state === 'error' && (
               <View style={[styles.statusChip, styles.statusChipError]}>
                 <MaterialCommunityIcons name="alert-circle" size={18} color="#fff" />
                 <Text style={styles.statusText} numberOfLines={2}>
-                  {overlayStatus.message}
+                  {arStatus.message}
                 </Text>
               </View>
             )}
@@ -136,8 +165,22 @@ const styles = StyleSheet.create({
     right: 0,
     paddingHorizontal: 16,
   },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
   closeBtn: {
-    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  resetBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,

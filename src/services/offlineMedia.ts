@@ -64,6 +64,10 @@ export function overlayLogicalKey(exhibitId: number): string {
   return `overlay:${exhibitId}`;
 }
 
+export function modelLogicalKey(exhibitId: number): string {
+  return `model:${exhibitId}`;
+}
+
 export function markerLogicalKey(exhibitId: number): string {
   return `marker:${exhibitId}`;
 }

@@ -112,8 +112,8 @@ export function useExhibitArAssets(exhibitId: number | null) {
 
   const hasAr2d = Boolean(imageAsset);
   const hasAr3d = Boolean(modelAsset);
-  /** Visual AR available (2D overlay and/or 3D model). */
-  const hasAr = hasAr2d || hasAr3d;
+  /** Visual AR in Unity — 3D models only (3dAR project). */
+  const hasAr = hasAr3d;
   const hasAudio = Boolean(audioAsset);
 
   return {

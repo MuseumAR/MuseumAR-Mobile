@@ -16,6 +16,7 @@ import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { TicketTypeDto } from '../../src/services/apiService';
+import { setPaymentCheckoutSession, lockPaymentCheckoutSession } from '../../src/services/paymentCheckoutSession';
 import { C } from '../../src/theme/colors';
 import { museumLocationLabel } from '../../src/utils/museumLocation';
 
@@ -108,11 +109,25 @@ export default function TicketScreen() {
     });
 
     if (result.ok) {
+      const orderCode = result.order.orderCode ?? '';
+      const checkoutUrl =
+        result.order.checkoutUrl || result.order.paymentUrl || '';
+      setPaymentCheckoutSession({
+        orderCode,
+        checkoutUrl,
+        qrCode: result.order.qrCode ?? null,
+        amount: result.order.amount ?? result.order.totalAmount ?? total,
+        ticketTypeName: selectedType.name ?? '',
+        quantity,
+        paidBefore: result.paidCountBefore,
+      });
+      lockPaymentCheckoutSession(orderCode);
       router.push({
         pathname: '/payment-checkout',
         params: {
-          orderCode: result.order.orderCode ?? '',
-          checkoutUrl: result.order.checkoutUrl || result.order.paymentUrl || '',
+          orderCode,
+          // Short fields only — VietQR is loaded from paymentCheckoutSession
+          checkoutUrl,
           amount: String(result.order.amount ?? result.order.totalAmount ?? total),
           ticketTypeName: selectedType.name ?? '',
           quantity: String(quantity),
@@ -147,7 +162,7 @@ export default function TicketScreen() {
           </TouchableOpacity>
         </View>
 
-        {pending?.checkoutUrl ? (
+        {pending?.orderCode ? (
           <TouchableOpacity
             style={styles.pendingBanner}
             onPress={() => router.push('/my-tickets')}

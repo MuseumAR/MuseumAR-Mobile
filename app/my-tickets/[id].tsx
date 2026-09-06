@@ -1,6 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -18,6 +25,25 @@ import { parseNumericId } from '../../src/utils/parseId';
 
 function qrImageUrl(data: string): string {
   return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(data)}`;
+}
+
+function formatMoney(amount: number, lang: string, currency?: string): string {
+  const locale = lang === 'en' ? 'en-US' : 'vi-VN';
+  const formatted = Number(amount).toLocaleString(locale);
+  const cur = (currency || 'VND').toUpperCase();
+  if (cur === 'VND' || cur === 'Đ') return `${formatted}đ`;
+  return `${formatted} ${cur}`;
+}
+
+function statusLabel(
+  status: string,
+  t: (key: string) => string,
+): string {
+  const s = status.toLowerCase();
+  if (s === 'paid' || s === 'completed' || s === 'active') return t('ticket.statusPaid');
+  if (s === 'pending') return t('ticket.statusPending');
+  if (s.includes('cancel')) return t('ticket.statusCancelled');
+  return status || '—';
 }
 
 export default function TicketDetailScreen() {
@@ -90,11 +116,16 @@ export default function TicketDetailScreen() {
 
   const paid =
     detail.status.toLowerCase() === 'paid' ||
+    detail.status.toLowerCase() === 'active' ||
     detail.order.paymentStatus.toLowerCase() === 'completed';
+
+  const unitPrice = detail.price ?? detail.ticketType.price ?? 0;
+  const dash = '—';
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        <Text style={styles.eyebrow}>{t('ticket.detailTitle')}</Text>
         <View style={styles.hero}>
           <Text style={styles.typeName}>{detail.ticketType.name}</Text>
           <View
@@ -107,71 +138,114 @@ export default function TicketDetailScreen() {
             ]}
           >
             <Text style={[styles.statusText, { color: paid ? C.success : C.accent }]}>
-              {paid ? t('ticket.statusPaid') : detail.status}
+              {statusLabel(detail.status, t)}
             </Text>
           </View>
         </View>
 
-        <Text style={styles.codeLabel}>{t('ticket.ticketCode')}</Text>
-        <Text style={styles.codeValue}>{detail.ticketCode}</Text>
-
-        {qrUri && paid ? (
-          <View style={styles.qrBox}>
-            <Image source={{ uri: qrUri }} style={styles.qr} resizeMode="contain" />
-            <Text style={styles.qrHint}>{t('ticket.checkInQrHint')}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.section}>
+        {/* Vé — matches FE */}
+        <Section title={t('ticket.sectionTicket')}>
+          <Row icon="barcode" label={t('ticket.ticketCode')} value={detail.ticketCode} />
           <Row
-            icon="domain"
-            label={t('ticket.museum')}
-            value={detail.museum.name}
-          />
-          {detail.museum.address ? (
-            <Row icon="map-marker-outline" label={t('ticket.address')} value={detail.museum.address} />
-          ) : null}
-          {detail.exhibition ? (
-            <Row
-              icon="palette-outline"
-              label={t('ticket.exhibition')}
-              value={detail.exhibition.name}
-            />
-          ) : null}
-          <Row
-            icon="receipt"
-            label={t('ticket.orderCode')}
-            value={detail.order.orderCode}
-          />
-          <Row
-            icon="cash"
-            label={t('ticket.total')}
-            value={`${Number(detail.order.totalAmount).toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')} ${detail.order.currency || 'VND'}`}
-          />
-          <Row
-            icon="credit-card-outline"
-            label={t('ticket.paymentMethod')}
-            value={detail.order.paymentMethod || 'PayOS'}
+            icon="information-outline"
+            label={t('ticket.statusLabel')}
+            value={statusLabel(detail.status, t)}
           />
           <Row
             icon="calendar-outline"
             label={t('ticket.purchaseDate')}
             value={formatVisitorDate(detail.purchaseDate, lang === 'en' ? 'en-US' : 'vi-VN')}
           />
-          {detail.validDate ? (
-            <Row
-              icon="calendar-check"
-              label={t('ticket.validDate')}
-              value={formatVisitorDate(detail.validDate, lang === 'en' ? 'en-US' : 'vi-VN')}
-            />
-          ) : null}
-        </View>
+          <Row
+            icon="calendar-check"
+            label={t('ticket.validDate')}
+            value={
+              detail.validDate
+                ? formatVisitorDate(detail.validDate, lang === 'en' ? 'en-US' : 'vi-VN')
+                : t('ticket.validUnset')
+            }
+          />
+        </Section>
 
-        {detail.ticketType.description ? (
-          <Text style={styles.desc}>{detail.ticketType.description}</Text>
+        {/* Loại vé — unit price like FE "Giá" */}
+        <Section title={t('ticket.sectionType')}>
+          <Row icon="ticket-confirmation-outline" label={t('ticket.type')} value={detail.ticketType.name} />
+          <Row
+            icon="tag-outline"
+            label={t('ticket.unitPrice')}
+            value={formatMoney(unitPrice, lang, detail.order.currency)}
+          />
+          <Row
+            icon="text"
+            label={t('ticket.description')}
+            value={detail.ticketType.description?.trim() || dash}
+          />
+        </Section>
+
+        {/* Bảo tàng / Triển lãm */}
+        <Section title={t('ticket.sectionVenue')}>
+          <Row icon="domain" label={t('ticket.museum')} value={detail.museum.name} />
+          <Row
+            icon="map-marker-outline"
+            label={t('ticket.address')}
+            value={detail.museum.address?.trim() || dash}
+          />
+          <Row
+            icon="palette-outline"
+            label={t('ticket.exhibition')}
+            value={detail.exhibition?.name?.trim() || dash}
+          />
+        </Section>
+
+        {/* Đơn hàng / Thanh toán — keep order total */}
+        <Section title={t('ticket.sectionOrder')}>
+          <Row icon="receipt" label={t('ticket.orderCode')} value={detail.order.orderCode} />
+          <Row
+            icon="cash"
+            label={t('ticket.orderTotal')}
+            value={formatMoney(detail.order.totalAmount, lang, detail.order.currency)}
+          />
+          <Row
+            icon="check-decagram-outline"
+            label={t('ticket.paymentStatus')}
+            value={statusLabel(detail.order.paymentStatus, t)}
+          />
+          <Row
+            icon="credit-card-outline"
+            label={t('ticket.paymentMethod')}
+            value={t('ticket.payos')}
+          />
+          <Row
+            icon="clock-outline"
+            label={t('ticket.paidAt')}
+            value={
+              detail.order.paidAt
+                ? formatVisitorDate(detail.order.paidAt, lang === 'en' ? 'en-US' : 'vi-VN')
+                : dash
+            }
+          />
+        </Section>
+
+        {/* QR */}
+        {qrUri && paid ? (
+          <Section title={t('ticket.sectionQr')}>
+            <View style={styles.qrBox}>
+              <Image source={{ uri: qrUri }} style={styles.qr} resizeMode="contain" />
+              <Text style={styles.qrHint}>{t('ticket.checkInQrHint')}</Text>
+            </View>
+          </Section>
         ) : null}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      <View style={styles.sectionBody}>{children}</View>
+    </View>
   );
 }
 
@@ -200,32 +274,49 @@ const styles = StyleSheet.create({
   scroll: { padding: 20, paddingBottom: 40 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
   errorText: { color: C.danger, textAlign: 'center', fontSize: 15 },
+  eyebrow: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.accent,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
   hero: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   typeName: { flex: 1, fontSize: 22, fontWeight: '800', color: C.textPrimary },
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, borderWidth: 1 },
   statusText: { fontSize: 11, fontWeight: '700' },
-  codeLabel: { fontSize: 12, color: C.textMuted, fontWeight: '600' },
-  codeValue: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: C.textPrimary,
-    marginTop: 4,
-    letterSpacing: 0.3,
-  },
-  qrBox: {
-    marginTop: 20,
-    alignItems: 'center',
+  section: {
+    marginTop: 16,
     backgroundColor: C.bgSurface,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: C.border,
-    padding: 20,
+    padding: 14,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: C.textPrimary,
+    marginBottom: 12,
+  },
+  sectionBody: { gap: 14 },
+  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  rowLabel: { fontSize: 11, color: C.textMuted, fontWeight: '600' },
+  rowValue: { fontSize: 14, color: C.textPrimary, fontWeight: '600', marginTop: 2 },
+  qrBox: {
+    alignItems: 'center',
+    backgroundColor: C.bgElevated,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    padding: 16,
   },
   qr: { width: 220, height: 220 },
   qrHint: {
@@ -234,23 +325,5 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     textAlign: 'center',
     lineHeight: 18,
-  },
-  section: {
-    marginTop: 20,
-    backgroundColor: C.bgSurface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: C.border,
-    padding: 14,
-    gap: 14,
-  },
-  row: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  rowLabel: { fontSize: 11, color: C.textMuted, fontWeight: '600' },
-  rowValue: { fontSize: 14, color: C.textPrimary, fontWeight: '600', marginTop: 2 },
-  desc: {
-    marginTop: 16,
-    fontSize: 14,
-    color: C.textSecondary,
-    lineHeight: 22,
   },
 });

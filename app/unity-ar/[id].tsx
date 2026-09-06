@@ -9,14 +9,17 @@ import { parseNumericId } from '../../src/utils/parseId';
 export default function UnityArRedirectScreen() {
   const router = useRouter();
   const { openAr } = useUnityArHost();
-  const { id, overlayUrl: overlayUrlParam } = useLocalSearchParams<{
+  const { id, modelUrl: modelUrlParam, overlayUrl: legacyOverlayParam } = useLocalSearchParams<{
     id: string;
+    modelUrl?: string | string[];
     overlayUrl?: string | string[];
   }>();
 
   const exhibitId = parseNumericId(id);
-  const overlayUrl = (() => {
-    const raw = Array.isArray(overlayUrlParam) ? overlayUrlParam[0] : overlayUrlParam;
+  const modelUrl = (() => {
+    const raw = Array.isArray(modelUrlParam)
+      ? modelUrlParam[0]
+      : modelUrlParam ?? (Array.isArray(legacyOverlayParam) ? legacyOverlayParam[0] : legacyOverlayParam);
     const trimmed = (raw ?? '').trim();
     if (!trimmed) return '';
     try {
@@ -31,15 +34,15 @@ export default function UnityArRedirectScreen() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    if (exhibitId != null && overlayUrl) {
-      void openAr(exhibitId, overlayUrl);
+    if (exhibitId != null && modelUrl) {
+      void openAr(exhibitId, modelUrl);
     }
     if (router.canGoBack()) {
       router.back();
     } else {
       router.replace('/(tabs)');
     }
-  }, [exhibitId, overlayUrl, openAr, router]);
+  }, [exhibitId, modelUrl, openAr, router]);
 
   return (
     <View
