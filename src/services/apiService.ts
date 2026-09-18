@@ -202,33 +202,99 @@ export interface SyncCheckDto {
   checksum?: string;
   status?: string;
   arassetCount?: number;
+  packageSizeBytes?: number;
+  sizeBytes?: number;
   createdAt?: string;
   /** Client-only helper flags (optional) */
   hasUpdates?: boolean;
 }
 
 // --- TICKETING ---
+export interface TicketPromotionDto {
+  id: number;
+  ticketTypeId: number;
+  name: string;
+  nameEn?: string | null;
+  description?: string | null;
+  descriptionEn?: string | null;
+  discountType: 'Percentage' | 'FixedAmount';
+  discountValue: number;
+  startDate?: string;
+  endDate?: string;
+  isActive?: boolean;
+}
+
 export interface TicketTypeDto {
   id: number;
   name: string;
   nameEn?: string | null;
   description?: string;
   descriptionEn?: string | null;
-  /** Giá vé (VND) */
+  /** Giá vé (VND) — base / original unit price */
   price: number;
+  /** Same as price from BE list (kept for FE parity). */
+  originalPrice?: number | null;
   museumId?: number;
   exhibitionId?: number | null;
+  /** Exhibition metadata from GET /Ticketing/types (FE parity). */
+  exhibitionName?: string | null;
+  exhibitionStartDate?: string | null;
+  exhibitionEndDate?: string | null;
+  exhibitionStatus?: string | null;
   /** e.g. Approved / Pending / Rejected */
   status?: string;
   /** Legacy / UI helper */
   currency?: string;
   isActive?: boolean;
+  activePromotions?: TicketPromotionDto[] | null;
+}
+
+/** POST /Ticketing/my-tickets/{id}/refund-request */
+export interface CreateTicketRefundRequest {
+  bankName: string;
+  accountNumber: string;
+  accountHolderName: string;
+  reason: string;
 }
 
 export interface CreateOrderRequest {
-  /** POST /Ticketing/create-order body { ticketTypeId, quantity } */
+  /** POST /Ticketing/create-order body { ticketTypeId, quantity, promotionId? } */
   ticketTypeId: number;
   quantity: number;
+  promotionId?: number | null;
+}
+
+export interface CheckInTicketResponse {
+  ticketId?: number;
+  ticketCode?: string;
+  status?: string;
+  isValid: boolean;
+  message?: string;
+}
+
+/** Unit price after applying an optional promotion (matches FE checkout math). */
+export function unitPriceWithPromotion(
+  ticketType: Pick<TicketTypeDto, 'price' | 'activePromotions'>,
+  promotionId?: number | null,
+): number {
+  const base = Number(ticketType.price) || 0;
+  if (promotionId == null) return base;
+  const promo = (ticketType.activePromotions ?? []).find((p) => p.id === promotionId);
+  if (!promo) return base;
+  if (promo.discountType === 'Percentage') {
+    return Math.max(0, base - (base * promo.discountValue) / 100);
+  }
+  return Math.max(0, base - promo.discountValue);
+}
+
+export function isUnverifiedEmailError(error: unknown): boolean {
+  const message =
+    error instanceof ApiError
+      ? error.message
+      : error instanceof Error
+        ? error.message
+        : String(error ?? '');
+  return /xác thực email|verify.*email|email.*verif/i.test(message);
 }
 
 /**
@@ -474,12 +540,19 @@ export interface TagDto {
   translations?: TagTranslationDto[];
 }
 
-/** GET /Content/tag-groups */
+/** GET /Content/tag-groups — GroupName + optional Translations (FE TagGroupDto). */
+export interface TagGroupTranslationDto {
+  tagGroupId?: number;
+  languageCode: string;
+  groupName: string;
+}
+
 export interface TagGroupDto {
   id: number;
   groupName?: string;
   name?: string;
   sortOrder?: number;
+  translations?: TagGroupTranslationDto[];
 }
 
 export type TaxonomyKind = 'category' | 'theme' | 'tagGroup' | 'tag';
@@ -1278,6 +1351,22 @@ export const apiService = {
     });
   },
 
+  /** POST /Auth/verify-email — 6-digit token from email. */
+  async verifyEmail(email: string, token: string): Promise<ApiResponse<boolean>> {
+    return apiFetch<boolean>('Auth/verify-email', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim(), token: token.trim() }),
+    });
+  },
+
+  /** POST /Auth/resend-verification */
+  async resendVerification(email: string): Promise<ApiResponse<boolean>> {
+    return apiFetch<boolean>('Auth/resend-verification', {
+      method: 'POST',
+      body: JSON.stringify({ email: email.trim() }),
+    });
+  },
+
   async googleLogin(idToken: string): Promise<ApiResponse<LoginResponse>> {
     return apiFetch<LoginResponse>('Auth/google-login', {
       method: 'POST',
@@ -1478,7 +1567,7 @@ export const apiService = {
     };
   },
 
-  /** Gói nội dung offline / AR packs. */
+  /** Gói nội dung offline / AR packs (all versions for museum). */
   async getPackages(): Promise<ApiResponse<ContentPackageDto[]>> {
     const response = await apiFetch<ContentPackageDto[]>('Content/packages');
     return {
@@ -1487,6 +1576,35 @@ export const apiService = {
         normalizePackageDto(item as Partial<ContentPackageDto> & Record<string, unknown>),
       ),
     };
+  },
+
+  /**
+   * Newest Available offline package — GET /Visitor/sync-check.
+   * Prefer this for visitor download UI (404 = none yet).
+   */
+  async getLatestPackage(): Promise<ApiResponse<ContentPackageDto | null>> {
+    try {
+      const response = await apiFetch<Partial<ContentPackageDto> & Record<string, unknown>>(
+        'Visitor/sync-check',
+      );
+      if (!response.data) {
+        return { ...response, data: null };
+      }
+      return {
+        ...response,
+        data: normalizePackageDto(response.data),
+      };
+    } catch (err) {
+      if (err instanceof ApiError && err.statusCode === 404) {
+        return {
+          statusCode: 404,
+          status: 'NotFound',
+          message: err.message,
+          data: null,
+        };
+      }
+      throw err;
+    }
   },
 
   /** Bản đồ bảo tàng. */
@@ -1654,20 +1772,84 @@ export const apiService = {
 
   // --- TICKETING / PAYMENT (aligned with current WebBE) ---
   async getTicketTypes(lang?: string): Promise<ApiResponse<TicketTypeDto[]>> {
-    return apiFetch<TicketTypeDto[]>(
+    const response = await apiFetch<(TicketTypeDto & Record<string, unknown>)[]>(
       `Ticketing/types${buildQuery(lang ? { lang } : undefined)}`,
     );
+    const list = Array.isArray(response.data) ? response.data : [];
+    const normalized = list.map((raw) => {
+      const o = raw as Record<string, unknown>;
+      const promosRaw = o.activePromotions ?? o.ActivePromotions;
+      const activePromotions: TicketPromotionDto[] = Array.isArray(promosRaw)
+        ? promosRaw.map((p) => {
+            const pr = (p && typeof p === 'object' ? p : {}) as Record<string, unknown>;
+            const discountTypeRaw = String(
+              pr.discountType ?? pr.DiscountType ?? 'Percentage',
+            );
+            return {
+              id: Number(pr.id ?? pr.Id ?? 0),
+              ticketTypeId: Number(pr.ticketTypeId ?? pr.TicketTypeId ?? 0),
+              name: String(pr.name ?? pr.Name ?? ''),
+              nameEn: (pr.nameEn ?? pr.NameEn ?? null) as string | null,
+              description: (pr.description ?? pr.Description ?? null) as string | null,
+              descriptionEn: (pr.descriptionEn ?? pr.DescriptionEn ?? null) as
+                | string
+                | null,
+              discountType:
+                discountTypeRaw === 'FixedAmount' ? 'FixedAmount' : 'Percentage',
+              discountValue: Number(pr.discountValue ?? pr.DiscountValue ?? 0),
+              startDate: String(pr.startDate ?? pr.StartDate ?? ''),
+              endDate: String(pr.endDate ?? pr.EndDate ?? ''),
+              isActive: Boolean(pr.isActive ?? pr.IsActive ?? true),
+            };
+          })
+        : [];
+      const price = Number(o.price ?? o.Price ?? 0);
+      return {
+        id: Number(o.id ?? o.Id ?? 0),
+        name: String(o.name ?? o.Name ?? ''),
+        nameEn: (o.nameEn ?? o.NameEn ?? null) as string | null,
+        description: (o.description ?? o.Description ?? undefined) as string | undefined,
+        descriptionEn: (o.descriptionEn ?? o.DescriptionEn ?? null) as string | null,
+        price,
+        originalPrice:
+          o.originalPrice != null || o.OriginalPrice != null
+            ? Number(o.originalPrice ?? o.OriginalPrice)
+            : price,
+        museumId: Number(o.museumId ?? o.MuseumId ?? 0) || undefined,
+        exhibitionId: (o.exhibitionId ?? o.ExhibitionId ?? null) as number | null,
+        exhibitionName: (o.exhibitionName ?? o.ExhibitionName ?? null) as string | null,
+        exhibitionStartDate: (o.exhibitionStartDate ?? o.ExhibitionStartDate ?? null) as
+          | string
+          | null,
+        exhibitionEndDate: (o.exhibitionEndDate ?? o.ExhibitionEndDate ?? null) as
+          | string
+          | null,
+        exhibitionStatus: (o.exhibitionStatus ?? o.ExhibitionStatus ?? null) as
+          | string
+          | null,
+        status: String(o.status ?? o.Status ?? ''),
+        isActive: o.isActive != null || o.IsActive != null
+          ? Boolean(o.isActive ?? o.IsActive)
+          : true,
+        activePromotions,
+      } satisfies TicketTypeDto;
+    });
+    return { ...response, data: normalized };
   },
 
   async createOrder(payload: CreateOrderRequest): Promise<ApiResponse<CreateOrderResponse>> {
+    const body: Record<string, unknown> = {
+      ticketTypeId: payload.ticketTypeId,
+      quantity: payload.quantity,
+    };
+    if (payload.promotionId != null) {
+      body.promotionId = payload.promotionId;
+    }
     const response = await apiFetch<CreateOrderResponse & Record<string, unknown>>(
       'Ticketing/create-order',
       {
         method: 'POST',
-        body: JSON.stringify({
-          ticketTypeId: payload.ticketTypeId,
-          quantity: payload.quantity,
-        }),
+        body: JSON.stringify(body),
       },
     );
     const raw = response.data;
@@ -1771,6 +1953,45 @@ export const apiService = {
         qrCodeImageUrl: (raw.qrCodeImageUrl ?? raw.QrCodeImageUrl ?? null) as
           | string
           | null,
+      },
+    };
+  },
+
+  /** POST /Ticketing/my-tickets/{id}/refund-request — visitor refund (Paid/Active only). */
+  async requestTicketRefund(
+    ticketId: number,
+    payload: CreateTicketRefundRequest,
+  ): Promise<ApiResponse<unknown>> {
+    return apiFetch<unknown>(`Ticketing/my-tickets/${ticketId}/refund-request`, {
+      method: 'POST',
+      body: JSON.stringify({
+        bankName: payload.bankName.trim(),
+        accountNumber: payload.accountNumber.trim(),
+        accountHolderName: payload.accountHolderName.trim(),
+        reason: payload.reason.trim(),
+      }),
+    });
+  },
+
+  /** POST /Ticketing/check-in — visitor self check-in at gate. */
+  async checkInTicket(ticketCode: string): Promise<ApiResponse<CheckInTicketResponse>> {
+    const response = await apiFetch<CheckInTicketResponse & Record<string, unknown>>(
+      'Ticketing/check-in',
+      {
+        method: 'POST',
+        body: JSON.stringify({ ticketCode: ticketCode.trim() }),
+      },
+    );
+    const raw = response.data;
+    if (!raw) return { ...response, data: undefined };
+    return {
+      ...response,
+      data: {
+        ticketId: Number(raw.ticketId ?? raw.TicketId ?? 0) || undefined,
+        ticketCode: String(raw.ticketCode ?? raw.TicketCode ?? ticketCode),
+        status: String(raw.status ?? raw.Status ?? ''),
+        isValid: Boolean(raw.isValid ?? raw.IsValid),
+        message: String(raw.message ?? raw.Message ?? '') || undefined,
       },
     };
   },
@@ -1968,7 +2189,31 @@ export const apiService = {
    * Latest available offline package (no museumId path).
    * 404 = chưa có offline package (bình thường).
    */
-  async syncCheck(): Promise<ApiResponse<SyncCheckDto>> {
-    return apiFetch<SyncCheckDto>('Visitor/sync-check');
+  async syncCheck(): Promise<ApiResponse<SyncCheckDto | null>> {
+    const latest = await this.getLatestPackage();
+    if (!latest.data) {
+      return {
+        statusCode: latest.statusCode,
+        status: latest.status,
+        message: latest.message,
+        data: null,
+      };
+    }
+    const p = latest.data;
+    return {
+      ...latest,
+      data: {
+        id: p.id,
+        museumId: p.museumId ?? 0,
+        versionId: p.versionId,
+        packageUrl: p.packageUrl,
+        checksum: p.checksum,
+        status: p.status,
+        arassetCount: p.arassetCount,
+        packageSizeBytes: p.packageSizeBytes,
+        sizeBytes: p.sizeBytes,
+        createdAt: p.createdAt,
+      },
+    };
   },
 };

@@ -14,20 +14,6 @@ import { museumLocationLabel } from '../../src/utils/museumLocation';
 import { formatExhibitionDates } from '../../src/utils/exhibitionDates';
 
 const TAXONOMY_COLORS = ['#C89B3C', '#A67C2D', '#0369A1', '#047857', '#9A6F1F', '#B45309'];
-const CATEGORY_ICONS = [
-  'view-grid-outline',
-  'home-city-outline',
-  'treasure-chest',
-  'palette-outline',
-  'book-open-page-variant',
-] as const;
-const THEME_ICONS = [
-  'tag-outline',
-  'lightning-bolt',
-  'shield-outline',
-  'crown',
-  'compass-outline',
-] as const;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -55,7 +41,6 @@ export default function HomeScreen() {
           id: c.id,
           name: c.name as string,
           color: TAXONOMY_COLORS[i % TAXONOMY_COLORS.length],
-          icon: CATEGORY_ICONS[i % CATEGORY_ICONS.length],
         })),
     [categories],
   );
@@ -66,7 +51,6 @@ export default function HomeScreen() {
         id: theme.id,
         name: theme.name,
         color: TAXONOMY_COLORS[(i + 2) % TAXONOMY_COLORS.length],
-        icon: THEME_ICONS[i % THEME_ICONS.length],
       })),
     [themes],
   );
@@ -328,7 +312,6 @@ export default function HomeScreen() {
                     colors={[item.color + '18', item.color + '08']}
                     style={styles.eraGradient}
                   >
-                    <MaterialCommunityIcons name={item.icon} size={22} color={item.color} />
                     <Text style={[styles.eraName, { color: item.color }]} numberOfLines={2}>
                       {item.name}
                     </Text>
@@ -371,7 +354,6 @@ export default function HomeScreen() {
                     colors={[item.color + '18', item.color + '08']}
                     style={styles.eraGradient}
                   >
-                    <MaterialCommunityIcons name={item.icon} size={22} color={item.color} />
                     <Text style={[styles.eraName, { color: item.color }]} numberOfLines={2}>
                       {item.name}
                     </Text>

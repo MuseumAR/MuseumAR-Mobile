@@ -7,6 +7,7 @@ import {
   CreateOrderRequest,
   CreateOrderResponse,
   getAuthErrorMessage,
+  isUnverifiedEmailError,
   MyTicketDto,
   PendingOrderDto,
   TicketTypeDto,
@@ -14,6 +15,7 @@ import {
 import { useLanguage } from '../i18n/LanguageContext';
 import { ensureVisitorSynced } from '../services/ensureVisitorSynced';
 import {
+  expiresAtMsFromPending,
   getPaymentCheckoutSession,
   isPaymentCheckoutLocked,
   pendingFromCheckoutSession,
@@ -274,6 +276,7 @@ export function usePendingOrder() {
           quantity: locked.quantity,
           totalAmount: locked.totalAmount,
           remainingSeconds: locked.remainingSeconds,
+          expiresAt: locked.expiresAt,
         });
         return;
       }
@@ -293,6 +296,7 @@ export function usePendingOrder() {
             ticketTypeName: next.ticketTypeName,
             quantity: next.quantity,
             paidBefore: getPaymentCheckoutSession(next.orderCode)?.paidBefore,
+            expiresAtMs: expiresAtMsFromPending(next),
           });
         }
       }
@@ -314,7 +318,12 @@ export type CreateOrderSubmitResult =
       order: CreateOrderResponse;
       paidCountBefore: number;
     }
-  | { ok: false; authRequired?: boolean; message: string };
+  | {
+      ok: false;
+      authRequired?: boolean;
+      emailVerifyRequired?: boolean;
+      message: string;
+    };
 
 /**
  * Create ticket order — does NOT open PayOS browser.
@@ -354,7 +363,11 @@ export function useCreateOrder() {
         const response = await apiService.createOrder(payload);
         const order = response.data;
         if (!order) {
-          return { ok: false, message: response.message || 'Đặt vé thất bại.' };
+          const message = response.message || 'Đặt vé thất bại.';
+          if (isUnverifiedEmailError(message)) {
+            return { ok: false, emailVerifyRequired: true, message };
+          }
+          return { ok: false, message };
         }
 
         const checkoutUrl = (order.checkoutUrl || order.paymentUrl || '').trim();
@@ -375,6 +388,9 @@ export function useCreateOrder() {
       } catch (err: unknown) {
         const message = getAuthErrorMessage(err, 'Đặt vé thất bại. Vui lòng thử lại.');
         setError(message);
+        if (isUnverifiedEmailError(err) || isUnverifiedEmailError(message)) {
+          return { ok: false, emailVerifyRequired: true, message };
+        }
         return { ok: false, message };
       } finally {
         setSubmitting(false);
@@ -387,7 +403,10 @@ export function useCreateOrder() {
 }
 
 export function countPaidTickets(tickets: MyTicketDto[]): number {
-  return tickets.filter((t) => (t.status ?? '').toLowerCase() === 'paid').length;
+  return tickets.filter((t) => {
+    const s = (t.status ?? '').toLowerCase();
+    return s === 'paid' || s === 'used';
+  }).length;
 }
 
 /**

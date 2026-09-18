@@ -17,6 +17,10 @@ import {
 } from '../../src/hooks/useTicketing';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService, MyTicketDto, PendingOrderDto } from '../../src/services/apiService';
+import {
+  expiresAtMsFromPending,
+  secondsLeftUntil,
+} from '../../src/services/paymentCheckoutSession';
 import { C } from '../../src/theme/colors';
 import { formatVisitorDate } from '../../src/utils/visitorLists';
 
@@ -26,11 +30,17 @@ function statusStyle(
 ): { color: string; label: string } {
   const s = (status ?? '').toLowerCase();
   if (s === 'pending') return { color: C.accent, label: t('ticket.statusPending') };
-  if (s === 'paid') return { color: C.success, label: t('ticket.statusPaid') };
-  if (s.includes('cancel')) return { color: C.danger, label: t('ticket.statusCancelled') };
-  if (s.includes('used') || s.includes('đã dùng')) {
-    return { color: C.textMuted, label: status ?? '—' };
+  if (s === 'paid' || s === 'active') return { color: C.success, label: t('ticket.statusPaid') };
+  if (s === 'used' || s.includes('used') || s.includes('đã dùng')) {
+    return { color: C.textMuted, label: t('ticket.statusUsed') };
   }
+  if (s === 'refund_pending' || s.includes('refund_pending')) {
+    return { color: C.warning, label: t('ticket.statusRefundPending') };
+  }
+  if (s === 'refunded' || s.includes('refunded')) {
+    return { color: C.danger, label: t('ticket.statusRefunded') };
+  }
+  if (s.includes('cancel')) return { color: C.danger, label: t('ticket.statusCancelled') };
   return { color: C.textMuted, label: status ?? '—' };
 }
 
@@ -53,21 +63,22 @@ function PendingOrderCard({
   busy: boolean;
 }) {
   const { t, lang } = useLanguage();
-  const [secondsLeft, setSecondsLeft] = useState(
-    Math.max(0, pending.remainingSeconds ?? 0),
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    secondsLeftUntil(expiresAtMsFromPending(pending)),
   );
 
   useEffect(() => {
-    setSecondsLeft(Math.max(0, pending.remainingSeconds ?? 0));
+    setSecondsLeft(secondsLeftUntil(expiresAtMsFromPending(pending)));
   }, [pending.orderCode, pending.remainingSeconds, pending.expiresAt]);
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
+    const deadline = expiresAtMsFromPending(pending);
     const id = setInterval(() => {
-      setSecondsLeft((prev) => Math.max(0, prev - 1));
+      setSecondsLeft(secondsLeftUntil(deadline));
     }, 1000);
     return () => clearInterval(id);
-  }, [secondsLeft > 0, pending.orderCode]);
+  }, [secondsLeft > 0, pending.orderCode, pending.expiresAt, pending.remainingSeconds]);
 
   const canResume = Boolean(pending.orderCode) && secondsLeft > 0;
   const expired = secondsLeft <= 0;

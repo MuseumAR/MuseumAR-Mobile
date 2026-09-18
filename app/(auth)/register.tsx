@@ -1,5 +1,4 @@
 import { Link, useRouter } from 'expo-router';
-import { C } from '../../src/theme/colors';
 import { useState } from 'react';
 import {
   Alert,
@@ -13,10 +12,13 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService } from '../../src/services/apiService';
+import { C } from '../../src/theme/colors';
 
 export default function RegisterScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -44,8 +46,23 @@ export default function RegisterScreen() {
       const phone = phoneNumber.trim() || undefined;
       const response = await apiService.register(name.trim(), email.trim(), password, phone);
       if (response.statusCode === 200 || response.status === 'Success') {
-        Alert.alert('Thành công', 'Đăng ký tài khoản thành công! Vui lòng đăng nhập.', [
-          { text: 'Đăng nhập', onPress: () => router.replace('/(auth)/login') }
+        Alert.alert(t('auth.verifyNeededTitle'), t('auth.registerVerifyHint'), [
+          {
+            text: t('auth.verifyNeededAction'),
+            onPress: () =>
+              router.replace({
+                pathname: '/(auth)/verify-email',
+                params: {
+                  email: email.trim(),
+                  next: '/(auth)/login',
+                },
+              }),
+          },
+          {
+            text: t('auth.backToLogin'),
+            style: 'cancel',
+            onPress: () => router.replace('/(auth)/login'),
+          },
         ]);
       } else {
         setError(response.message || 'Đăng ký không thành công.');
@@ -68,9 +85,8 @@ export default function RegisterScreen() {
           contentContainerStyle={styles.container}
           showsVerticalScrollIndicator={false}
         >
-          {/* Back button */}
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backText}>‹ Quay lại</Text>
+            <Text style={styles.backText}>‹ {t('common.back')}</Text>
           </TouchableOpacity>
 
           <Text style={styles.title}>Tạo tài khoản</Text>
@@ -86,7 +102,7 @@ export default function RegisterScreen() {
               onChangeText={setName}
             />
 
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t('auth.email')}</Text>
             <TextInput
               style={styles.input}
               placeholder="email@example.com"
@@ -137,7 +153,7 @@ export default function RegisterScreen() {
               disabled={loading}
             >
               <Text style={styles.registerBtnText}>
-                {loading ? 'Đang tạo tài khoản...' : 'Đăng ký'}
+                {loading ? 'Đang tạo tài khoản...' : t('auth.register')}
               </Text>
             </TouchableOpacity>
 

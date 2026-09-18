@@ -13,8 +13,8 @@ export function useMuseumSyncCheck() {
     setLoading(true);
     try {
       const response = await apiService.syncCheck();
-      setSyncInfo(response.data);
-      return response.data;
+      setSyncInfo(response.data ?? null);
+      return response.data ?? null;
     } catch (error) {
       if (error instanceof ApiError && error.statusCode === 404) {
         setSyncInfo(null);

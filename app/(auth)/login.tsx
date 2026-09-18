@@ -1,6 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Link, useRouter } from 'expo-router';
-import { C } from '../../src/theme/colors';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,12 +14,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGoogleLogin } from '../../src/hooks/useGoogleLogin';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService, getLoginErrorMessage } from '../../src/services/apiService';
 import { persistAuthLogin } from '../../src/services/persistAuthLogin';
+import { C } from '../../src/theme/colors';
 import { validateLoginForm } from '../../src/utils/authValidation';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -119,12 +121,26 @@ export default function LoginScreen() {
 
             {formError ? <Text style={styles.formError}>{formError}</Text> : null}
 
-            <TouchableOpacity
-              style={styles.forgotBtn}
-              onPress={() => router.push('/(auth)/forgot-password')}
-            >
-              <Text style={styles.forgotText}>Quên mật khẩu?</Text>
-            </TouchableOpacity>
+            <View style={styles.linksRow}>
+              <TouchableOpacity
+                onPress={() =>
+                  router.push({
+                    pathname: '/(auth)/verify-email',
+                    params: {
+                      email: email.trim(),
+                      next: '/(auth)/login',
+                    },
+                  })
+                }
+              >
+                <Text style={styles.forgotText}>{t('auth.verifyLink')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => router.push('/(auth)/forgot-password')}
+              >
+                <Text style={styles.forgotText}>Quên mật khẩu?</Text>
+              </TouchableOpacity>
+            </View>
 
             <TouchableOpacity
               style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
@@ -230,7 +246,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     lineHeight: 18,
   },
-  forgotBtn: { alignSelf: 'flex-end', marginTop: 8, marginBottom: 20 },
+  linksRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 20,
+    gap: 12,
+  },
   forgotText: { color: C.accent, fontSize: 13, fontWeight: '600' },
   loginBtn: {
     backgroundColor: C.accent,

@@ -34,6 +34,9 @@ function primaryChipActive(filter: SelectedFilter, chip: TaxonomyChip): boolean 
     if (filter.kind === 'tag') return filter.groupId === chip.id;
     return false;
   }
+  if (chip.kind === 'tag') {
+    return filter.kind === 'tag' && filter.id === chip.id;
+  }
   return filter.kind === chip.kind && filter.id === chip.id;
 }
 
@@ -174,8 +177,22 @@ export default function ExploreScreen() {
                 key={chip.key}
                 style={[styles.categoryChip, active && styles.categoryChipActive]}
                 onPress={() => {
-                  if (chip.kind !== 'category' && chip.kind !== 'tagGroup') return;
-                  setSelected({ kind: chip.kind, id: chip.id, name: chip.name });
+                  if (chip.kind === 'category') {
+                    setSelected({ kind: 'category', id: chip.id, name: chip.name });
+                    return;
+                  }
+                  if (chip.kind === 'tag') {
+                    setSelected({
+                      kind: 'tag',
+                      id: chip.id,
+                      name: chip.name,
+                      groupId: chip.tagGroupId ?? chip.id,
+                    });
+                    return;
+                  }
+                  if (chip.kind === 'tagGroup') {
+                    setSelected({ kind: 'tagGroup', id: chip.id, name: chip.name });
+                  }
                 }}
               >
                 <Text

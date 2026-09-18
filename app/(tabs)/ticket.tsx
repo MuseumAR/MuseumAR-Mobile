@@ -15,8 +15,12 @@ import { useCreateOrder, usePendingOrder, useTicketTypes } from '../../src/hooks
 import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 import { useLanguage } from '../../src/i18n/LanguageContext';
-import { TicketTypeDto } from '../../src/services/apiService';
+import {
+  TicketTypeDto,
+  unitPriceWithPromotion,
+} from '../../src/services/apiService';
 import { setPaymentCheckoutSession, lockPaymentCheckoutSession } from '../../src/services/paymentCheckoutSession';
+import { getSession } from '../../src/services/sessionStorage';
 import { C } from '../../src/theme/colors';
 import { museumLocationLabel } from '../../src/utils/museumLocation';
 
@@ -42,6 +46,25 @@ function nextDays(count: number, lang: 'vi' | 'en'): DayOption[] {
   return out;
 }
 
+function formatExhibitionDate(value?: string | null, lang: 'vi' | 'en' = 'vi'): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleDateString(lang === 'en' ? 'en-US' : 'vi-VN');
+}
+
+function exhibitionPhase(
+  startDate?: string | null,
+): 'presale' | 'ongoing' | null {
+  if (!startDate) return null;
+  const start = new Date(startDate);
+  if (Number.isNaN(start.getTime())) return null;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  start.setHours(0, 0, 0, 0);
+  return start > today ? 'presale' : 'ongoing';
+}
+
 export default function TicketScreen() {
   const router = useRouter();
   const { t, lang } = useLanguage();
@@ -53,6 +76,7 @@ export default function TicketScreen() {
 
   const days = useMemo(() => nextDays(7, lang), [lang]);
   const [selectedType, setSelectedType] = useState<TicketTypeDto | null>(null);
+  const [selectedPromoId, setSelectedPromoId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedDate, setSelectedDate] = useState<string>(days[0].iso);
 
@@ -70,7 +94,15 @@ export default function TicketScreen() {
     });
   }, [types]);
 
-  const total = (selectedType?.price ?? 0) * quantity;
+  useEffect(() => {
+    setSelectedPromoId(null);
+  }, [selectedType?.id]);
+
+  const unitPrice = selectedType
+    ? unitPriceWithPromotion(selectedType, selectedPromoId)
+    : 0;
+  const total = unitPrice * quantity;
+  const promos = selectedType?.activePromotions ?? [];
 
   const handleConfirm = async () => {
     if (isOffline) {
@@ -106,29 +138,32 @@ export default function TicketScreen() {
     const result = await submit({
       ticketTypeId: selectedType.id,
       quantity,
+      promotionId: selectedPromoId,
     });
 
     if (result.ok) {
       const orderCode = result.order.orderCode ?? '';
       const checkoutUrl =
         result.order.checkoutUrl || result.order.paymentUrl || '';
+      const amount = result.order.amount ?? result.order.totalAmount ?? total;
       setPaymentCheckoutSession({
         orderCode,
         checkoutUrl,
         qrCode: result.order.qrCode ?? null,
-        amount: result.order.amount ?? result.order.totalAmount ?? total,
+        amount,
         ticketTypeName: selectedType.name ?? '',
         quantity,
         paidBefore: result.paidCountBefore,
+        // Fresh create-order window; reopen uses this absolute deadline.
+        expiresAtMs: Date.now() + 15 * 60 * 1000,
       });
       lockPaymentCheckoutSession(orderCode);
       router.push({
         pathname: '/payment-checkout',
         params: {
           orderCode,
-          // Short fields only — VietQR is loaded from paymentCheckoutSession
           checkoutUrl,
-          amount: String(result.order.amount ?? result.order.totalAmount ?? total),
+          amount: String(amount),
           ticketTypeName: selectedType.name ?? '',
           quantity: String(quantity),
           paidBefore: String(result.paidCountBefore),
@@ -141,6 +176,25 @@ export default function TicketScreen() {
       Alert.alert(t('auth.loginRequired'), result.message, [
         { text: t('common.cancel'), style: 'cancel' },
         { text: t('common.login'), onPress: () => router.push('/(auth)/login') },
+      ]);
+      return;
+    }
+
+    if (result.emailVerifyRequired) {
+      const session = await getSession();
+      Alert.alert(t('auth.verifyNeededTitle'), result.message, [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('auth.verifyNeededAction'),
+          onPress: () =>
+            router.push({
+              pathname: '/(auth)/verify-email',
+              params: {
+                email: session?.email ?? '',
+                next: '/(tabs)/ticket',
+              },
+            }),
+        },
       ]);
       return;
     }
@@ -218,16 +272,54 @@ export default function TicketScreen() {
             <View style={styles.typeGrid}>
               {types.map((item) => {
                 const active = selectedType?.id === item.id;
+                const isExhibition = Boolean(item.exhibitionName || item.exhibitionId);
+                const phase = exhibitionPhase(item.exhibitionStartDate);
                 return (
                   <TouchableOpacity
                     key={item.id}
                     style={[styles.typeCard, active && styles.typeCardActive]}
                     onPress={() => setSelectedType(item)}
                   >
+                    {isExhibition ? (
+                      <View style={styles.exhibitionMeta}>
+                        <Text
+                          style={[styles.exhibitionBadge, active && styles.typeDescActive]}
+                          numberOfLines={2}
+                        >
+                          {t('ticket.exhibitionBadge')}:{' '}
+                          {item.exhibitionName?.trim() ||
+                            `#${item.exhibitionId}`}
+                        </Text>
+                        {phase === 'presale' ? (
+                          <Text style={[styles.phasePresale, active && styles.typeDescActive]}>
+                            {t('ticket.exhibitionPresale')}
+                          </Text>
+                        ) : phase === 'ongoing' ? (
+                          <Text style={[styles.phaseOngoing, active && styles.typeDescActive]}>
+                            {t('ticket.exhibitionOngoing')}
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                     <Text style={[styles.typeLabel, active && styles.typeLabelActive]}>{item.name}</Text>
                     {item.description ? (
                       <Text style={[styles.typeDesc, active && styles.typeDescActive]} numberOfLines={2}>
                         {item.description}
+                      </Text>
+                    ) : null}
+                    {isExhibition && (item.exhibitionStartDate || item.exhibitionEndDate) ? (
+                      <Text style={[styles.typeDesc, active && styles.typeDescActive]} numberOfLines={2}>
+                        {t('ticket.exhibitionRange')}:{' '}
+                        {formatExhibitionDate(item.exhibitionStartDate, lang)} –{' '}
+                        {formatExhibitionDate(item.exhibitionEndDate, lang)}
+                      </Text>
+                    ) : null}
+                    {phase === 'presale' && item.exhibitionStartDate ? (
+                      <Text style={[styles.presaleHint, active && styles.typeDescActive]} numberOfLines={3}>
+                        {t('ticket.exhibitionPresaleHint').replace(
+                          '{date}',
+                          formatExhibitionDate(item.exhibitionStartDate, lang),
+                        )}
                       </Text>
                     ) : null}
                     <Text style={[styles.typePrice, active && styles.typeLabelActive]}>
@@ -235,6 +327,11 @@ export default function TicketScreen() {
                         ? t('ticket.free')
                         : `${item.price.toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')}đ`}
                     </Text>
+                    {(item.activePromotions?.length ?? 0) > 0 ? (
+                      <Text style={[styles.typePromoBadge, active && styles.typeDescActive]}>
+                        {item.activePromotions!.length} KM
+                      </Text>
+                    ) : null}
                   </TouchableOpacity>
                 );
               })}
@@ -242,11 +339,65 @@ export default function TicketScreen() {
           )}
         </View>
 
+        {/* Promotions */}
+        {selectedType ? (
+          <View style={styles.section}>
+            <View style={styles.stepRow}>
+              <View style={styles.stepBadge}>
+                <Text style={styles.stepNum}>3</Text>
+              </View>
+              <Text style={styles.sectionTitle}>{t('ticket.promoSection')}</Text>
+            </View>
+            {promos.length === 0 ? (
+              <Text style={styles.emptyText}>{t('ticket.promoEmpty')}</Text>
+            ) : (
+              <View style={styles.promoList}>
+                <TouchableOpacity
+                  style={[
+                    styles.promoCard,
+                    selectedPromoId === null && styles.promoCardActive,
+                  ]}
+                  onPress={() => setSelectedPromoId(null)}
+                >
+                  <Text style={styles.promoName}>{t('ticket.promoNone')}</Text>
+                  <Text style={styles.promoMeta}>{t('ticket.promoNoneHint')}</Text>
+                </TouchableOpacity>
+                {promos.map((promo) => {
+                  const discountText =
+                    promo.discountType === 'Percentage'
+                      ? `-${promo.discountValue}%`
+                      : `-${Number(promo.discountValue).toLocaleString(
+                          lang === 'en' ? 'en-US' : 'vi-VN',
+                        )}đ`;
+                  const active = selectedPromoId === promo.id;
+                  return (
+                    <TouchableOpacity
+                      key={promo.id}
+                      style={[styles.promoCard, active && styles.promoCardHot]}
+                      onPress={() => setSelectedPromoId(promo.id)}
+                    >
+                      <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={styles.promoName}>{promo.name}</Text>
+                        {promo.description ? (
+                          <Text style={styles.promoMeta} numberOfLines={2}>
+                            {promo.description}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <Text style={styles.promoDiscount}>{discountText}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        ) : null}
+
         {/* Quantity */}
         <View style={styles.section}>
           <View style={styles.stepRow}>
             <View style={styles.stepBadge}>
-              <Text style={styles.stepNum}>3</Text>
+              <Text style={styles.stepNum}>4</Text>
             </View>
             <Text style={styles.sectionTitle}>{t('ticket.quantity')}</Text>
           </View>
@@ -272,7 +423,7 @@ export default function TicketScreen() {
         <View style={styles.section}>
           <View style={styles.stepRow}>
             <View style={styles.stepBadge}>
-              <Text style={styles.stepNum}>4</Text>
+              <Text style={styles.stepNum}>5</Text>
             </View>
             <Text style={styles.sectionTitle}>{t('ticket.visitDate')}</Text>
           </View>
@@ -302,6 +453,14 @@ export default function TicketScreen() {
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>{t('ticket.type')}</Text>
             <Text style={styles.summaryValue}>{selectedType?.name ?? '—'}</Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>{t('ticket.unitAfterPromo')}</Text>
+            <Text style={styles.summaryValue}>
+              {unitPrice === 0
+                ? t('ticket.free')
+                : `${unitPrice.toLocaleString(lang === 'en' ? 'en-US' : 'vi-VN')}đ`}
+            </Text>
           </View>
           <View style={styles.summaryRow}>
             <Text style={styles.summaryLabel}>{t('ticket.qty')}</Text>
@@ -450,6 +609,65 @@ const styles = StyleSheet.create({
   typeDesc: { fontSize: 11, color: C.textMuted, marginTop: 4, textAlign: 'center' },
   typeDescActive: { color: C.accent },
   typePrice: { fontSize: 13, fontWeight: '800', color: C.textPrimary, marginTop: 8 },
+  typePromoBadge: {
+    marginTop: 6,
+    alignSelf: 'center',
+    fontSize: 11,
+    fontWeight: '700',
+    color: C.danger,
+  },
+  exhibitionMeta: {
+    width: '100%',
+    gap: 4,
+    marginBottom: 6,
+    alignItems: 'center',
+  },
+  exhibitionBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: C.bronze,
+    textAlign: 'center',
+  },
+  phasePresale: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#1D4ED8',
+    textAlign: 'center',
+  },
+  phaseOngoing: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: C.success,
+    textAlign: 'center',
+  },
+  presaleHint: {
+    fontSize: 10,
+    color: '#1D4ED8',
+    marginTop: 4,
+    textAlign: 'center',
+    lineHeight: 14,
+  },
+  promoList: { gap: 8 },
+  promoCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: C.bgSurface,
+  },
+  promoCardActive: {
+    borderColor: C.accent,
+    backgroundColor: C.accent + '12',
+  },
+  promoCardHot: {
+    borderColor: C.danger + '99',
+    backgroundColor: C.danger + '10',
+  },
+  promoName: { fontSize: 14, fontWeight: '700', color: C.textPrimary },
+  promoMeta: { fontSize: 12, color: C.textMuted, marginTop: 2 },
+  promoDiscount: { fontSize: 14, fontWeight: '800', color: C.danger },
 
   quantityRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   qtyBtn: {

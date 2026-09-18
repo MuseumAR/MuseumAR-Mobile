@@ -21,8 +21,10 @@ import { useLanguage } from '../src/i18n/LanguageContext';
 import { apiService, PendingOrderDto } from '../src/services/apiService';
 import {
   clearPaymentCheckoutSession,
+  expiresAtMsFromPending,
   getPaymentCheckoutSession,
   lockPaymentCheckoutSession,
+  secondsLeftUntil,
   setPaymentCheckoutSession,
   unlockPaymentCheckoutSession,
 } from '../src/services/paymentCheckoutSession';
@@ -91,7 +93,9 @@ export default function PaymentCheckoutScreen() {
   const [amount, setAmount] = useState(
     Number(paramOne(params.amount) || '') || seeded?.amount || 0,
   );
-  const [secondsLeft, setSecondsLeft] = useState(15 * 60);
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    secondsLeftUntil(seeded?.expiresAtMs),
+  );
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const navigatingRef = useRef(false);
@@ -108,7 +112,8 @@ export default function PaymentCheckoutScreen() {
     if (pending.ticketTypeName) setTicketTypeName(pending.ticketTypeName);
     if (pending.quantity != null) setQuantity(pending.quantity);
     if (pending.totalAmount != null) setAmount(Number(pending.totalAmount));
-    setSecondsLeft(Math.max(0, pending.remainingSeconds ?? 0));
+    const expiresAtMs = expiresAtMsFromPending(pending);
+    setSecondsLeft(secondsLeftUntil(expiresAtMs));
     setPaymentCheckoutSession({
       orderCode: pending.orderCode,
       checkoutUrl: pending.checkoutUrl,
@@ -117,6 +122,7 @@ export default function PaymentCheckoutScreen() {
       ticketTypeName: pending.ticketTypeName,
       quantity: pending.quantity,
       paidBefore,
+      expiresAtMs,
     });
   }, [paidBefore]);
 
@@ -216,6 +222,34 @@ export default function PaymentCheckoutScreen() {
           if (cached?.checkoutUrl && !checkoutUrl) {
             setCheckoutUrl(cached.checkoutUrl);
           }
+          // Continue the same payment window — never reset to a fresh 15:00.
+          setSecondsLeft(secondsLeftUntil(cached?.expiresAtMs));
+          // Soft-sync expiry from BE without regenerating QR when URL already exists.
+          unlockPaymentCheckoutSession(initialOrderCode);
+          try {
+            const res = await apiService.getPendingOrder(lang);
+            if (!cancelled && res.data) {
+              const expiresAtMs = expiresAtMsFromPending(res.data);
+              setSecondsLeft(secondsLeftUntil(expiresAtMs));
+              setPaymentCheckoutSession({
+                orderCode: res.data.orderCode,
+                checkoutUrl: res.data.checkoutUrl || cached?.checkoutUrl,
+                qrCode: cached?.qrCode || res.data.qrCode,
+                amount: res.data.totalAmount ?? cached?.amount,
+                ticketTypeName: res.data.ticketTypeName ?? cached?.ticketTypeName,
+                quantity: res.data.quantity ?? cached?.quantity,
+                paidBefore,
+                expiresAtMs,
+              });
+              if (res.data.checkoutUrl) setCheckoutUrl(res.data.checkoutUrl);
+            }
+          } catch {
+            // keep cached countdown
+          } finally {
+            if (initialOrderCode || orderCodeRef.current) {
+              lockPaymentCheckoutSession(initialOrderCode || orderCodeRef.current);
+            }
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -230,10 +264,27 @@ export default function PaymentCheckoutScreen() {
   useEffect(() => {
     if (secondsLeft <= 0) return;
     const id = setInterval(() => {
-      setSecondsLeft((prev) => Math.max(0, prev - 1));
+      const cached = getPaymentCheckoutSession(orderCodeRef.current);
+      if (cached?.expiresAtMs != null) {
+        setSecondsLeft(secondsLeftUntil(cached.expiresAtMs));
+      } else {
+        setSecondsLeft((prev) => Math.max(0, prev - 1));
+      }
     }, 1000);
     return () => clearInterval(id);
   }, [secondsLeft > 0, orderCode]);
+
+  // Re-sync countdown when app returns to foreground.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const cached = getPaymentCheckoutSession(orderCodeRef.current);
+      if (cached?.expiresAtMs != null) {
+        setSecondsLeft(secondsLeftUntil(cached.expiresAtMs));
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Poll PayOS + my-tickets until this order is paid.
   useEffect(() => {

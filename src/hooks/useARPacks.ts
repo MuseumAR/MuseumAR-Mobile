@@ -4,7 +4,8 @@ import { Alert } from 'react-native';
 import { AnalyticsAction } from '../constants/analyticsActions';
 import type { ARPack } from '../data/arPacks';
 import { useLanguage } from '../i18n/LanguageContext';
-import { readPackIndex } from '../services/offlineCache';
+import { readPackIndex, type OfflinePackRecord } from '../services/offlineCache';
+import { getCachedMuseumId } from '../services/museumContext';
 import { deleteOfflinePack, downloadOfflinePack } from '../services/offlineDownload';
 import { loadMediaMap } from '../services/offlineMedia';
 import { trackAnalytics } from '../services/trackAnalytics';
@@ -14,25 +15,89 @@ export type DownloadStatus = 'idle' | 'downloading' | 'downloaded' | 'error';
 export type PackState = {
   status: DownloadStatus;
   progress: number; // 0–100
+  /** Local pack is older than the newest Available package from BE. */
+  updateAvailable?: boolean;
 };
 
 type PackStates = Record<string, PackState>;
 
+function isOutdated(
+  local: OfflinePackRecord | undefined,
+  remote: Pick<ARPack, 'versionId' | 'checksum' | 'id'>,
+): boolean {
+  if (!local) return false;
+  if (local.id !== remote.id) return true;
+  if (
+    remote.versionId != null &&
+    local.versionId != null &&
+    remote.versionId !== local.versionId
+  ) {
+    return true;
+  }
+  if (
+    remote.checksum &&
+    local.checksum &&
+    remote.checksum !== local.checksum
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function useARPacks() {
   const { t } = useLanguage();
   const [packStates, setPackStates] = useState<PackStates>({});
+  const [packIndex, setPackIndex] = useState<Record<string, OfflinePackRecord>>(
+    {},
+  );
   const inflightRef = useRef<Set<string>>(new Set());
 
-  useEffect(() => {
-    void loadMediaMap();
-    readPackIndex().then((index) => {
-      const states: PackStates = {};
+  const reloadIndex = useCallback(async () => {
+    await loadMediaMap();
+    const index = await readPackIndex();
+    setPackIndex(index);
+    setPackStates((prev) => {
+      const states: PackStates = { ...prev };
       Object.keys(index).forEach((id) => {
-        states[id] = { status: 'downloaded', progress: 100 };
+        states[id] = {
+          status: 'downloaded',
+          progress: 100,
+          updateAvailable: states[id]?.updateAvailable,
+        };
       });
-      setPackStates(states);
+      return states;
     });
   }, []);
+
+  useEffect(() => {
+    void reloadIndex();
+  }, [reloadIndex]);
+
+  /** Mark updateAvailable for the shown (newest) pack vs local downloads. */
+  const syncUpdateFlags = useCallback((packs: ARPack[]) => {
+    setPackStates((prev) => {
+      const next = { ...prev };
+      for (const pack of packs) {
+        const local =
+          packIndex[pack.id] ??
+          Object.values(packIndex).find(
+            (r) =>
+              (pack.versionId != null && r.versionId === pack.versionId) ||
+              (pack.checksum != null && r.checksum === pack.checksum),
+          );
+        const downloaded =
+          next[pack.id]?.status === 'downloaded' || Boolean(local);
+        if (!downloaded) continue;
+        const updateAvailable = isOutdated(local ?? packIndex[pack.id], pack);
+        next[pack.id] = {
+          status: 'downloaded',
+          progress: 100,
+          updateAvailable,
+        };
+      }
+      return next;
+    });
+  }, [packIndex]);
 
   const downloadPack = useCallback(
     (pack: ARPack | string) => {
@@ -53,7 +118,11 @@ export function useARPacks() {
           [packId]: { status: 'downloading', progress: 0 },
         }));
 
-        const museumId = meta.museumId ? Number(meta.museumId) : undefined;
+        const museumIdFromPack = meta.museumId ? Number(meta.museumId) : undefined;
+        const museumId =
+          Number.isFinite(museumIdFromPack) && (museumIdFromPack as number) > 0
+            ? (museumIdFromPack as number)
+            : getCachedMuseumId() ?? undefined;
 
         try {
           await downloadOfflinePack({
@@ -71,12 +140,14 @@ export function useARPacks() {
           });
           setPackStates((prev) => ({
             ...prev,
-            [packId]: { status: 'downloaded', progress: 100 },
+            [packId]: { status: 'downloaded', progress: 100, updateAvailable: false },
           }));
+          // BE manager stats: AnalyticsLogs ActionType = PACKAGE_DOWNLOAD
           void trackAnalytics({
             actionType: AnalyticsAction.PACKAGE_DOWNLOAD,
             museumId: Number.isFinite(museumId) ? museumId : undefined,
           });
+          await reloadIndex();
         } catch (err) {
           console.warn('Offline pack download failed:', err);
           setPackStates((prev) => ({
@@ -88,7 +159,7 @@ export function useARPacks() {
         }
       })();
     },
-    [t],
+    [reloadIndex, t],
   );
 
   const deletePack = useCallback((packId: string) => {
@@ -97,13 +168,14 @@ export function useARPacks() {
       delete next[packId];
       return next;
     });
-    void deleteOfflinePack(packId);
-  }, []);
+    void deleteOfflinePack(packId).then(() => reloadIndex());
+  }, [reloadIndex]);
 
   const getState = useCallback(
-    (packId: string): PackState => packStates[packId] ?? { status: 'idle', progress: 0 },
+    (packId: string): PackState =>
+      packStates[packId] ?? { status: 'idle', progress: 0 },
     [packStates],
   );
 
-  return { downloadPack, deletePack, getState };
+  return { downloadPack, deletePack, getState, syncUpdateFlags, packIndex };
 }
