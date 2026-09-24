@@ -22,6 +22,11 @@ import {
 import { setPaymentCheckoutSession, lockPaymentCheckoutSession } from '../../src/services/paymentCheckoutSession';
 import { getSession } from '../../src/services/sessionStorage';
 import { C } from '../../src/theme/colors';
+import {
+  computeGroupPricing,
+  GROUP_TIER_30,
+  MAX_ORDER_QUANTITY,
+} from '../../src/utils/groupTicketPricing';
 import { museumLocationLabel } from '../../src/utils/museumLocation';
 
 const WEEKDAYS_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
@@ -98,11 +103,26 @@ export default function TicketScreen() {
     setSelectedPromoId(null);
   }, [selectedType?.id]);
 
-  const unitPrice = selectedType
-    ? unitPriceWithPromotion(selectedType, selectedPromoId)
-    : 0;
-  const total = unitPrice * quantity;
-  const promos = selectedType?.activePromotions ?? [];
+  // Group orders (≥30) ignore promotions on BE — clear selection.
+  useEffect(() => {
+    if (quantity >= GROUP_TIER_30 && selectedPromoId != null) {
+      setSelectedPromoId(null);
+    }
+  }, [quantity, selectedPromoId]);
+
+  const basePrice = selectedType ? Number(selectedType.price) || 0 : 0;
+  const isGroup = quantity >= GROUP_TIER_30;
+  const groupPricing = useMemo(
+    () => computeGroupPricing(basePrice, quantity),
+    [basePrice, quantity],
+  );
+  const unitPrice = isGroup
+    ? groupPricing.unitPrice
+    : selectedType
+      ? unitPriceWithPromotion(selectedType, selectedPromoId)
+      : 0;
+  const total = isGroup ? groupPricing.totalAmount : unitPrice * quantity;
+  const promos = !isGroup ? (selectedType?.activePromotions ?? []) : [];
 
   const handleConfirm = async () => {
     if (isOffline) {
@@ -138,7 +158,7 @@ export default function TicketScreen() {
     const result = await submit({
       ticketTypeId: selectedType.id,
       quantity,
-      promotionId: selectedPromoId,
+      promotionId: isGroup ? null : selectedPromoId,
     });
 
     if (result.ok) {
@@ -348,7 +368,9 @@ export default function TicketScreen() {
               </View>
               <Text style={styles.sectionTitle}>{t('ticket.promoSection')}</Text>
             </View>
-            {promos.length === 0 ? (
+            {isGroup ? (
+              <Text style={styles.emptyText}>{t('ticket.promoDisabledGroup')}</Text>
+            ) : promos.length === 0 ? (
               <Text style={styles.emptyText}>{t('ticket.promoEmpty')}</Text>
             ) : (
               <View style={styles.promoList}>
@@ -411,12 +433,30 @@ export default function TicketScreen() {
             <Text style={styles.qtyValue}>{quantity}</Text>
             <TouchableOpacity
               style={styles.qtyBtn}
-              onPress={() => setQuantity((q) => Math.min(10, q + 1))}
+              onPress={() =>
+                setQuantity((q) => Math.min(MAX_ORDER_QUANTITY, q + 1))
+              }
             >
               <MaterialCommunityIcons name="plus" size={20} color={C.textSecondary} />
             </TouchableOpacity>
             <Text style={styles.qtyNote}>{t('ticket.maxQty')}</Text>
           </View>
+          {isGroup ? (
+            <View style={styles.groupBanner}>
+              <MaterialCommunityIcons name="account-group" size={18} color={C.accent} />
+              <Text style={styles.groupBannerText}>
+                {t('ticket.groupDiscount').replace(
+                  '{percent}',
+                  String(groupPricing.discountPercent),
+                )}
+                {groupPricing.focCount > 0
+                  ? ` · ${t('ticket.groupFoc').replace('{count}', String(groupPricing.focCount))}`
+                  : ''}
+              </Text>
+            </View>
+          ) : (
+            <Text style={styles.groupHint}>{t('ticket.groupHint')}</Text>
+          )}
         </View>
 
         {/* Date */}
@@ -455,7 +495,9 @@ export default function TicketScreen() {
             <Text style={styles.summaryValue}>{selectedType?.name ?? '—'}</Text>
           </View>
           <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>{t('ticket.unitAfterPromo')}</Text>
+            <Text style={styles.summaryLabel}>
+              {isGroup ? t('ticket.unitGroup') : t('ticket.unitAfterPromo')}
+            </Text>
             <Text style={styles.summaryValue}>
               {unitPrice === 0
                 ? t('ticket.free')
@@ -466,6 +508,9 @@ export default function TicketScreen() {
             <Text style={styles.summaryLabel}>{t('ticket.qty')}</Text>
             <Text style={styles.summaryValue}>
               {quantity} {t('ticket.qtyUnit')}
+              {isGroup && groupPricing.focCount > 0
+                ? ` (+${groupPricing.focCount} FOC)`
+                : ''}
             </Text>
           </View>
           <View style={styles.divider} />
@@ -678,6 +723,30 @@ const styles = StyleSheet.create({
   },
   qtyValue: { fontSize: 22, fontWeight: '800', color: C.textPrimary, minWidth: 30, textAlign: 'center' },
   qtyNote: { fontSize: 12, color: C.textMuted, flex: 1 },
+  groupHint: {
+    marginTop: 10,
+    fontSize: 12,
+    color: C.textMuted,
+    lineHeight: 18,
+  },
+  groupBanner: {
+    marginTop: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: C.accent + '14',
+    borderWidth: 1,
+    borderColor: C.accent + '44',
+  },
+  groupBannerText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.textPrimary,
+    lineHeight: 19,
+  },
 
   dayRow: { gap: 10, paddingVertical: 2 },
   dayChip: {

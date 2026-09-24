@@ -30,6 +30,7 @@ import type { ARPack } from '../../src/data/arPacks';
 import { C } from '../../src/theme/colors';
 import { formatVisitorDate } from '../../src/utils/visitorLists';
 import { parseNumericId } from '../../src/utils/parseId';
+import { MAX_ORDER_QUANTITY } from '../../src/utils/groupTicketPricing';
 
 function qrImageUrl(data: string): string {
   return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(data)}`;
@@ -90,6 +91,8 @@ export default function TicketDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
   const [packLoading, setPackLoading] = useState(false);
+  const [checkInQty, setCheckInQty] = useState(1);
+  const [groupRemaining, setGroupRemaining] = useState<number | null>(null);
 
   const [refundOpen, setRefundOpen] = useState(false);
   const [bankName, setBankName] = useState('');
@@ -114,6 +117,20 @@ export default function TicketDetailScreen() {
         setDetail(null);
       } else {
         setDetail(res.data);
+        setCheckInQty(1);
+        setGroupRemaining(null);
+        if (res.data.isGroupOrder && res.data.ticketCode) {
+          try {
+            const v = await apiService.validateTicket(res.data.ticketCode);
+            const remaining = v.data?.remainingTickets;
+            if (remaining != null && remaining > 0) {
+              setGroupRemaining(remaining);
+              setCheckInQty(Math.min(1, remaining));
+            }
+          } catch {
+            // validate is optional for UI; check-in still works with qty=1
+          }
+        }
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('ticket.loadError'));
@@ -143,10 +160,23 @@ export default function TicketDetailScreen() {
     if (!detail?.ticketCode || checkingIn) return;
     setCheckingIn(true);
     try {
-      const res = await apiService.checkInTicket(detail.ticketCode);
+      const qty =
+        detail.isGroupOrder && groupRemaining != null && groupRemaining > 0
+          ? Math.min(checkInQty, groupRemaining)
+          : detail.isGroupOrder
+            ? Math.max(1, checkInQty)
+            : undefined;
+      const res = await apiService.checkInTicket(detail.ticketCode, qty);
       const data = res.data;
       if (data?.isValid) {
-        Alert.alert(t('ticket.checkInTitle'), t('ticket.checkInSuccess'));
+        const extra =
+          data.isGroupOrder && data.remainingTickets != null
+            ? `\n${t('ticket.checkInRemaining').replace('{count}', String(data.remainingTickets))}`
+            : '';
+        Alert.alert(
+          t('ticket.checkInTitle'),
+          (data.message || t('ticket.checkInSuccess')) + extra,
+        );
         await load();
         return;
       }
@@ -167,13 +197,13 @@ export default function TicketDetailScreen() {
     } finally {
       setCheckingIn(false);
     }
-  }, [checkingIn, detail?.ticketCode, load, t]);
+  }, [checkingIn, checkInQty, detail, groupRemaining, load, t]);
 
   const handleDownloadPackForTicket = useCallback(async () => {
     if (!detail?.ticketCode || packLoading) return;
     setPackLoading(true);
     try {
-      const res = await apiService.getOfflinePackageByTicket(detail.ticketCode);
+      const res = await apiService.getOfflinePackageByTicket(detail.ticketCode, lang);
       const pkg = res.data;
       if (!pkg?.packageUrl && !pkg?.downloadUrl) {
         Alert.alert(
@@ -225,7 +255,7 @@ export default function TicketDetailScreen() {
     } finally {
       setPackLoading(false);
     }
-  }, [detail, downloadPack, packLoading, t]);
+  }, [detail, downloadPack, lang, packLoading, t]);
 
   const openRefund = useCallback(() => {
     setRefundError(null);
@@ -358,6 +388,13 @@ export default function TicketDetailScreen() {
             label={t('ticket.statusLabel')}
             value={statusLabel(detail.status, t)}
           />
+          {detail.isGroupOrder || detail.isFoc ? (
+            <Row
+              icon="account-group"
+              label={t('ticket.groupBadge')}
+              value={detail.isFoc ? t('ticket.focBadge') : '✓'}
+            />
+          ) : null}
           <Row
             icon="calendar-outline"
             label={t('ticket.purchaseDate')}
@@ -449,6 +486,48 @@ export default function TicketDetailScreen() {
             ) : (
               <>
                 <Text style={styles.checkInHint}>{t('ticket.checkInHint')}</Text>
+                {detail.isGroupOrder ? (
+                  <View style={styles.checkInQtyBlock}>
+                    {groupRemaining != null ? (
+                      <Text style={styles.checkInRemaining}>
+                        {t('ticket.checkInRemaining').replace(
+                          '{count}',
+                          String(groupRemaining),
+                        )}
+                      </Text>
+                    ) : null}
+                    <Text style={styles.checkInQtyLabel}>{t('ticket.checkInQty')}</Text>
+                    <View style={styles.checkInQtyRow}>
+                      <TouchableOpacity
+                        style={styles.checkInQtyBtn}
+                        onPress={() =>
+                          setCheckInQty((q) => Math.max(1, q - 1))
+                        }
+                      >
+                        <MaterialCommunityIcons
+                          name="minus"
+                          size={18}
+                          color={C.textSecondary}
+                        />
+                      </TouchableOpacity>
+                      <Text style={styles.checkInQtyValue}>{checkInQty}</Text>
+                      <TouchableOpacity
+                        style={styles.checkInQtyBtn}
+                        onPress={() =>
+                          setCheckInQty((q) =>
+                            Math.min(groupRemaining ?? MAX_ORDER_QUANTITY, q + 1),
+                          )
+                        }
+                      >
+                        <MaterialCommunityIcons
+                          name="plus"
+                          size={18}
+                          color={C.textSecondary}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null}
                 <TouchableOpacity
                   style={[styles.checkInBtn, checkingIn && styles.checkInBtnDisabled]}
                   onPress={() => void handleCheckIn()}
@@ -692,6 +771,43 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: C.textSecondary,
     lineHeight: 18,
+  },
+  checkInQtyBlock: {
+    marginTop: 4,
+    marginBottom: 4,
+    gap: 8,
+  },
+  checkInRemaining: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: C.accent,
+  },
+  checkInQtyLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: C.textMuted,
+  },
+  checkInQtyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  checkInQtyBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.bgElevated,
+  },
+  checkInQtyValue: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.textPrimary,
+    minWidth: 28,
+    textAlign: 'center',
   },
   checkInBtn: {
     marginTop: 4,

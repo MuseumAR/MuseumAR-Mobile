@@ -96,11 +96,13 @@ async function snapshotContentApis(museumId?: number): Promise<ExhibitDto[]> {
     // Optional — fails quietly if Azure DB lacks TagGroupTranslations
     { key: 'Content/tag-groups', run: () => apiService.getTagGroups() },
     { key: 'Content/categories', run: () => apiService.getCategories() },
-    { key: 'Content/maps', run: () => apiService.getMaps() },
+    { key: 'Content/maps', run: () => apiService.getMaps('vi') },
+    { key: 'Content/maps?lang=en', run: () => apiService.getMaps('en') },
     { key: 'Content/routes', run: () => apiService.getRoutes() },
     { key: 'Content/exhibitions', run: () => apiService.getExhibitions() },
     { key: 'Content/exhibitions?lang=en', run: () => apiService.getExhibitions('en') },
-    { key: 'Content/packages', run: () => apiService.getPackages() },
+    { key: 'Content/packages', run: () => apiService.getPackages(undefined, 'vi') },
+    { key: 'Content/packages?lang=en', run: () => apiService.getPackages(undefined, 'en') },
     { key: 'Admin/museum-profile', run: () => apiService.getMuseumProfile() },
     { key: 'Admin/museum-profile?lang=en', run: () => apiService.getMuseumProfile('en') },
   ];
@@ -266,7 +268,7 @@ async function downloadExtraImages(): Promise<Record<string, string>> {
   };
 
   try {
-    const maps = await apiService.getMaps();
+    const maps = await apiService.getMaps('vi');
     for (const item of maps.data ?? []) {
       await enqueue(
         resolveUrl(item.mapImageUrl ?? item.imageUrl),

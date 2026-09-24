@@ -277,6 +277,34 @@ export interface CheckInTicketResponse {
   status?: string;
   isValid: boolean;
   message?: string;
+  isGroupOrder?: boolean;
+  isFoc?: boolean;
+  orderCode?: string;
+  totalTickets?: number;
+  usedTickets?: number;
+  remainingTickets?: number;
+  focTickets?: number;
+}
+
+function normalizeCheckInResponse(
+  raw: CheckInTicketResponse & Record<string, unknown>,
+  fallbackCode: string,
+): CheckInTicketResponse {
+  return {
+    ticketId: Number(raw.ticketId ?? raw.TicketId ?? 0) || undefined,
+    ticketCode: String(raw.ticketCode ?? raw.TicketCode ?? fallbackCode),
+    status: String(raw.status ?? raw.Status ?? ''),
+    isValid: Boolean(raw.isValid ?? raw.IsValid),
+    message: String(raw.message ?? raw.Message ?? '') || undefined,
+    isGroupOrder: Boolean(raw.isGroupOrder ?? raw.IsGroupOrder),
+    isFoc: Boolean(raw.isFoc ?? raw.IsFoc),
+    orderCode: String(raw.orderCode ?? raw.OrderCode ?? '') || undefined,
+    totalTickets: Number(raw.totalTickets ?? raw.TotalTickets) || undefined,
+    usedTickets: Number(raw.usedTickets ?? raw.UsedTickets) || undefined,
+    remainingTickets:
+      Number(raw.remainingTickets ?? raw.RemainingTickets) || undefined,
+    focTickets: Number(raw.focTickets ?? raw.FocTickets) || undefined,
+  };
 }
 
 /** Unit price after applying an optional promotion (matches FE checkout math). */
@@ -361,6 +389,8 @@ export interface TicketDetailDto {
   /** Unit price snapshot from BE (same as ticketType.price). */
   price?: number;
   status: string;
+  isFoc?: boolean;
+  isGroupOrder?: boolean;
   purchaseDate: string;
   validDate?: string | null;
   ticketType: {
@@ -641,6 +671,7 @@ export interface ContentPackageDto {
   exhibitionId?: number | null;
   exhibitionTitle?: string | null;
   packageName?: string | null;
+  packageNameEn?: string | null;
   packageUrl?: string;
   checksum?: string;
   status?: string;
@@ -652,16 +683,38 @@ export interface ContentPackageDto {
   /** Optional / future fields */
   name?: string;
   description?: string;
+  descriptionEn?: string;
   sizeBytes?: number;
   exhibitCount?: number;
   category?: string;
   downloadUrl?: string;
   version?: string;
   thumbnailUrl?: string;
+  translations?: Array<{
+    languageCode?: string;
+    packageName?: string | null;
+    description?: string | null;
+  }>;
+}
+
+function pickPackageTranslation(
+  translations: ContentPackageDto['translations'],
+  lang: string,
+): { packageName?: string; description?: string } {
+  if (!translations?.length) return {};
+  const code = lang.toLowerCase();
+  const row =
+    translations.find((t) => String(t.languageCode ?? '').toLowerCase() === code) ??
+    translations[0];
+  return {
+    packageName: String(row?.packageName ?? '').trim() || undefined,
+    description: String(row?.description ?? '').trim() || undefined,
+  };
 }
 
 function normalizePackageDto(
   raw: Partial<ContentPackageDto> & Record<string, unknown>,
+  lang: string = 'vi',
 ): ContentPackageDto {
   const sizeBytes =
     Number(
@@ -675,17 +728,46 @@ function normalizePackageDto(
     exhibitionRaw == null || exhibitionRaw === ''
       ? null
       : Number(exhibitionRaw) || null;
-  const packageName =
+  const packageNameVi =
     String(raw.packageName ?? raw.PackageName ?? '').trim() || undefined;
+  const packageNameEn =
+    String(raw.packageNameEn ?? raw.PackageNameEn ?? '').trim() || undefined;
+  const translationsRaw = (raw.translations ?? raw.Translations) as unknown;
+  const translations = Array.isArray(translationsRaw)
+    ? translationsRaw.map((item) => {
+        const t = item as Record<string, unknown>;
+        return {
+          languageCode: String(t.languageCode ?? t.LanguageCode ?? '').trim() || undefined,
+          packageName:
+            String(t.packageName ?? t.PackageName ?? '').trim() || null,
+          description:
+            String(t.description ?? t.Description ?? '').trim() || null,
+        };
+      })
+    : [];
+  const fromTrans = pickPackageTranslation(translations, lang);
+  const preferEn = String(lang).toLowerCase().startsWith('en');
+  const localizedName = preferEn
+    ? packageNameEn || fromTrans.packageName || packageNameVi
+    : packageNameVi || fromTrans.packageName || packageNameEn;
+  const descriptionVi =
+    String(raw.description ?? raw.Description ?? '').trim() || undefined;
+  const descriptionEn =
+    String(raw.descriptionEn ?? raw.DescriptionEn ?? '').trim() || undefined;
+  const localizedDesc = preferEn
+    ? descriptionEn || fromTrans.description || descriptionVi
+    : descriptionVi || fromTrans.description || descriptionEn;
   const exhibitionTitle =
     String(raw.exhibitionTitle ?? raw.ExhibitionTitle ?? '').trim() || null;
+
   return {
     id: Number(raw.id ?? raw.Id),
     museumId: Number(raw.museumId ?? raw.MuseumId) || undefined,
     versionId: Number(raw.versionId ?? raw.VersionId) || undefined,
     exhibitionId,
     exhibitionTitle,
-    packageName: packageName ?? null,
+    packageName: localizedName ?? null,
+    packageNameEn: packageNameEn ?? null,
     packageUrl:
       String(raw.packageUrl ?? raw.PackageUrl ?? raw.downloadUrl ?? '').trim() ||
       undefined,
@@ -700,12 +782,9 @@ function normalizePackageDto(
     imageCount: Number(raw.imageCount ?? raw.ImageCount) || undefined,
     audioCount: Number(raw.audioCount ?? raw.AudioCount) || undefined,
     exhibitCount: Number(raw.exhibitCount ?? raw.ExhibitCount) || undefined,
-    name:
-      packageName ||
-      String(raw.name ?? raw.Name ?? '').trim() ||
-      undefined,
-    description:
-      String(raw.description ?? raw.Description ?? '').trim() || undefined,
+    name: localizedName || String(raw.name ?? raw.Name ?? '').trim() || undefined,
+    description: localizedDesc,
+    descriptionEn: descriptionEn,
     category: String(raw.category ?? raw.Category ?? '').trim() || undefined,
     downloadUrl:
       String(
@@ -714,6 +793,7 @@ function normalizePackageDto(
     version: String(raw.version ?? raw.Version ?? '').trim() || undefined,
     thumbnailUrl:
       String(raw.thumbnailUrl ?? raw.ThumbnailUrl ?? '').trim() || undefined,
+    translations,
   };
 }
 
@@ -730,12 +810,17 @@ export interface MuseumMapDto {
   imageUrl?: string;
   /** BE field — Indoor / Outdoor / … */
   mapType?: string;
-  /** BE MuseumMap.MapName */
+  /** Localized display name (from MapName / MapNameEn / translations). */
   mapName?: string;
-  /** Display label: mapName, else "Tầng {n}" */
+  mapNameEn?: string | null;
+  /** Display label: localized mapName, else "Floor {n}" */
   label?: string;
   /** BE MuseumMap.FloorNumber */
   floorNumber?: number;
+  translations?: Array<{
+    languageCode?: string;
+    mapName?: string | null;
+  }>;
 }
 
 /** Pull a leading/embedded floor number out of a label such as "Tầng 2" / "Floor 3". */
@@ -749,13 +834,33 @@ function parseFloorNumber(label: string): number | undefined {
 /** Normalize BE museum map payload → mobile shape. */
 export function normalizeMuseumMap(
   raw: Partial<MuseumMapDto> & Record<string, unknown>,
+  lang: string = 'vi',
 ): MuseumMapDto {
   const id = Number(raw.id ?? raw.Id) || 0;
   const remoteImage = String(
     raw.imageUrl ?? raw.mapImageUrl ?? raw.MapImageUrl ?? '',
   ).trim();
   const mapType = String(raw.mapType ?? raw.MapType ?? '').trim();
-  const mapName = String(raw.mapName ?? raw.MapName ?? '').trim();
+  const mapNameVi = String(raw.mapName ?? raw.MapName ?? '').trim();
+  const mapNameEn =
+    String(raw.mapNameEn ?? raw.MapNameEn ?? '').trim() || null;
+  const translationsRaw = (raw.translations ?? raw.Translations) as unknown;
+  const translations = Array.isArray(translationsRaw)
+    ? translationsRaw.map((item) => {
+        const t = item as Record<string, unknown>;
+        return {
+          languageCode: String(t.languageCode ?? t.LanguageCode ?? '').trim() || undefined,
+          mapName: String(t.mapName ?? t.MapName ?? '').trim() || null,
+        };
+      })
+    : [];
+  const preferEn = String(lang).toLowerCase().startsWith('en');
+  const fromTrans = translations.find(
+    (t) => String(t.languageCode ?? '').toLowerCase() === (preferEn ? 'en' : 'vi'),
+  )?.mapName;
+  const mapName = preferEn
+    ? mapNameEn || fromTrans || mapNameVi
+    : mapNameVi || fromTrans || mapNameEn || '';
   const floorRaw = Number(raw.floorNumber ?? raw.FloorNumber);
   const floorNumber =
     Number.isFinite(floorRaw) && floorRaw > 0
@@ -765,9 +870,15 @@ export function normalizeMuseumMap(
     pickDisplayImageUrl(remoteImage, `map:${id}`) ?? remoteImage;
   const label =
     mapName ||
-    (floorNumber != null ? `Tầng ${floorNumber}` : mapType && mapType.toLowerCase() !== 'floor'
-      ? mapType
-      : `Bản đồ ${id}`);
+    (floorNumber != null
+      ? preferEn
+        ? `Floor ${floorNumber}`
+        : `Tầng ${floorNumber}`
+      : mapType && mapType.toLowerCase() !== 'floor'
+        ? mapType
+        : preferEn
+          ? `Map ${id}`
+          : `Bản đồ ${id}`);
 
   return {
     id,
@@ -776,8 +887,10 @@ export function normalizeMuseumMap(
     imageUrl: imageUrl || undefined,
     mapType: mapType || undefined,
     mapName: mapName || undefined,
+    mapNameEn,
     label,
     floorNumber,
+    translations,
   };
 }
 
@@ -1474,10 +1587,57 @@ export const apiService = {
     });
   },
 
-  async changePassword(oldPassword: string, newPassword: string): Promise<ApiResponse<null>> {
+  /** POST /Auth/send-password-otp — requires auth; emails 6-digit OTP. */
+  async sendPasswordOtp(): Promise<ApiResponse<{ email?: string } | null>> {
+    const response = await apiFetch<{ email?: string } & Record<string, unknown>>(
+      'Auth/send-password-otp',
+      {
+        method: 'POST',
+        body: JSON.stringify({}),
+      },
+    );
+    const raw = response.data;
+    if (!raw || typeof raw !== 'object') return { ...response, data: null };
+    return {
+      ...response,
+      data: {
+        email: String(raw.email ?? raw.Email ?? '').trim() || undefined,
+      },
+    };
+  },
+
+  /** GET /Auth/has-password — requires auth. */
+  async hasPassword(): Promise<ApiResponse<{ hasPassword?: boolean; email?: string } | null>> {
+    const response = await apiFetch<
+      { hasPassword?: boolean; email?: string } & Record<string, unknown>
+    >('Auth/has-password');
+    const raw = response.data;
+    if (!raw || typeof raw !== 'object') return { ...response, data: null };
+    return {
+      ...response,
+      data: {
+        hasPassword: Boolean(raw.hasPassword ?? raw.HasPassword),
+        email: String(raw.email ?? raw.Email ?? '').trim() || undefined,
+      },
+    };
+  },
+
+  /**
+   * POST /Auth/change-password — requires auth + OTP from send-password-otp.
+   * oldPassword optional for Google-only accounts.
+   */
+  async changePassword(payload: {
+    otp: string;
+    newPassword: string;
+    oldPassword?: string;
+  }): Promise<ApiResponse<null>> {
     return apiFetch<null>('Auth/change-password', {
       method: 'POST',
-      body: JSON.stringify({ oldPassword, newPassword }),
+      body: JSON.stringify({
+        otp: payload.otp.trim(),
+        newPassword: payload.newPassword,
+        oldPassword: payload.oldPassword?.trim() || undefined,
+      }),
     });
   },
 
@@ -1647,16 +1807,23 @@ export const apiService = {
    * Gói offline — GET /Content/packages?exhibitionId=
    * Omit exhibitionId to list all scopes for the museum.
    */
-  async getPackages(exhibitionId?: number | null): Promise<ApiResponse<ContentPackageDto[]>> {
+  async getPackages(
+    exhibitionId?: number | null,
+    lang?: string,
+  ): Promise<ApiResponse<ContentPackageDto[]>> {
     const response = await apiFetch<ContentPackageDto[]>(
       `Content/packages${buildQuery({
         exhibitionId: exhibitionId != null ? exhibitionId : undefined,
       })}`,
     );
+    const code = lang ?? 'vi';
     return {
       ...response,
       data: (response.data ?? []).map((item) =>
-        normalizePackageDto(item as Partial<ContentPackageDto> & Record<string, unknown>),
+        normalizePackageDto(
+          item as Partial<ContentPackageDto> & Record<string, unknown>,
+          code,
+        ),
       ),
     };
   },
@@ -1668,6 +1835,7 @@ export const apiService = {
    */
   async getLatestPackage(
     exhibitionId?: number | null,
+    lang?: string,
   ): Promise<ApiResponse<ContentPackageDto | null>> {
     const query = buildQuery({
       exhibitionId: exhibitionId != null ? exhibitionId : undefined,
@@ -1676,6 +1844,7 @@ export const apiService = {
       `Visitor/offline-package/latest${query}`,
       `Visitor/sync-check${query}`,
     ];
+    const code = lang ?? 'vi';
     let notFoundMessage = 'No offline package available';
     for (const endpoint of tryEndpoints) {
       try {
@@ -1687,7 +1856,7 @@ export const apiService = {
         }
         return {
           ...response,
-          data: normalizePackageDto(response.data),
+          data: normalizePackageDto(response.data, code),
         };
       } catch (err) {
         if (err instanceof ApiError && err.statusCode === 404) {
@@ -1715,6 +1884,7 @@ export const apiService = {
    */
   async getOfflinePackageByTicket(
     ticketCode: string,
+    lang?: string,
   ): Promise<ApiResponse<ContentPackageDto | null>> {
     const code = ticketCode.trim();
     if (!code) {
@@ -1734,7 +1904,7 @@ export const apiService = {
       }
       return {
         ...response,
-        data: normalizePackageDto(response.data),
+        data: normalizePackageDto(response.data, lang ?? 'vi'),
       };
     } catch (err) {
       if (err instanceof ApiError && (err.statusCode === 404 || err.statusCode === 400)) {
@@ -1750,11 +1920,17 @@ export const apiService = {
   },
 
   /** Bản đồ bảo tàng. */
-  async getMaps(): Promise<ApiResponse<MuseumMapDto[]>> {
+  async getMaps(lang?: string): Promise<ApiResponse<MuseumMapDto[]>> {
     const response = await apiFetch<MuseumMapDto[]>('Content/maps');
+    const code = lang ?? 'vi';
     return {
       ...response,
-      data: (response.data ?? []).map((item) => normalizeMuseumMap(item)),
+      data: (response.data ?? []).map((item) =>
+        normalizeMuseumMap(
+          item as Partial<MuseumMapDto> & Record<string, unknown>,
+          code,
+        ),
+      ),
     };
   },
 
@@ -2060,6 +2236,8 @@ export const apiService = {
         ticketCode: String(raw.ticketCode ?? raw.TicketCode ?? ''),
         price: unitPrice,
         status: String(raw.status ?? raw.Status ?? ''),
+        isFoc: Boolean(raw.isFoc ?? raw.IsFoc),
+        isGroupOrder: Boolean(raw.isGroupOrder ?? raw.IsGroupOrder),
         purchaseDate: String(raw.purchaseDate ?? raw.PurchaseDate ?? ''),
         validDate: (raw.validDate ?? raw.ValidDate ?? null) as string | null,
         ticketType: {
@@ -2115,26 +2293,49 @@ export const apiService = {
     });
   },
 
-  /** POST /Ticketing/check-in — visitor self check-in at gate. */
-  async checkInTicket(ticketCode: string): Promise<ApiResponse<CheckInTicketResponse>> {
+  /**
+   * GET /Ticketing/validate/{ticketCode} — group remaining counts before check-in.
+   */
+  async validateTicket(
+    ticketCode: string,
+  ): Promise<ApiResponse<CheckInTicketResponse>> {
+    const code = ticketCode.trim();
+    const response = await apiFetch<CheckInTicketResponse & Record<string, unknown>>(
+      `Ticketing/validate/${encodeURIComponent(code)}`,
+    );
+    const raw = response.data;
+    if (!raw) return { ...response, data: undefined };
+    return {
+      ...response,
+      data: normalizeCheckInResponse(raw, code),
+    };
+  },
+
+  /**
+   * POST /Ticketing/check-in — visitor self check-in at gate.
+   * Optional quantity = how many Paid tickets in the group order to mark Used.
+   */
+  async checkInTicket(
+    ticketCode: string,
+    quantity?: number | null,
+  ): Promise<ApiResponse<CheckInTicketResponse>> {
+    const code = ticketCode.trim();
+    const body: Record<string, unknown> = { ticketCode: code };
+    if (quantity != null && quantity > 0) {
+      body.quantity = Math.floor(quantity);
+    }
     const response = await apiFetch<CheckInTicketResponse & Record<string, unknown>>(
       'Ticketing/check-in',
       {
         method: 'POST',
-        body: JSON.stringify({ ticketCode: ticketCode.trim() }),
+        body: JSON.stringify(body),
       },
     );
     const raw = response.data;
     if (!raw) return { ...response, data: undefined };
     return {
       ...response,
-      data: {
-        ticketId: Number(raw.ticketId ?? raw.TicketId ?? 0) || undefined,
-        ticketCode: String(raw.ticketCode ?? raw.TicketCode ?? ticketCode),
-        status: String(raw.status ?? raw.Status ?? ''),
-        isValid: Boolean(raw.isValid ?? raw.IsValid),
-        message: String(raw.message ?? raw.Message ?? '') || undefined,
-      },
+      data: normalizeCheckInResponse(raw, code),
     };
   },
 
