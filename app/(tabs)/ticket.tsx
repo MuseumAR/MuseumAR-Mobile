@@ -495,10 +495,6 @@ export default function TicketScreen() {
             </>
           )}
         </TouchableOpacity>
-
-        <Text style={styles.note}>
-          * Sau thanh toán, app mở màn hình kết quả và kiểm tra vé. Vé Paid chỉ xuất hiện khi webhook PayOS tới server.
-        </Text>
       </ScrollView>
     </SafeAreaView>
   );
@@ -730,5 +726,4 @@ const styles = StyleSheet.create({
   },
   buyBtnDisabled: { opacity: 0.5 },
   buyBtnText: { color: C.onAccent, fontSize: 17, fontWeight: '700' },
-  note: { fontSize: 12, color: C.textMuted, textAlign: 'center', lineHeight: 18 },
 });

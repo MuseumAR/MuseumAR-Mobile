@@ -32,9 +32,18 @@ export function ARPackCard({ pack, state, onDownload, onDelete }: Props) {
         <View style={styles.info}>
           <Text style={styles.name}>{pack.name}</Text>
           <Text style={styles.meta}>
+            {pack.exhibitionId != null
+              ? t('packs.scopeExhibition')
+              : t('packs.scopeMuseum')}
+            {' · '}
             {pack.artifactCount} · {pack.sizeMB} MB
             {pack.versionId != null ? ` · v${pack.versionId}` : ''}
           </Text>
+          {pack.exhibitionTitle ? (
+            <Text style={styles.exhibitionTitle} numberOfLines={1}>
+              {pack.exhibitionTitle}
+            </Text>
+          ) : null}
         </View>
 
         {needsUpdate ? (
@@ -164,6 +173,12 @@ const styles = StyleSheet.create({
   info: { flex: 1 },
   name: { fontSize: 15, fontWeight: '700', color: C.textPrimary },
   meta: { fontSize: 12, color: C.textMuted, marginTop: 2 },
+  exhibitionTitle: {
+    fontSize: 11,
+    color: C.bronze,
+    fontWeight: '600',
+    marginTop: 2,
+  },
   downloadedBadge: {
     flexDirection: 'row',
     alignItems: 'center',

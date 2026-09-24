@@ -89,7 +89,8 @@ export function hydrateTourStops(
       ...s,
       roomId,
       roomCode: s.roomCode ?? room.roomCode ?? null,
-      roomName: s.roomName ?? room.roomName ?? null,
+      // Catalog already respects ?lang=; keep bilingual fields from the stop.
+      roomName: room.roomName || s.roomName || null,
       floorNumber: s.floorNumber ?? room.floorNumber ?? null,
       mapId: s.mapId ?? room.mapId ?? null,
     };

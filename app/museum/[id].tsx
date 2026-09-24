@@ -13,7 +13,7 @@ import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
 import { usePackages } from '../../src/hooks/usePackages';
 import { useRooms } from '../../src/hooks/useRooms';
-import { useRoutes } from '../../src/hooks/useRoutes';
+import { useRoutes, localizeTourStops } from '../../src/hooks/useRoutes';
 import { useNavigationGraph } from '../../src/hooks/useNavigationGraph';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { AnalyticsAction } from '../../src/constants/analyticsActions';
@@ -618,8 +618,8 @@ export default function MuseumDetailScreen() {
   const [startingRouteId, setStartingRouteId] = useState<number | null>(null);
 
   const routeStops = useMemo(
-    () => sortStops(activeRoute?.stops ?? []),
-    [activeRoute],
+    () => localizeTourStops(sortStops(activeRoute?.stops ?? []), lang),
+    [activeRoute, lang],
   );
   const routeMode = routeStops.length > 0;
   const nextStop =

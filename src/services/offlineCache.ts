@@ -8,6 +8,7 @@ export type OfflinePackRecord = {
   id: string;
   museumId?: number;
   versionId?: number;
+  exhibitionId?: number | null;
   checksum?: string | null;
   packageUrl?: string | null;
   downloadedAt: string;
@@ -39,6 +40,7 @@ export function isCacheableEndpoint(endpoint: string, method?: string): boolean 
   if (path.startsWith('navigation/')) return true;
   if (path.startsWith('admin/museum-profile')) return true;
   if (path.startsWith('visitor/sync-check')) return true;
+  if (path.startsWith('visitor/offline-package')) return true;
   return false;
 }
 

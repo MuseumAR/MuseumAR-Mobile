@@ -9,7 +9,11 @@ import {
   saveCachedResponse,
 } from './offlineCache';
 import { canUseOfflineContent, isTicketingEndpoint } from './offlineMode';
-import { pickDisplayImageUrl, rewriteRemoteImageUrl } from '../utils/mobileImageUrl';
+import {
+  pickDisplayImageUrl,
+  rewriteRemoteImageUrl,
+  toAbsoluteMediaUrl,
+} from '../utils/mobileImageUrl';
 import { routeFromGraph } from '../utils/offlineNavigation';
 
 // Giao diện dữ liệu phản hồi chung từ API
@@ -198,6 +202,9 @@ export interface SyncCheckDto {
   id: number;
   museumId: number;
   versionId?: number;
+  exhibitionId?: number | null;
+  exhibitionTitle?: string | null;
+  packageName?: string | null;
   packageUrl?: string;
   checksum?: string;
   status?: string;
@@ -595,10 +602,14 @@ export interface ArAssetDto {
 export function normalizeArAsset(
   raw: Partial<ArAssetDto> & { assetUrl?: string | null },
 ): ArAssetDto {
+  const rawUrl = String(raw.url ?? raw.assetUrl ?? '').trim();
+  const isModel =
+    /^(model3d|3dmodel|model|3d|mesh)$/i.test(String(raw.assetType ?? '').trim()) ||
+    /\.(glb|gltf)(\?|$)/i.test(rawUrl);
   const url =
-    rewriteRemoteImageUrl(String(raw.url ?? raw.assetUrl ?? '').trim(), {
-      preserveAlpha: true,
-    }) ?? '';
+    (isModel
+      ? toAbsoluteMediaUrl(rawUrl)
+      : rewriteRemoteImageUrl(rawUrl, { preserveAlpha: true })) ?? '';
   const formatFromUrl = (() => {
     const m = url.match(/\.([a-z0-9]+)(?:\?|$)/i);
     return m?.[1]?.toLowerCase();
@@ -614,8 +625,9 @@ export function normalizeArAsset(
     description: raw.description,
     fileSizeBytes: raw.fileSizeBytes,
     scale: raw.scale,
-    markerUrl: raw.markerUrl,
-    previewImageUrl: raw.previewImageUrl,
+    markerUrl: rewriteRemoteImageUrl(raw.markerUrl) ?? raw.markerUrl,
+    previewImageUrl:
+      rewriteRemoteImageUrl(raw.previewImageUrl) ?? raw.previewImageUrl,
     createdAt: raw.createdAt,
   };
 }
@@ -625,12 +637,18 @@ export interface ContentPackageDto {
   id: number;
   museumId?: number;
   versionId?: number;
+  /** Null = museum-wide pack; set = exhibition-scoped pack (newest BE). */
+  exhibitionId?: number | null;
+  exhibitionTitle?: string | null;
+  packageName?: string | null;
   packageUrl?: string;
   checksum?: string;
   status?: string;
   arassetCount?: number;
   createdAt?: string;
   packageSizeBytes?: number;
+  imageCount?: number;
+  audioCount?: number;
   /** Optional / future fields */
   name?: string;
   description?: string;
@@ -652,10 +670,22 @@ function normalizePackageDto(
         raw.packageSizeBytes ??
         raw.PackageSizeBytes,
     ) || undefined;
+  const exhibitionRaw = raw.exhibitionId ?? raw.ExhibitionId;
+  const exhibitionId =
+    exhibitionRaw == null || exhibitionRaw === ''
+      ? null
+      : Number(exhibitionRaw) || null;
+  const packageName =
+    String(raw.packageName ?? raw.PackageName ?? '').trim() || undefined;
+  const exhibitionTitle =
+    String(raw.exhibitionTitle ?? raw.ExhibitionTitle ?? '').trim() || null;
   return {
     id: Number(raw.id ?? raw.Id),
     museumId: Number(raw.museumId ?? raw.MuseumId) || undefined,
     versionId: Number(raw.versionId ?? raw.VersionId) || undefined,
+    exhibitionId,
+    exhibitionTitle,
+    packageName: packageName ?? null,
     packageUrl:
       String(raw.packageUrl ?? raw.PackageUrl ?? raw.downloadUrl ?? '').trim() ||
       undefined,
@@ -667,8 +697,13 @@ function normalizePackageDto(
     createdAt: String(raw.createdAt ?? raw.CreatedAt ?? '') || undefined,
     packageSizeBytes: sizeBytes,
     sizeBytes,
+    imageCount: Number(raw.imageCount ?? raw.ImageCount) || undefined,
+    audioCount: Number(raw.audioCount ?? raw.AudioCount) || undefined,
     exhibitCount: Number(raw.exhibitCount ?? raw.ExhibitCount) || undefined,
-    name: String(raw.name ?? raw.Name ?? '').trim() || undefined,
+    name:
+      packageName ||
+      String(raw.name ?? raw.Name ?? '').trim() ||
+      undefined,
     description:
       String(raw.description ?? raw.Description ?? '').trim() || undefined,
     category: String(raw.category ?? raw.Category ?? '').trim() || undefined,
@@ -758,6 +793,11 @@ export interface TourRouteStopDto {
   roomId?: number | null;
   roomCode?: string | null;
   roomName?: string | null;
+  /** Bilingual payload from newest WebBE (optional). */
+  exhibitTitleVi?: string | null;
+  exhibitTitleEn?: string | null;
+  roomNameVi?: string | null;
+  roomNameEn?: string | null;
 }
 
 /** @deprecated Prefer TourRouteStopDto / stops from BE. */
@@ -967,16 +1007,36 @@ export function normalizeNavigationRoute(
 
 export function normalizeTourRouteStop(
   raw: Partial<TourRouteStopDto> & Record<string, unknown>,
+  lang: string = 'vi',
 ): TourRouteStopDto {
   const exhibitId = Number(raw.exhibitId ?? raw.ExhibitId) || 0;
   const mapIdRaw = raw.mapId ?? raw.MapId;
   const floorRaw = raw.floorNumber ?? raw.FloorNumber;
   const roomIdRaw = raw.roomId ?? raw.RoomId;
   const minutesRaw = raw.estimatedMinutes ?? raw.EstimatedMinutes;
+
+  const exhibitTitleVi = pickOptionalString(
+    raw.exhibitTitleVi ?? raw.ExhibitTitleVi,
+  );
+  const exhibitTitleEn = pickOptionalString(
+    raw.exhibitTitleEn ?? raw.ExhibitTitleEn,
+  );
+  const roomNameVi = pickOptionalString(raw.roomNameVi ?? raw.RoomNameVi);
+  const roomNameEn = pickOptionalString(raw.roomNameEn ?? raw.RoomNameEn);
+  const flatExhibit = pickOptionalString(raw.exhibitName ?? raw.ExhibitName);
+  const flatRoom = pickOptionalString(raw.roomName ?? raw.RoomName);
+
+  const preferEn = String(lang).toLowerCase().startsWith('en');
+  const exhibitName = preferEn
+    ? exhibitTitleEn || flatExhibit || exhibitTitleVi || null
+    : exhibitTitleVi || flatExhibit || exhibitTitleEn || null;
+  const roomName = preferEn
+    ? roomNameEn || flatRoom || roomNameVi || null
+    : roomNameVi || flatRoom || roomNameEn || null;
+
   return {
     exhibitId,
-    exhibitName:
-      (raw.exhibitName ?? raw.ExhibitName ?? null) as string | null,
+    exhibitName,
     exhibitCode:
       (raw.exhibitCode ?? raw.ExhibitCode ?? null) as string | null,
     stopOrder: Number(raw.stopOrder ?? raw.StopOrder ?? raw.order) || 0,
@@ -985,8 +1045,18 @@ export function normalizeTourRouteStop(
     floorNumber: floorRaw != null ? Number(floorRaw) : null,
     roomId: roomIdRaw != null ? Number(roomIdRaw) : null,
     roomCode: (raw.roomCode ?? raw.RoomCode ?? null) as string | null,
-    roomName: (raw.roomName ?? raw.RoomName ?? null) as string | null,
+    roomName,
+    exhibitTitleVi,
+    exhibitTitleEn,
+    roomNameVi,
+    roomNameEn,
   };
+}
+
+function pickOptionalString(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 export function normalizeRoomDto(
@@ -1493,7 +1563,8 @@ export const apiService = {
         qrcodeData: String(raw.qrcodeData ?? raw.QrcodeData ?? options.qrData),
         title: String(raw.title ?? raw.Title ?? ''),
         description: String(raw.description ?? raw.Description ?? ''),
-        audioUrl: (raw.audioUrl ?? raw.AudioUrl ?? null) as string | null,
+        audioUrl:
+          toAbsoluteMediaUrl((raw.audioUrl ?? raw.AudioUrl) as string | null) ?? null,
         languageCode: String(raw.languageCode ?? raw.LanguageCode ?? 'vi'),
         categoryName: (raw.categoryName ?? raw.CategoryName ?? null) as string | null,
         roomId: (() => {
@@ -1523,7 +1594,12 @@ export const apiService = {
               .filter((item): item is string => Boolean(item))
           : [],
         arAssets: Array.isArray(raw.arAssets ?? raw.ArAssets)
-          ? ((raw.arAssets ?? raw.ArAssets) as ExhibitScanResultDto['arAssets'])
+          ? ((raw.arAssets ?? raw.ArAssets) as ExhibitScanResultDto['arAssets']).map(
+              (asset) => {
+                const url = toAbsoluteMediaUrl(asset.assetUrl ?? asset.AssetUrl);
+                return url ? { ...asset, assetUrl: url, AssetUrl: url } : asset;
+              },
+            )
           : [],
       },
     };
@@ -1567,9 +1643,16 @@ export const apiService = {
     };
   },
 
-  /** Gói nội dung offline / AR packs (all versions for museum). */
-  async getPackages(): Promise<ApiResponse<ContentPackageDto[]>> {
-    const response = await apiFetch<ContentPackageDto[]>('Content/packages');
+  /**
+   * Gói offline — GET /Content/packages?exhibitionId=
+   * Omit exhibitionId to list all scopes for the museum.
+   */
+  async getPackages(exhibitionId?: number | null): Promise<ApiResponse<ContentPackageDto[]>> {
+    const response = await apiFetch<ContentPackageDto[]>(
+      `Content/packages${buildQuery({
+        exhibitionId: exhibitionId != null ? exhibitionId : undefined,
+      })}`,
+    );
     return {
       ...response,
       data: (response.data ?? []).map((item) =>
@@ -1579,14 +1662,73 @@ export const apiService = {
   },
 
   /**
-   * Newest Available offline package — GET /Visitor/sync-check.
-   * Prefer this for visitor download UI (404 = none yet).
+   * Newest Available offline package —
+   * GET /Visitor/offline-package/latest?exhibitionId= (fallback: sync-check).
+   * 404 = none yet.
    */
-  async getLatestPackage(): Promise<ApiResponse<ContentPackageDto | null>> {
+  async getLatestPackage(
+    exhibitionId?: number | null,
+  ): Promise<ApiResponse<ContentPackageDto | null>> {
+    const query = buildQuery({
+      exhibitionId: exhibitionId != null ? exhibitionId : undefined,
+    });
+    const tryEndpoints = [
+      `Visitor/offline-package/latest${query}`,
+      `Visitor/sync-check${query}`,
+    ];
+    let notFoundMessage = 'No offline package available';
+    for (const endpoint of tryEndpoints) {
+      try {
+        const response = await apiFetch<
+          Partial<ContentPackageDto> & Record<string, unknown>
+        >(endpoint);
+        if (!response.data) {
+          return { ...response, data: null };
+        }
+        return {
+          ...response,
+          data: normalizePackageDto(response.data),
+        };
+      } catch (err) {
+        if (err instanceof ApiError && err.statusCode === 404) {
+          notFoundMessage = err.message || notFoundMessage;
+          continue;
+        }
+        // Non-404 on first endpoint → try sync-check; otherwise rethrow.
+        if (endpoint.startsWith('Visitor/offline-package/latest')) {
+          continue;
+        }
+        throw err;
+      }
+    }
+    return {
+      statusCode: 404,
+      status: 'NotFound',
+      message: notFoundMessage,
+      data: null,
+    };
+  },
+
+  /**
+   * GET /Visitor/offline-package/by-ticket/{ticketCode}
+   * Resolves museum + TicketType.ExhibitionId → matching Available pack.
+   */
+  async getOfflinePackageByTicket(
+    ticketCode: string,
+  ): Promise<ApiResponse<ContentPackageDto | null>> {
+    const code = ticketCode.trim();
+    if (!code) {
+      return {
+        statusCode: 400,
+        status: 'BadRequest',
+        message: 'ticketCode required',
+        data: null,
+      };
+    }
     try {
-      const response = await apiFetch<Partial<ContentPackageDto> & Record<string, unknown>>(
-        'Visitor/sync-check',
-      );
+      const response = await apiFetch<
+        Partial<ContentPackageDto> & Record<string, unknown>
+      >(`Visitor/offline-package/by-ticket/${encodeURIComponent(code)}`);
       if (!response.data) {
         return { ...response, data: null };
       }
@@ -1595,10 +1737,10 @@ export const apiService = {
         data: normalizePackageDto(response.data),
       };
     } catch (err) {
-      if (err instanceof ApiError && err.statusCode === 404) {
+      if (err instanceof ApiError && (err.statusCode === 404 || err.statusCode === 400)) {
         return {
-          statusCode: 404,
-          status: 'NotFound',
+          statusCode: err.statusCode,
+          status: err.statusCode === 404 ? 'NotFound' : 'BadRequest',
           message: err.message,
           data: null,
         };
@@ -2185,12 +2327,14 @@ export const apiService = {
   },
 
   /**
-   * GET /Visitor/sync-check — Public.
-   * Latest available offline package (no museumId path).
+   * GET /Visitor/sync-check?exhibitionId= — Public.
+   * Latest available offline package (optional exhibition scope).
    * 404 = chưa có offline package (bình thường).
    */
-  async syncCheck(): Promise<ApiResponse<SyncCheckDto | null>> {
-    const latest = await this.getLatestPackage();
+  async syncCheck(
+    exhibitionId?: number | null,
+  ): Promise<ApiResponse<SyncCheckDto | null>> {
+    const latest = await this.getLatestPackage(exhibitionId);
     if (!latest.data) {
       return {
         statusCode: latest.statusCode,
@@ -2206,6 +2350,9 @@ export const apiService = {
         id: p.id,
         museumId: p.museumId ?? 0,
         versionId: p.versionId,
+        exhibitionId: p.exhibitionId ?? null,
+        exhibitionTitle: p.exhibitionTitle ?? null,
+        packageName: p.packageName ?? null,
         packageUrl: p.packageUrl,
         checksum: p.checksum,
         status: p.status,

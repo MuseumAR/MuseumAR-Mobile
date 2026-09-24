@@ -24,7 +24,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLanguage } from '../../src/i18n/LanguageContext';
+import { useARPacks } from '../../src/hooks/useARPacks';
 import { apiService, TicketDetailDto } from '../../src/services/apiService';
+import type { ARPack } from '../../src/data/arPacks';
 import { C } from '../../src/theme/colors';
 import { formatVisitorDate } from '../../src/utils/visitorLists';
 import { parseNumericId } from '../../src/utils/parseId';
@@ -82,10 +84,12 @@ export default function TicketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const ticketId = parseNumericId(id);
   const { t, lang } = useLanguage();
+  const { downloadPack } = useARPacks();
   const [detail, setDetail] = useState<TicketDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [packLoading, setPackLoading] = useState(false);
 
   const [refundOpen, setRefundOpen] = useState(false);
   const [bankName, setBankName] = useState('');
@@ -164,6 +168,64 @@ export default function TicketDetailScreen() {
       setCheckingIn(false);
     }
   }, [checkingIn, detail?.ticketCode, load, t]);
+
+  const handleDownloadPackForTicket = useCallback(async () => {
+    if (!detail?.ticketCode || packLoading) return;
+    setPackLoading(true);
+    try {
+      const res = await apiService.getOfflinePackageByTicket(detail.ticketCode);
+      const pkg = res.data;
+      if (!pkg?.packageUrl && !pkg?.downloadUrl) {
+        Alert.alert(
+          t('packs.title'),
+          res.message || t('packs.byTicketFail'),
+        );
+        return;
+      }
+      const sizeMB =
+        pkg.sizeBytes != null
+          ? Math.round(pkg.sizeBytes / (1024 * 1024))
+          : pkg.packageSizeBytes != null
+            ? Math.round(pkg.packageSizeBytes / (1024 * 1024))
+            : 0;
+      const pack: ARPack = {
+        id: String(pkg.id),
+        museumId: String(pkg.museumId ?? detail.museum.id ?? ''),
+        name:
+          pkg.packageName?.trim() ||
+          pkg.name?.trim() ||
+          pkg.exhibitionTitle?.trim() ||
+          `Gói #${pkg.id}`,
+        description:
+          pkg.exhibitionTitle?.trim() ||
+          detail.exhibition?.name ||
+          t('packs.scopeMuseum'),
+        sizeMB,
+        artifactCount: pkg.arassetCount ?? pkg.exhibitCount ?? 0,
+        category:
+          pkg.exhibitionId != null
+            ? t('packs.scopeExhibition')
+            : t('packs.scopeMuseum'),
+        color: C.accent,
+        artifacts: [],
+        packageUrl: pkg.packageUrl ?? pkg.downloadUrl,
+        checksum: pkg.checksum,
+        versionId: pkg.versionId,
+        exhibitionId: pkg.exhibitionId ?? null,
+        exhibitionTitle: pkg.exhibitionTitle ?? detail.exhibition?.name ?? null,
+        packageName: pkg.packageName ?? null,
+      };
+      downloadPack(pack);
+      Alert.alert(t('packs.title'), t('packs.byTicketSuccess'));
+    } catch (err: unknown) {
+      Alert.alert(
+        t('packs.title'),
+        err instanceof Error ? err.message : t('packs.byTicketFail'),
+      );
+    } finally {
+      setPackLoading(false);
+    }
+  }, [detail, downloadPack, packLoading, t]);
 
   const openRefund = useCallback(() => {
     setRefundError(null);
@@ -404,6 +466,27 @@ export default function TicketDetailScreen() {
               </>
             )}
           </Section>
+        ) : null}
+
+        {paidActive || used ? (
+          <TouchableOpacity
+            style={[styles.packBtn, packLoading && styles.checkInBtnDisabled]}
+            onPress={() => void handleDownloadPackForTicket()}
+            disabled={packLoading}
+          >
+            {packLoading ? (
+              <ActivityIndicator color={C.accent} />
+            ) : (
+              <>
+                <MaterialCommunityIcons
+                  name="package-down"
+                  size={20}
+                  color={C.accent}
+                />
+                <Text style={styles.packBtnText}>{t('packs.byTicketAction')}</Text>
+              </>
+            )}
+          </TouchableOpacity>
         ) : null}
 
         {canRefund ? (
@@ -647,6 +730,20 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   refundLinkText: { fontSize: 14, fontWeight: '700', color: C.warning },
+  packBtn: {
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    minHeight: 48,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: C.accent,
+    backgroundColor: C.accentMuted,
+    paddingHorizontal: 16,
+  },
+  packBtnText: { color: C.accent, fontSize: 14, fontWeight: '700' },
   modalOverlay: {
     flex: 1,
     backgroundColor: C.bgOverlay,

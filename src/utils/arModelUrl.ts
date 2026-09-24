@@ -1,5 +1,6 @@
 import NetInfo from '@react-native-community/netinfo';
 import { modelLogicalKey, resolveOfflineUri } from '../services/offlineMedia';
+import { toAbsoluteMediaUrl } from './mobileImageUrl';
 
 export async function isDeviceOffline(): Promise<boolean> {
   const net = await NetInfo.fetch();
@@ -8,7 +9,7 @@ export async function isDeviceOffline(): Promise<boolean> {
 
 /**
  * AR 3D model URL for Unity (GLB/GLTF).
- * Online → live https URL from CMS.
+ * Online → live URL from CMS, absolute because Unity rejects relative paths.
  * Offline → file:// from downloaded pack when available.
  */
 export async function resolveArModelUrl(
@@ -23,7 +24,8 @@ export async function resolveArModelUrl(
     if (local) return local;
   }
 
-  if (trimmed) return trimmed;
+  const live = toAbsoluteMediaUrl(trimmed);
+  if (live) return live;
 
   return resolveOfflineUri(trimmed, key);
 }

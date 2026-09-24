@@ -73,18 +73,34 @@ export function useARPacks() {
     void reloadIndex();
   }, [reloadIndex]);
 
-  /** Mark updateAvailable for the shown (newest) pack vs local downloads. */
+  /** Mark updateAvailable for shown packs vs local downloads (per package id / exhibition). */
   const syncUpdateFlags = useCallback((packs: ARPack[]) => {
     setPackStates((prev) => {
       const next = { ...prev };
       for (const pack of packs) {
         const local =
           packIndex[pack.id] ??
-          Object.values(packIndex).find(
-            (r) =>
-              (pack.versionId != null && r.versionId === pack.versionId) ||
-              (pack.checksum != null && r.checksum === pack.checksum),
-          );
+          Object.values(packIndex).find((r) => {
+            if (
+              pack.exhibitionId != null &&
+              r.exhibitionId != null &&
+              pack.exhibitionId === r.exhibitionId
+            ) {
+              return true;
+            }
+            if (
+              pack.exhibitionId == null &&
+              (r.exhibitionId == null || r.exhibitionId === undefined) &&
+              pack.versionId != null &&
+              r.versionId === pack.versionId
+            ) {
+              return true;
+            }
+            return (
+              (pack.checksum != null && r.checksum === pack.checksum) ||
+              false
+            );
+          });
         const downloaded =
           next[pack.id]?.status === 'downloaded' || Boolean(local);
         if (!downloaded) continue;
@@ -129,6 +145,7 @@ export function useARPacks() {
             packId,
             museumId: Number.isFinite(museumId) ? museumId : undefined,
             versionId: meta.versionId,
+            exhibitionId: meta.exhibitionId ?? null,
             packageUrl: meta.packageUrl,
             checksum: meta.checksum,
             onProgress: (percent) => {

@@ -121,7 +121,14 @@ const vi: Dict = {
   'packs.downloading': 'Đang tải…',
   'packs.delete': 'Xóa',
   'packs.openAr': 'Mở AR',
-  'packs.newestOnlyHint': 'Chỉ hiển thị gói offline mới nhất của bảo tàng.',
+  'packs.newestOnlyHint':
+    'Hiển thị gói bảo tàng mới nhất và gói mới nhất của từng triển lãm (nếu có).',
+  'packs.scopeMuseum': 'Gói bảo tàng',
+  'packs.scopeExhibition': 'Gói triển lãm',
+  'packs.byTicketAction': 'Tải gói offline theo vé',
+  'packs.byTicketLoading': 'Đang tìm gói…',
+  'packs.byTicketFail': 'Không tìm thấy gói offline cho vé này (triển lãm có thể đã kết thúc).',
+  'packs.byTicketSuccess': 'Đã bắt đầu tải gói offline phù hợp với vé.',
 
   'visited.countOne': 'hiện vật đã xem',
   'visited.countMany': 'hiện vật đã xem',
@@ -581,7 +588,15 @@ const en: Dict = {
   'packs.downloading': 'Downloading…',
   'packs.delete': 'Delete',
   'packs.openAr': 'Open AR',
-  'packs.newestOnlyHint': 'Only the museum’s newest offline pack is shown.',
+  'packs.newestOnlyHint':
+    'Shows the newest museum pack and the newest pack per exhibition (when available).',
+  'packs.scopeMuseum': 'Museum pack',
+  'packs.scopeExhibition': 'Exhibition pack',
+  'packs.byTicketAction': 'Download offline pack for this ticket',
+  'packs.byTicketLoading': 'Looking up pack…',
+  'packs.byTicketFail':
+    'No offline pack for this ticket (the exhibition may have ended).',
+  'packs.byTicketSuccess': 'Started downloading the pack for this ticket.',
 
   'visited.countOne': 'exhibit viewed',
   'visited.countMany': 'exhibits viewed',

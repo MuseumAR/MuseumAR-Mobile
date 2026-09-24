@@ -10,9 +10,23 @@ function mapPackage(dto: ContentPackageDto, index: number): ARPack {
   const created = dto.createdAt
     ? new Date(dto.createdAt).toLocaleDateString('vi-VN')
     : null;
+  const isExhibition = dto.exhibitionId != null;
   const fallbackName =
-    dto.versionId != null ? `Gói offline v${dto.versionId}` : `Gói offline #${dto.id}`;
-  const fallbackDesc = [dto.status, created].filter(Boolean).join(' · ') || 'Gói nội dung AR offline';
+    dto.packageName?.trim() ||
+    (isExhibition
+      ? dto.exhibitionTitle?.trim() ||
+        `Gói triển lãm #${dto.exhibitionId}`
+      : dto.versionId != null
+        ? `Gói bảo tàng v${dto.versionId}`
+        : `Gói offline #${dto.id}`);
+  const fallbackDesc =
+    [
+      isExhibition ? 'Triển lãm' : 'Bảo tàng',
+      dto.status,
+      created,
+    ]
+      .filter(Boolean)
+      .join(' · ') || 'Gói nội dung AR offline';
 
   return {
     id: String(dto.id),
@@ -21,38 +35,85 @@ function mapPackage(dto: ContentPackageDto, index: number): ARPack {
     description: dto.description?.trim() || fallbackDesc,
     sizeMB,
     artifactCount: assetCount,
-    category: dto.category ?? 'Nội dung AR',
+    category: isExhibition ? 'Triển lãm' : (dto.category ?? 'Bảo tàng'),
     color: COLOR_PALETTE[index % COLOR_PALETTE.length],
     artifacts: [],
     packageUrl: dto.packageUrl ?? dto.downloadUrl,
     checksum: dto.checksum,
     versionId: dto.versionId,
+    exhibitionId: dto.exhibitionId ?? null,
+    exhibitionTitle: dto.exhibitionTitle ?? null,
+    packageName: dto.packageName ?? null,
   };
 }
 
-/** Same rule as BE GetLatestOfflinePackageAsync — Available, newest CreatedAt / versionId. */
-export function pickLatestAvailablePackages(
-  packages: ContentPackageDto[],
-): ContentPackageDto[] {
-  const available = packages.filter((p) => {
-    const status = (p.status ?? 'Available').toLowerCase();
-    return status === 'available';
-  });
-  if (available.length === 0) return [];
-  const sorted = [...available].sort((a, b) => {
-    const va = a.versionId ?? 0;
-    const vb = b.versionId ?? 0;
-    if (vb !== va) return vb - va;
-    const ta = a.createdAt ? Date.parse(a.createdAt) : 0;
-    const tb = b.createdAt ? Date.parse(b.createdAt) : 0;
-    return tb - ta;
-  });
-  return [sorted[0]];
+function isAvailable(p: ContentPackageDto): boolean {
+  return (p.status ?? 'Available').toLowerCase() === 'available';
+}
+
+function sortNewest(a: ContentPackageDto, b: ContentPackageDto): number {
+  const va = a.versionId ?? 0;
+  const vb = b.versionId ?? 0;
+  if (vb !== va) return vb - va;
+  const ta = a.createdAt ? Date.parse(a.createdAt) : 0;
+  const tb = b.createdAt ? Date.parse(b.createdAt) : 0;
+  return tb - ta;
 }
 
 /**
- * Visitor packs list — newest Available package only.
- * Prefers GET /Visitor/sync-check; falls back to GET /Content/packages + filter.
+ * Newest Available pack per scope:
+ * - one museum-wide (exhibitionId null)
+ * - one per exhibitionId
+ * Matches BE “latest Available” without collapsing exhibition packs away.
+ */
+export function pickLatestAvailablePerScope(
+  packages: ContentPackageDto[],
+): ContentPackageDto[] {
+  const available = packages.filter(isAvailable);
+  if (available.length === 0) return [];
+
+  const byScope = new Map<string, ContentPackageDto[]>();
+  for (const p of available) {
+    const key =
+      p.exhibitionId != null && p.exhibitionId > 0
+        ? `ex:${p.exhibitionId}`
+        : 'museum';
+    const list = byScope.get(key) ?? [];
+    list.push(p);
+    byScope.set(key, list);
+  }
+
+  const picked: ContentPackageDto[] = [];
+  for (const list of byScope.values()) {
+    list.sort(sortNewest);
+    picked.push(list[0]);
+  }
+
+  // Museum-wide first, then exhibition packs by title/id.
+  picked.sort((a, b) => {
+    const aEx = a.exhibitionId != null ? 1 : 0;
+    const bEx = b.exhibitionId != null ? 1 : 0;
+    if (aEx !== bEx) return aEx - bEx;
+    const an = (a.exhibitionTitle || a.packageName || '').localeCompare(
+      b.exhibitionTitle || b.packageName || '',
+    );
+    if (an !== 0) return an;
+    return sortNewest(a, b);
+  });
+
+  return picked;
+}
+
+/** @deprecated use pickLatestAvailablePerScope */
+export function pickLatestAvailablePackages(
+  packages: ContentPackageDto[],
+): ContentPackageDto[] {
+  return pickLatestAvailablePerScope(packages);
+}
+
+/**
+ * Visitor packs — newest Available per museum / exhibition scope.
+ * Uses GET /Content/packages, falls back to latest museum pack via sync-check.
  */
 export function usePackages() {
   const [raw, setRaw] = useState<ContentPackageDto[]>([]);
@@ -63,15 +124,16 @@ export function usePackages() {
     setLoading(true);
     setError(null);
     try {
-      const latest = await apiService.getLatestPackage();
-      if (latest.data) {
-        setRaw([latest.data]);
+      const response = await apiService.getPackages();
+      const scoped = pickLatestAvailablePerScope(response.data ?? []);
+      if (scoped.length > 0) {
+        setRaw(scoped);
         return;
       }
 
-      // No dedicated latest / 404 — fall back to list and pick newest Available.
-      const response = await apiService.getPackages();
-      setRaw(pickLatestAvailablePackages(response.data ?? []));
+      // Empty list — still try museum-wide latest endpoint.
+      const latest = await apiService.getLatestPackage();
+      setRaw(latest.data ? [latest.data] : []);
     } catch (err: unknown) {
       if (err instanceof ApiError && err.statusCode === 404) {
         setRaw([]);
@@ -79,8 +141,8 @@ export function usePackages() {
         return;
       }
       try {
-        const response = await apiService.getPackages();
-        setRaw(pickLatestAvailablePackages(response.data ?? []));
+        const latest = await apiService.getLatestPackage();
+        setRaw(latest.data ? [latest.data] : []);
       } catch (fallbackErr: unknown) {
         setError(
           fallbackErr instanceof Error

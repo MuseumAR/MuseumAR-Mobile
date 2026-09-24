@@ -8,7 +8,7 @@ import {
   resolveOfflineUri,
   thumbLogicalKey,
 } from '../services/offlineMedia';
-import { pickDisplayImageUrl } from './mobileImageUrl';
+import { pickDisplayImageUrl, toAbsoluteMediaUrl } from './mobileImageUrl';
 import { pickLocalizedRow } from './pickLocalized';
 
 /** Bảng màu chủ đạo dùng khi backend không cung cấp màu cho hiện vật. */
@@ -88,7 +88,7 @@ export function mapExhibitDtoToRecord(
     color,
     audioUrl:
       resolveOfflineUri(tr?.audioUrl, audioLogicalKey(dto.id, String(lang))) ??
-      tr?.audioUrl ??
+      toAbsoluteMediaUrl(tr?.audioUrl) ??
       '',
     audioDuration: tr?.audioDuration ?? 0,
     transcript: description.trim() ? [description.trim()] : [],

@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { unzipSync } from 'fflate';
-import { rewriteRemoteImageUrl } from '../utils/mobileImageUrl';
+import { rewriteRemoteImageUrl, toAbsoluteMediaUrl } from '../utils/mobileImageUrl';
 import { apiService, type ArAssetDto, type ExhibitDto } from './apiService';
 import {
   ensureOfflineDirs,
@@ -22,6 +22,11 @@ export type DownloadProgressCb = (percent: number) => void;
 
 function resolveUrl(url?: string | null, preserveAlpha = false): string | null {
   return rewriteRemoteImageUrl(url, { preserveAlpha }) ?? null;
+}
+
+/** Models and audio must not go through the Cloudinary image transform. */
+function resolveMediaUrl(url?: string | null): string | null {
+  return toAbsoluteMediaUrl(url) ?? null;
 }
 
 function logicalKeysFromZipPath(relativePath: string): string[] {
@@ -334,7 +339,7 @@ async function downloadExhibitMedia(exhibits: ExhibitDto[]): Promise<Record<stri
     for (const tr of exhibit.translations ?? []) {
       const lang = (tr.languageCode || 'vi').toLowerCase();
       await enqueue(
-        resolveUrl(tr.audioUrl),
+        resolveMediaUrl(tr.audioUrl),
         audioLogicalKey(exhibit.id, lang),
         `exhibit_${exhibit.id}_${lang}`,
       );
@@ -355,7 +360,7 @@ async function downloadExhibitMedia(exhibits: ExhibitDto[]): Promise<Record<stri
         if (isModel3dArAsset(asset)) {
           const remote = String(asset.url ?? asset.assetUrl ?? '').trim();
           await enqueue(
-            remote,
+            resolveMediaUrl(remote),
             modelLogicalKey(exhibit.id),
             `exhibit_${exhibit.id}_model`,
           );
@@ -403,6 +408,7 @@ export async function downloadOfflinePack(options: {
   packId: string;
   museumId?: number;
   versionId?: number;
+  exhibitionId?: number | null;
   packageUrl?: string | null;
   checksum?: string | null;
   onProgress?: DownloadProgressCb;
@@ -453,6 +459,7 @@ export async function downloadOfflinePack(options: {
     id: packId,
     museumId: options.museumId,
     versionId: options.versionId,
+    exhibitionId: options.exhibitionId ?? null,
     checksum: options.checksum,
     packageUrl: options.packageUrl,
     downloadedAt: new Date().toISOString(),
