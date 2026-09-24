@@ -3,6 +3,7 @@ import { Link, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -16,13 +17,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useGoogleLogin } from '../../src/hooks/useGoogleLogin';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService, getLoginErrorMessage } from '../../src/services/apiService';
+import type { AppLanguage } from '../../src/services/languagePrefs';
 import { persistAuthLogin } from '../../src/services/persistAuthLogin';
 import { C } from '../../src/theme/colors';
 import { validateLoginForm } from '../../src/utils/authValidation';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const { t } = useLanguage();
+  const { t, lang, setLanguage } = useLanguage();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -55,13 +57,17 @@ export default function LoginScreen() {
         await persistAuthLogin(response.data);
         router.replace('/(tabs)');
       } else {
-        setFormError('Email hoặc mật khẩu không đúng. Vui lòng kiểm tra và thử lại.');
+        setFormError(t('auth.loginFailed'));
       }
     } catch (error: unknown) {
       setFormError(getLoginErrorMessage(error));
     } finally {
       setLoading(false);
     }
+  };
+
+  const switchLang = (code: AppLanguage) => {
+    if (code !== lang) void setLanguage(code);
   };
 
   return (
@@ -76,18 +82,44 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          <View style={styles.langRow}>
+            <TouchableOpacity
+              style={[styles.langChip, lang === 'vi' && styles.langChipActive]}
+              onPress={() => switchLang('vi')}
+              accessibilityRole="button"
+              accessibilityState={{ selected: lang === 'vi' }}
+            >
+              <Text style={[styles.langChipText, lang === 'vi' && styles.langChipTextActive]}>
+                {t('auth.langVi')}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.langChip, lang === 'en' && styles.langChipActive]}
+              onPress={() => switchLang('en')}
+              accessibilityRole="button"
+              accessibilityState={{ selected: lang === 'en' }}
+            >
+              <Text style={[styles.langChipText, lang === 'en' && styles.langChipTextActive]}>
+                {t('auth.langEn')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.brand}>
-            <View style={styles.logo}>
-              <Text style={styles.logoText}>AR</Text>
-            </View>
+            <Image
+              source={require('../../assets/icon.png')}
+              style={styles.logo}
+              resizeMode="contain"
+              accessibilityLabel="MuseumAR"
+            />
             <Text style={styles.appName}>MuseumAR</Text>
-            <Text style={styles.tagline}>Trải nghiệm lịch sử theo cách mới</Text>
+            <Text style={styles.tagline}>{t('auth.tagline')}</Text>
           </View>
 
           <View style={styles.form}>
-            <Text style={styles.formTitle}>Đăng nhập</Text>
+            <Text style={styles.formTitle}>{t('auth.login')}</Text>
 
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t('auth.email')}</Text>
             <TextInput
               style={[styles.input, emailError && styles.inputError]}
               placeholder="email@example.com"
@@ -104,10 +136,10 @@ export default function LoginScreen() {
             />
             {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
 
-            <Text style={styles.label}>Mật khẩu</Text>
+            <Text style={styles.label}>{t('auth.password')}</Text>
             <TextInput
               style={[styles.input, passwordError && styles.inputError]}
-              placeholder="Nhập mật khẩu"
+              placeholder={t('auth.passwordPlaceholder')}
               placeholderTextColor={C.textPlaceholder}
               value={password}
               onChangeText={(text) => {
@@ -148,13 +180,13 @@ export default function LoginScreen() {
               disabled={loading}
             >
               <Text style={styles.loginBtnText}>
-                {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+                {loading ? t('auth.loggingIn') : t('auth.login')}
               </Text>
             </TouchableOpacity>
 
             <View style={styles.divider}>
               <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>hoặc</Text>
+              <Text style={styles.dividerText}>{t('auth.or')}</Text>
               <View style={styles.dividerLine} />
             </View>
 
@@ -168,14 +200,12 @@ export default function LoginScreen() {
               ) : (
                 <>
                   <MaterialCommunityIcons name="google" size={20} color="#DB4437" />
-                  <Text style={styles.googleBtnText}>Đăng nhập với Google</Text>
+                  <Text style={styles.googleBtnText}>{t('auth.googleLogin')}</Text>
                 </>
               )}
             </TouchableOpacity>
             {!googleConfigured ? (
-              <Text style={styles.googleHint}>
-                Chưa có Google Web Client ID trong .env (EXPO_PUBLIC_GOOGLE_CLIENT_ID).
-              </Text>
+              <Text style={styles.googleHint}>{t('auth.googleNotConfigured')}</Text>
             ) : null}
             {googleError ? <Text style={styles.fieldError}>{googleError}</Text> : null}
 
@@ -183,14 +213,14 @@ export default function LoginScreen() {
               style={styles.guestBtn}
               onPress={() => router.replace('/(tabs)')}
             >
-              <Text style={styles.guestBtnText}>Tiếp tục với tư cách khách</Text>
+              <Text style={styles.guestBtnText}>{t('auth.guestContinue')}</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.registerRow}>
-            <Text style={styles.registerText}>Chưa có tài khoản? </Text>
+            <Text style={styles.registerText}>{t('auth.noAccount')} </Text>
             <Link href="/(auth)/register">
-              <Text style={styles.registerLink}>Đăng ký ngay</Text>
+              <Text style={styles.registerLink}>{t('auth.registerNow')}</Text>
             </Link>
           </View>
         </ScrollView>
@@ -203,17 +233,40 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bgPrimary },
   flex: { flex: 1 },
   scrollContent: { paddingHorizontal: 24, paddingBottom: 40 },
-  brand: { alignItems: 'center', paddingTop: 48, paddingBottom: 32 },
-  logo: {
-    width: 72,
-    height: 72,
+  langRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    paddingTop: 12,
+  },
+  langChip: {
+    minWidth: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: C.accent,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.bgSurface,
     alignItems: 'center',
-    justifyContent: 'center',
+  },
+  langChipActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  langChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: C.textSecondary,
+  },
+  langChipTextActive: {
+    color: C.onAccent,
+  },
+  brand: { alignItems: 'center', paddingTop: 24, paddingBottom: 32 },
+  logo: {
+    width: 96,
+    height: 96,
     marginBottom: 12,
   },
-  logoText: { color: C.onAccent, fontSize: 24, fontWeight: '900' },
   appName: { fontSize: 26, fontWeight: '800', color: C.textPrimary },
   tagline: { fontSize: 14, color: C.textMuted, marginTop: 4 },
   form: {

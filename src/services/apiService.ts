@@ -418,6 +418,22 @@ export interface TicketDetailDto {
   };
   qrCodeData?: string | null;
   qrCodeImageUrl?: string | null;
+  /** Latest refund request if exists (FE parity). */
+  latestRefundRequest?: TicketRefundRequestInfo | null;
+}
+
+/** Nested on GET /Ticketing/my-tickets/{id} */
+export interface TicketRefundRequestInfo {
+  id: number;
+  amount: number;
+  reason: string;
+  bankName: string;
+  accountNumber: string;
+  accountHolderName: string;
+  status: string;
+  rejectReason?: string | null;
+  createdAt: string;
+  processedAt?: string | null;
 }
 
 /**
@@ -1573,11 +1589,24 @@ export const apiService = {
     return apiFetch<null>('Auth/logout', { method: 'POST' });
   },
 
-  async forgotPassword(email: string): Promise<ApiResponse<null>> {
-    return apiFetch<null>('Auth/forgot-password', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
+  async forgotPassword(email: string): Promise<ApiResponse<{ email?: string } | null>> {
+    const response = await apiFetch<{ email?: string } & Record<string, unknown>>(
+      'Auth/forgot-password',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      },
+    );
+    const raw = response.data;
+    if (!raw || typeof raw !== 'object') {
+      return { ...response, data: { email } };
+    }
+    return {
+      ...response,
+      data: {
+        email: String(raw.email ?? raw.Email ?? email).trim() || email,
+      },
+    };
   },
 
   async resetPassword(token: string, newPassword: string): Promise<ApiResponse<null>> {
@@ -2273,6 +2302,29 @@ export const apiService = {
         qrCodeImageUrl: (raw.qrCodeImageUrl ?? raw.QrCodeImageUrl ?? null) as
           | string
           | null,
+        latestRefundRequest: (() => {
+          const refundRaw = raw.latestRefundRequest ?? raw.LatestRefundRequest;
+          if (!refundRaw || typeof refundRaw !== 'object') return null;
+          const r = refundRaw as Record<string, unknown>;
+          return {
+            id: Number(r.id ?? r.Id ?? 0),
+            amount: Number(r.amount ?? r.Amount ?? 0),
+            reason: String(r.reason ?? r.Reason ?? ''),
+            bankName: String(r.bankName ?? r.BankName ?? ''),
+            accountNumber: String(r.accountNumber ?? r.AccountNumber ?? ''),
+            accountHolderName: String(
+              r.accountHolderName ?? r.AccountHolderName ?? '',
+            ),
+            status: String(r.status ?? r.Status ?? ''),
+            rejectReason: (r.rejectReason ?? r.RejectReason ?? null) as
+              | string
+              | null,
+            createdAt: String(r.createdAt ?? r.CreatedAt ?? ''),
+            processedAt: (r.processedAt ?? r.ProcessedAt ?? null) as
+              | string
+              | null,
+          } satisfies TicketRefundRequestInfo;
+        })(),
       },
     };
   },

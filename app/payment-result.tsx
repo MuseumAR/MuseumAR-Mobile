@@ -21,6 +21,15 @@ import { C } from '../src/theme/colors';
 
 type UiStatus = 'checking' | 'paid' | 'pending' | 'cancel';
 
+type HintKey =
+  | 'payment.cancelHint'
+  | 'payment.pendingHint'
+  | 'payment.successHint'
+  | 'payment.expiredHint'
+  | 'payment.checkingHint'
+  | 'payment.notConfirmed'
+  | 'payment.cancelOrExpiredHint';
+
 export default function PaymentResultScreen() {
   const router = useRouter();
   const { t } = useLanguage();
@@ -60,7 +69,13 @@ export default function PaymentResultScreen() {
         : 'checking',
   );
   const [tickets, setTickets] = useState<MyTicketDto[]>([]);
-  const [hint, setHint] = useState('');
+  const [hintKey, setHintKey] = useState<HintKey>(
+    statusParam === 'cancel'
+      ? 'payment.cancelHint'
+      : statusParam === 'pending'
+        ? 'payment.pendingHint'
+        : 'payment.checkingHint',
+  );
   const [orderCode, setOrderCode] = useState(orderCodeParam);
   const [checkoutUrl, setCheckoutUrl] = useState(initialCheckout);
   const started = useRef(false);
@@ -68,15 +83,13 @@ export default function PaymentResultScreen() {
   useEffect(() => {
     if (statusParam === 'cancel') {
       setUiStatus('cancel');
-      setHint('Bạn đã huỷ thanh toán. Vé được đánh dấu Cancelled.');
+      setHintKey('payment.cancelHint');
       return;
     }
 
     if (statusParam === 'pending') {
       setUiStatus('pending');
-      setHint(
-        'Bạn đã đóng PayOS chưa thanh toán. Đơn vẫn Pending (tối đa 15 phút) — mở lại PayOS hoặc xem Vé của tôi.',
-      );
+      setHintKey('payment.pendingHint');
       void (async () => {
         if (orderCodeParam) {
           const status = await confirmOrderPayment(orderCodeParam);
@@ -84,26 +97,26 @@ export default function PaymentResultScreen() {
             const list = (await apiService.getMyTickets()).data ?? [];
             setTickets(list);
             setUiStatus('paid');
-            setHint('Thanh toán thành công — vé đã sẵn sàng.');
+            setHintKey('payment.successHint');
             return;
           }
           if (status.isCancelled) {
             setCheckoutUrl('');
             setUiStatus('cancel');
-            setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
+            setHintKey('payment.expiredHint');
             return;
           }
         }
         const res = await resolveResumeCheckout(orderCodeParam || undefined);
         if (res.isPaid) {
           setUiStatus('paid');
-          setHint('Thanh toán thành công — vé đã sẵn sàng.');
+          setHintKey('payment.successHint');
           return;
         }
         if (res.isCancelled) {
           setCheckoutUrl('');
           setUiStatus('cancel');
-          setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
+          setHintKey('payment.expiredHint');
           return;
         }
         if (res.orderCode) setOrderCode(res.orderCode);
@@ -118,7 +131,7 @@ export default function PaymentResultScreen() {
     let cancelled = false;
     (async () => {
       setUiStatus('checking');
-      setHint('Đang kiểm tra vé đã thanh toán…');
+      setHintKey('payment.checkingHint');
 
       if (orderCodeParam) {
         // Poll this order specifically (updates BE Pending → Completed).
@@ -130,12 +143,12 @@ export default function PaymentResultScreen() {
             if (cancelled) return;
             setTickets(list);
             setUiStatus('paid');
-            setHint('Thanh toán thành công — vé đã sẵn sàng.');
+            setHintKey('payment.successHint');
             return;
           }
           if (status.isCancelled) {
             setUiStatus('cancel');
-            setHint('Thanh toán đã huỷ hoặc hết hạn.');
+            setHintKey('payment.cancelOrExpiredHint');
             return;
           }
           if (i < 11) {
@@ -153,21 +166,19 @@ export default function PaymentResultScreen() {
         setTickets(list);
         if (confirmed || countPaidTickets(list) > paidBefore) {
           setUiStatus('paid');
-          setHint('Thanh toán thành công — vé đã sẵn sàng.');
+          setHintKey('payment.successHint');
           return;
         }
       }
 
       if (cancelled) return;
       setUiStatus('pending');
-      setHint(
-        'Chưa xác nhận Paid. Bạn có thể mở lại PayOS hoặc kiểm tra Vé của tôi sau vài giây.',
-      );
+      setHintKey('payment.notConfirmed');
       const resume = await resolveResumeCheckout(orderCodeParam || undefined);
       if (resume.isCancelled) {
         setCheckoutUrl('');
         setUiStatus('cancel');
-        setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
+        setHintKey('payment.expiredHint');
       } else {
         if (resume.orderCode) setOrderCode(resume.orderCode);
         if (resume.checkoutUrl) setCheckoutUrl(resume.checkoutUrl);
@@ -194,13 +205,13 @@ export default function PaymentResultScreen() {
         if (cancelled) return;
         setTickets(list);
         setUiStatus('paid');
-        setHint('Thanh toán thành công — vé đã sẵn sàng.');
+        setHintKey('payment.successHint');
         return;
       }
       if (status.isCancelled) {
         setCheckoutUrl('');
         setUiStatus('cancel');
-        setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
+        setHintKey('payment.expiredHint');
       }
     };
 
@@ -247,12 +258,12 @@ export default function PaymentResultScreen() {
 
   const title =
     uiStatus === 'paid'
-      ? 'Thanh toán thành công'
+      ? t('payment.success')
       : uiStatus === 'cancel'
-        ? 'Thanh toán đã huỷ'
+        ? t('payment.cancelled')
         : uiStatus === 'pending'
-          ? 'Chờ thanh toán'
-          : 'Đang kiểm tra…';
+          ? t('payment.pending')
+          : t('payment.checking');
 
   const canResume = uiStatus === 'pending' && Boolean(orderCode || orderCodeParam);
 
@@ -266,11 +277,20 @@ export default function PaymentResultScreen() {
         )}
 
         <Text style={styles.title}>{title}</Text>
-        {orderCode ? <Text style={styles.orderCode}>Mã đơn: {orderCode}</Text> : null}
-        <Text style={styles.hint}>{hint}</Text>
+        {orderCode ? (
+          <Text style={styles.orderCode}>
+            {t('payment.orderCodeLine').replace('{code}', orderCode)}
+          </Text>
+        ) : null}
+        <Text style={styles.hint}>{t(hintKey)}</Text>
 
         {uiStatus === 'paid' && tickets.length > 0 ? (
-          <Text style={styles.meta}>{countPaidTickets(tickets)} vé đã thanh toán</Text>
+          <Text style={styles.meta}>
+            {t('payment.paidCount').replace(
+              '{count}',
+              String(countPaidTickets(tickets)),
+            )}
+          </Text>
         ) : null}
 
         <View style={styles.actions}>
@@ -285,7 +305,7 @@ export default function PaymentResultScreen() {
             onPress={() => router.replace('/my-tickets')}
           >
             <Text style={canResume ? styles.secondaryText : styles.primaryText}>
-              Vé của tôi
+              {t('payment.myTickets')}
             </Text>
           </TouchableOpacity>
 
@@ -293,7 +313,7 @@ export default function PaymentResultScreen() {
             style={styles.secondaryBtn}
             onPress={() => router.replace('/(tabs)/ticket')}
           >
-            <Text style={styles.secondaryText}>Về mua vé</Text>
+            <Text style={styles.secondaryText}>{t('payment.backToBuy')}</Text>
           </TouchableOpacity>
         </View>
       </View>

@@ -70,7 +70,13 @@ export function mapExhibitDtoToRecord(
         : (meta?.era ?? ''),
     category:
       categoryName ??
-      (dto.categoryId != null ? `Danh mục ${dto.categoryId}` : 'Hiện vật'),
+      (dto.categoryId != null
+        ? lang === 'en'
+          ? `Category ${dto.categoryId}`
+          : `Danh mục ${dto.categoryId}`
+        : lang === 'en'
+          ? 'Exhibit'
+          : 'Hiện vật'),
     categoryId: dto.categoryId,
     themeId: dto.themeId,
     tagIds: readTagIds(dto),

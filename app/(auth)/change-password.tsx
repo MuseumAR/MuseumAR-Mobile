@@ -1,4 +1,4 @@
-import { Link, useLocalSearchParams, useRouter } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,47 +14,72 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService, getAuthErrorMessage } from '../../src/services/apiService';
+import { getSession } from '../../src/services/sessionStorage';
+import { getToken } from '../../src/services/tokenStorage';
 import { C } from '../../src/theme/colors';
 import { validatePassword } from '../../src/utils/authValidation';
 
-function paramOne(v: string | string[] | undefined): string {
-  if (Array.isArray(v)) return v[0] ?? '';
-  return v ?? '';
-}
-
 /**
- * Step 2 — same OTP + new password UI as Settings change-password,
- * for the email entered on forgot-password (public reset).
- * Send/resend: POST /Auth/forgot-password
- * Submit: POST /Auth/reset-password { token: otp, newPassword }
+ * Authenticated change-password (Settings) —
+ * POST /Auth/send-password-otp + POST /Auth/change-password.
  */
-export default function ResetPasswordScreen() {
+export default function ChangePasswordScreen() {
   const router = useRouter();
   const { t } = useLanguage();
-  const params = useLocalSearchParams<{ email?: string | string[]; hint?: string | string[] }>();
-  const email = paramOne(params.email).trim();
-  const initialHint = paramOne(params.hint).trim();
 
-  const [otpSent, setOtpSent] = useState(Boolean(email));
+  const [ready, setReady] = useState(false);
+  const [authed, setAuthed] = useState(false);
+  const [email, setEmail] = useState('');
+  const [hasPassword, setHasPassword] = useState(true);
+
+  const [otpSent, setOtpSent] = useState(false);
   const [otp, setOtp] = useState('');
+  const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(
-    initialHint ||
-      (email
-        ? t('auth.changePasswordOtpSent').replace('{email}', email)
-        : null),
-  );
+  const [info, setInfo] = useState<string | null>(null);
   const [sendingOtp, setSendingOtp] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!email) {
-      router.replace('/(auth)/forgot-password');
-    }
-  }, [email, router]);
+    let cancelled = false;
+    (async () => {
+      const token = await getToken();
+      if (!token) {
+        if (!cancelled) {
+          setAuthed(false);
+          setReady(true);
+        }
+        return;
+      }
+      const session = await getSession();
+      let accountHasPassword = true;
+      let maskedEmail = session?.email ?? '';
+      try {
+        const res = await apiService.hasPassword();
+        if (res.data) {
+          if (typeof res.data.hasPassword === 'boolean') {
+            accountHasPassword = res.data.hasPassword;
+          }
+          if (res.data.email) maskedEmail = res.data.email;
+        }
+      } catch {
+        // Optional probe
+      }
+      if (!cancelled) {
+        setAuthed(true);
+        setEmail(maskedEmail);
+        setHasPassword(accountHasPassword);
+        setReady(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const clearMessages = () => {
     setFieldError(null);
@@ -62,15 +87,16 @@ export default function ResetPasswordScreen() {
   };
 
   const handleSendOtp = useCallback(async () => {
-    if (!email) return;
     clearMessages();
     setSendingOtp(true);
     try {
-      const res = await apiService.forgotPassword(email);
+      const res = await apiService.sendPasswordOtp();
+      const em = (res.data?.email ?? email).trim();
+      if (em) setEmail(em);
       setOtpSent(true);
       setInfo(
         res.message ||
-          t('auth.changePasswordOtpSent').replace('{email}', email),
+          t('auth.changePasswordOtpSent').replace('{email}', em || email || '…'),
       );
     } catch (err: unknown) {
       setFormError(getAuthErrorMessage(err, t('auth.changePasswordOtpFail')));
@@ -82,7 +108,7 @@ export default function ResetPasswordScreen() {
   const handleSubmit = useCallback(async () => {
     clearMessages();
     const otpTrim = otp.trim();
-    if (!otpTrim || otpTrim.length < 6) {
+    if (!/^\d{6}$/.test(otpTrim)) {
       setFieldError(t('auth.changePasswordOtpInvalid'));
       return;
     }
@@ -95,27 +121,69 @@ export default function ResetPasswordScreen() {
       setFieldError(t('auth.changePasswordConfirmMismatch'));
       return;
     }
+    if (hasPassword && !oldPassword.trim()) {
+      setFieldError(t('auth.changePasswordOldRequired'));
+      return;
+    }
 
     setSubmitting(true);
     try {
-      const res = await apiService.resetPassword(otpTrim, newPassword);
-      setInfo(res.message || t('auth.resetSuccess'));
+      const res = await apiService.changePassword({
+        otp: otpTrim,
+        newPassword,
+        oldPassword: hasPassword ? oldPassword : undefined,
+      });
+      setInfo(res.message || t('auth.changePasswordSuccess'));
       setTimeout(() => {
-        router.replace('/(auth)/login');
+        if (router.canGoBack()) router.back();
+        else router.replace('/(tabs)/profile');
       }, 900);
     } catch (err: unknown) {
       setFormError(getAuthErrorMessage(err, t('auth.changePasswordFail')));
     } finally {
       setSubmitting(false);
     }
-  }, [confirmPassword, newPassword, otp, router, t]);
+  }, [
+    confirmPassword,
+    hasPassword,
+    newPassword,
+    oldPassword,
+    otp,
+    router,
+    t,
+  ]);
 
-  if (!email) {
+  if (!ready) {
     return (
       <SafeAreaView style={styles.safe}>
         <View style={styles.center}>
           <ActivityIndicator color={C.accent} />
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!authed) {
+    return (
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={styles.container}>
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
+            <Text style={styles.backText}>‹ {t('common.back')}</Text>
+          </TouchableOpacity>
+          <Text style={styles.title}>{t('auth.changePasswordTitle')}</Text>
+          <Text style={styles.subtitle}>{t('auth.changePasswordNeedLogin')}</Text>
+          <TouchableOpacity
+            style={styles.submitBtn}
+            onPress={() =>
+              router.push({
+                pathname: '/(auth)/login',
+                params: { next: '/(auth)/change-password' },
+              })
+            }
+          >
+            <Text style={styles.submitBtnText}>{t('common.login')}</Text>
+          </TouchableOpacity>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -138,10 +206,18 @@ export default function ResetPasswordScreen() {
 
           <Text style={styles.title}>{t('auth.changePasswordTitle')}</Text>
           <Text style={styles.subtitle}>
-            {t('auth.changePasswordFor').replace('{email}', email)}
+            {hasPassword
+              ? t('auth.changePasswordSubtitle')
+              : t('auth.changePasswordSetSubtitle')}
           </Text>
 
           <View style={styles.form}>
+            {email ? (
+              <Text style={styles.emailHint}>
+                {t('auth.changePasswordFor').replace('{email}', email)}
+              </Text>
+            ) : null}
+
             <TouchableOpacity
               style={[styles.otpBtn, sendingOtp && styles.submitBtnDisabled]}
               onPress={() => void handleSendOtp()}
@@ -167,13 +243,30 @@ export default function ResetPasswordScreen() {
               placeholderTextColor="#9CA3AF"
               value={otp}
               onChangeText={(text) => {
-                setOtp(text.trim());
+                setOtp(text.replace(/\D/g, '').slice(0, 6));
                 clearMessages();
               }}
               keyboardType="number-pad"
+              maxLength={6}
               autoCapitalize="none"
-              autoCorrect={false}
             />
+
+            {hasPassword ? (
+              <>
+                <Text style={styles.label}>{t('auth.changePasswordOld')}</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder={t('auth.passwordPlaceholder')}
+                  placeholderTextColor="#9CA3AF"
+                  value={oldPassword}
+                  onChangeText={(text) => {
+                    setOldPassword(text);
+                    clearMessages();
+                  }}
+                  secureTextEntry
+                />
+              </>
+            ) : null}
 
             <Text style={styles.label}>{t('auth.changePasswordNew')}</Text>
             <TextInput
@@ -216,14 +309,16 @@ export default function ResetPasswordScreen() {
                 <ActivityIndicator color="#FFFFFF" />
               ) : (
                 <Text style={styles.submitBtnText}>
-                  {t('auth.changePasswordSubmit')}
+                  {hasPassword
+                    ? t('auth.changePasswordSubmit')
+                    : t('auth.changePasswordSetSubmit')}
                 </Text>
               )}
             </TouchableOpacity>
 
             <View style={styles.loginRow}>
-              <Link href="/(auth)/login">
-                <Text style={styles.loginLink}>{t('auth.backToLogin')}</Text>
+              <Link href="/(tabs)/profile">
+                <Text style={styles.loginLink}>{t('profile.title')}</Text>
               </Link>
             </View>
           </View>
@@ -242,9 +337,8 @@ const styles = StyleSheet.create({
   backText: { color: C.accent, fontSize: 16, fontWeight: '600' },
   title: { fontSize: 28, fontWeight: '800', color: C.textPrimary },
   subtitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: C.textPrimary,
+    fontSize: 14,
+    color: C.textMuted,
     marginTop: 8,
     marginBottom: 28,
     lineHeight: 22,
@@ -255,6 +349,13 @@ const styles = StyleSheet.create({
     padding: 24,
     borderWidth: 1,
     borderColor: C.border,
+  },
+  emailHint: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: C.textPrimary,
+    marginBottom: 14,
+    lineHeight: 22,
   },
   label: {
     fontSize: 13,

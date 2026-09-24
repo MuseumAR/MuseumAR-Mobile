@@ -1,5 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -22,22 +22,56 @@ import type { TaxonomyChip } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
 
-type SelectedFilter =
+type CategoryFilter = { kind: 'all' } | { kind: 'category'; id: number; name: string };
+
+type TagFilter =
   | { kind: 'all' }
-  | { kind: 'category' | 'tagGroup'; id: number; name: string }
+  | { kind: 'tagGroup'; id: number; name: string }
   | { kind: 'tag'; id: number; name: string; groupId: number };
 
-function primaryChipActive(filter: SelectedFilter, chip: TaxonomyChip): boolean {
-  if (filter.kind === 'all') return false;
-  if (chip.kind === 'tagGroup') {
-    if (filter.kind === 'tagGroup') return filter.id === chip.id;
-    if (filter.kind === 'tag') return filter.groupId === chip.id;
-    return false;
-  }
-  if (chip.kind === 'tag') {
-    return filter.kind === 'tag' && filter.id === chip.id;
-  }
-  return filter.kind === chip.kind && filter.id === chip.id;
+function ChipRow({
+  label,
+  children,
+}: {
+  label?: string;
+  children: ReactNode;
+}) {
+  return (
+    <View style={styles.chipRowWrap}>
+      {label ? <Text style={styles.chipRowLabel}>{label}</Text> : null}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.chipScroll}
+      >
+        {children}
+      </ScrollView>
+    </View>
+  );
+}
+
+function FilterChip({
+  label,
+  active,
+  onPress,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.chip, active && styles.chipActive]}
+      onPress={onPress}
+    >
+      <Text
+        style={[styles.chipText, active && styles.chipTextActive]}
+        numberOfLines={1}
+      >
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
 }
 
 export default function ExploreScreen() {
@@ -47,10 +81,11 @@ export default function ExploreScreen() {
   const paramCategoryId = parseNumericId(params.categoryId);
 
   const [search, setSearch] = useState('');
-  const [selected, setSelected] = useState<SelectedFilter>({ kind: 'all' });
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>({ kind: 'all' });
+  const [tagFilter, setTagFilter] = useState<TagFilter>({ kind: 'all' });
   const { track } = useTrackAction();
   const searchTrackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { filterChips, categories, tags, ALL_LABEL } = useCategories();
+  const { categories, tagGroups, tags, ALL_LABEL } = useCategories();
   const { exhibits, loading, error, refresh: refreshExhibits } = useExhibits();
   const {
     tagIdsByExhibit,
@@ -62,11 +97,30 @@ export default function ExploreScreen() {
     await Promise.all([refreshExhibits(), refreshTagIndex()]);
   };
 
+  const categoryChips: TaxonomyChip[] = useMemo(
+    () =>
+      categories
+        .filter((c) => c.name)
+        .map((c) => ({
+          key: `category:${c.id}`,
+          id: c.id,
+          name: c.name as string,
+          kind: 'category' as const,
+        })),
+    [categories],
+  );
+
+  /** Prefer tag groups; fall back to flat tags when groups unavailable. */
+  const tagPrimaryChips: TaxonomyChip[] = useMemo(
+    () => (tagGroups.length > 0 ? tagGroups : tags),
+    [tagGroups, tags],
+  );
+
   useEffect(() => {
     if (paramCategoryId != null) {
       const cat = categories.find((c) => c.id === paramCategoryId);
       if (cat?.name) {
-        setSelected({ kind: 'category', id: cat.id, name: cat.name });
+        setCategoryFilter({ kind: 'category', id: cat.id, name: cat.name });
       }
     }
   }, [paramCategoryId, categories]);
@@ -87,18 +141,18 @@ export default function ExploreScreen() {
   }, [search, track, lang]);
 
   const selectedGroupId =
-    selected.kind === 'tagGroup'
-      ? selected.id
-      : selected.kind === 'tag'
-        ? selected.groupId
+    tagFilter.kind === 'tagGroup'
+      ? tagFilter.id
+      : tagFilter.kind === 'tag'
+        ? tagFilter.groupId
         : null;
 
   const tagsInGroup = useMemo(
     () =>
-      selectedGroupId == null
+      selectedGroupId == null || tagGroups.length === 0
         ? []
         : tags.filter((tag) => tag.tagGroupId === selectedGroupId),
-    [tags, selectedGroupId],
+    [tags, selectedGroupId, tagGroups.length],
   );
 
   const tagIdsInGroup = useMemo(
@@ -113,30 +167,41 @@ export default function ExploreScreen() {
   const filtered = useMemo(
     () =>
       exhibits.filter((e) => {
-        let matchTaxonomy = true;
-        if (selected.kind === 'category') {
-          matchTaxonomy = e.categoryId === selected.id || e.category === selected.name;
-        } else if (selected.kind === 'tagGroup' || selected.kind === 'tag') {
+        let matchCategory = true;
+        if (categoryFilter.kind === 'category') {
+          matchCategory =
+            e.categoryId === categoryFilter.id ||
+            e.category === categoryFilter.name;
+        }
+
+        let matchTag = true;
+        if (tagFilter.kind === 'tagGroup' || tagFilter.kind === 'tag') {
           const exhibitTags = tagIdsByExhibit.get(Number(e.id));
           if (exhibitTags == null) {
-            matchTaxonomy = tagIndexLoading || tagsPending;
-          } else if (selected.kind === 'tagGroup') {
-            matchTaxonomy = exhibitTags.some((id) => tagIdsInGroup.has(id));
+            matchTag = tagIndexLoading || tagsPending;
+          } else if (tagFilter.kind === 'tagGroup') {
+            matchTag =
+              tagGroups.length > 0
+                ? exhibitTags.some((id) => tagIdsInGroup.has(id))
+                : exhibitTags.includes(tagFilter.id);
           } else {
-            matchTaxonomy = exhibitTags.includes(selected.id);
+            matchTag = exhibitTags.includes(tagFilter.id);
           }
         }
+
         const matchSearch = e.title.toLowerCase().includes(search.toLowerCase());
-        return matchTaxonomy && matchSearch;
+        return matchCategory && matchTag && matchSearch;
       }),
     [
       exhibits,
-      selected,
+      categoryFilter,
+      tagFilter,
       search,
       tagIdsByExhibit,
       tagIdsInGroup,
       tagIndexLoading,
       tagsPending,
+      tagGroups.length,
     ],
   );
 
@@ -153,94 +218,92 @@ export default function ExploreScreen() {
         />
       </View>
 
-      <View style={styles.categoriesWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.categories}
-        >
-          <TouchableOpacity
-            style={[styles.categoryChip, selected.kind === 'all' && styles.categoryChipActive]}
-            onPress={() => setSelected({ kind: 'all' })}
-          >
-            <Text
-              style={[styles.categoryText, selected.kind === 'all' && styles.categoryTextActive]}
-              numberOfLines={1}
-            >
-              {ALL_LABEL}
-            </Text>
-          </TouchableOpacity>
-          {filterChips.map((chip) => {
-            const active = primaryChipActive(selected, chip);
+      {/* Row 1 — categories */}
+      <ChipRow label={t('explore.filterCategory')}>
+        <FilterChip
+          label={ALL_LABEL}
+          active={categoryFilter.kind === 'all'}
+          onPress={() => setCategoryFilter({ kind: 'all' })}
+        />
+        {categoryChips.map((chip) => (
+          <FilterChip
+            key={chip.key}
+            label={chip.name}
+            active={
+              categoryFilter.kind === 'category' &&
+              categoryFilter.id === chip.id
+            }
+            onPress={() =>
+              setCategoryFilter({
+                kind: 'category',
+                id: chip.id,
+                name: chip.name,
+              })
+            }
+          />
+        ))}
+      </ChipRow>
+
+      {/* Row 2 — tag groups (or flat tags) */}
+      {tagPrimaryChips.length > 0 ? (
+        <ChipRow label={t('explore.filterTags')}>
+          <FilterChip
+            label={ALL_LABEL}
+            active={tagFilter.kind === 'all'}
+            onPress={() => setTagFilter({ kind: 'all' })}
+          />
+          {tagPrimaryChips.map((chip) => {
+            const active =
+              chip.kind === 'tagGroup'
+                ? (tagFilter.kind === 'tagGroup' && tagFilter.id === chip.id) ||
+                  (tagFilter.kind === 'tag' && tagFilter.groupId === chip.id)
+                : tagFilter.kind === 'tag' && tagFilter.id === chip.id;
             return (
-              <TouchableOpacity
+              <FilterChip
                 key={chip.key}
-                style={[styles.categoryChip, active && styles.categoryChipActive]}
+                label={chip.name}
+                active={active}
                 onPress={() => {
-                  if (chip.kind === 'category') {
-                    setSelected({ kind: 'category', id: chip.id, name: chip.name });
-                    return;
-                  }
-                  if (chip.kind === 'tag') {
-                    setSelected({
-                      kind: 'tag',
+                  if (chip.kind === 'tagGroup') {
+                    setTagFilter({
+                      kind: 'tagGroup',
                       id: chip.id,
                       name: chip.name,
-                      groupId: chip.tagGroupId ?? chip.id,
                     });
                     return;
                   }
-                  if (chip.kind === 'tagGroup') {
-                    setSelected({ kind: 'tagGroup', id: chip.id, name: chip.name });
-                  }
+                  setTagFilter({
+                    kind: 'tag',
+                    id: chip.id,
+                    name: chip.name,
+                    groupId: chip.tagGroupId ?? chip.id,
+                  });
                 }}
-              >
-                <Text
-                  style={[styles.categoryText, active && styles.categoryTextActive]}
-                  numberOfLines={1}
-                >
-                  {chip.name}
-                </Text>
-              </TouchableOpacity>
+              />
             );
           })}
-        </ScrollView>
-      </View>
+        </ChipRow>
+      ) : null}
 
+      {/* Row 3 — tags inside selected group */}
       {tagsInGroup.length > 0 ? (
-        <View style={styles.tagRowWrap}>
-          <Text style={styles.tagRowLabel}>{t('explore.selectTag')}</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categories}
-          >
-            {tagsInGroup.map((tag) => {
-              const active = selected.kind === 'tag' && selected.id === tag.id;
-              return (
-                <TouchableOpacity
-                  key={tag.key}
-                  style={[styles.categoryChip, active && styles.categoryChipActive]}
-                  onPress={() =>
-                    setSelected({
-                      kind: 'tag',
-                      id: tag.id,
-                      name: tag.name,
-                      groupId: tag.tagGroupId ?? selectedGroupId ?? tag.id,
-                    })
-                  }
-                >
-                  <Text
-                    style={[styles.categoryText, active && styles.categoryTextActive]}
-                    numberOfLines={1}
-                  >
-                    {tag.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+        <ChipRow label={t('explore.selectTag')}>
+          {tagsInGroup.map((tag) => (
+            <FilterChip
+              key={tag.key}
+              label={tag.name}
+              active={tagFilter.kind === 'tag' && tagFilter.id === tag.id}
+              onPress={() =>
+                setTagFilter({
+                  kind: 'tag',
+                  id: tag.id,
+                  name: tag.name,
+                  groupId: tag.tagGroupId ?? selectedGroupId ?? tag.id,
+                })
+              }
+            />
+          ))}
+        </ChipRow>
       ) : null}
     </View>
   );
@@ -312,15 +375,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-  categoriesWrap: {
-    minHeight: 52,
-    marginBottom: 4,
+  chipRowWrap: {
+    minHeight: 44,
+    marginBottom: 2,
   },
-  tagRowWrap: {
-    minHeight: 52,
-    marginBottom: 8,
-  },
-  tagRowLabel: {
+  chipRowLabel: {
     fontSize: 12,
     fontWeight: '700',
     color: C.textMuted,
@@ -328,11 +387,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 2,
   },
-  categories: {
+  chipScroll: {
     paddingHorizontal: 20,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
-  categoryChip: {
+  chip: {
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
@@ -344,9 +403,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  categoryChipActive: { backgroundColor: C.accent, borderColor: C.accent },
-  categoryText: { fontSize: 13, color: C.textSecondary, fontWeight: '600' },
-  categoryTextActive: { color: C.onAccent },
+  chipActive: { backgroundColor: C.accent, borderColor: C.accent },
+  chipText: { fontSize: 13, color: C.textSecondary, fontWeight: '600' },
+  chipTextActive: { color: C.onAccent },
   list: { paddingHorizontal: 12, paddingBottom: 24 },
   row: { gap: 12, marginBottom: 12 },
   gridCard: {

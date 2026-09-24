@@ -77,42 +77,6 @@ function PulsingArrow({
   );
 }
 
-function DirectionPads({
-  active,
-  accentColor,
-}: {
-  active: CardinalDirection[];
-  accentColor: string;
-}) {
-  const dirs: CardinalDirection[] = ['up', 'left', 'right', 'down'];
-  return (
-    <View style={s.padGrid}>
-      {dirs.map((d) => {
-        const on = active.includes(d);
-        return (
-          <View
-            key={d}
-            style={[
-              s.pad,
-              d === 'up' && s.padUp,
-              d === 'down' && s.padDown,
-              d === 'left' && s.padLeft,
-              d === 'right' && s.padRight,
-              on && { borderColor: accentColor, backgroundColor: accentColor + '22' },
-            ]}
-          >
-            <MaterialCommunityIcons
-              name={arrowIconName(d)}
-              size={18}
-              color={on ? accentColor : C.textMuted}
-            />
-          </View>
-        );
-      })}
-    </View>
-  );
-}
-
 /** Suggested tour = exhibit→exhibit in one room, room→room when rooms differ. */
 export function TourItineraryCard({
   stops,
@@ -285,7 +249,6 @@ export function NavigationGuideCard({
     route,
     instructions,
     primaryDirection,
-    padDirections,
     hasPath,
     sameRoom,
     missingRooms,
@@ -340,9 +303,6 @@ export function NavigationGuideCard({
             <Text style={s.stepText}>{step.instruction}</Text>
           </View>
         ))}
-        {padDirections.length > 0 ? (
-          <DirectionPads active={padDirections} accentColor={accentColor} />
-        ) : null}
       </>
     );
   } else if (instructions.length > 0) {
@@ -474,27 +434,6 @@ const s = StyleSheet.create({
     color: C.textPrimary,
     fontWeight: '600',
   },
-  padGrid: {
-    width: 120,
-    height: 120,
-    alignSelf: 'center',
-    position: 'relative',
-  },
-  pad: {
-    position: 'absolute',
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.bgElevated,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  padUp: { top: 0, left: 42 },
-  padDown: { bottom: 0, left: 42 },
-  padLeft: { top: 42, left: 0 },
-  padRight: { top: 42, right: 0 },
   navRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   navBtn: {
     flexDirection: 'row',

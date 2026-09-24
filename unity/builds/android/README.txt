@@ -10,7 +10,12 @@ Unity Editor steps:
 5. After export, edit:
    unity/builds/android/unityLibrary/src/main/AndroidManifest.xml
    Remove any <intent-filter> with MAIN/LAUNCHER so only the library remains.
-6. In MuseumAR-Mobile run:
+   (Expo plugin withUnityManifestMergerFixes also strips LAUNCHER + forces app icon.)
+6. Icon changes require a CLEAN native rebuild (assets/icon.png alone is not enough):
+   - Uninstall MuseumAR from the device (launcher caches icons)
+   - npx expo prebuild --clean
+   - Build/release APK again (expo run:android / EAS / Gradle)
+7. In MuseumAR-Mobile run:
    npx expo prebuild --clean
    npx expo run:android
 

@@ -68,7 +68,7 @@ export default function SettingsScreen() {
         <Text style={styles.hint}>{t('settings.changePasswordHint')}</Text>
         <TouchableOpacity
           style={styles.actionCard}
-          onPress={() => router.push('/(auth)/forgot-password')}
+          onPress={() => router.push('/(auth)/change-password')}
           activeOpacity={0.85}
         >
           <MaterialCommunityIcons name="lock-reset" size={22} color={C.accent} />

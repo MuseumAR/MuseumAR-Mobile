@@ -156,11 +156,6 @@ export default function ExhibitDetailScreen() {
       onPress: () => router.push('/(tabs)/ticket'),
     },
     {
-      icon: 'line-scan',
-      label: t('exhibit.arScan'),
-      onPress: () => router.push('/(tabs)/scan'),
-    },
-    {
       icon: bookmarked ? 'heart' : 'heart-outline',
       label: t('exhibit.favorite'),
       onPress: handleToggleBookmark,

@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   Easing,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -252,14 +253,22 @@ export default function ARViewScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* Artifact visual */}
+        {/* Artifact visual — exhibit thumbnail when available */}
         <View style={[styles.hero, { backgroundColor: data.color + '18' }]}>
           <Animated.View
             style={[styles.emojiRing, { borderColor: data.color + '40', transform: [{ rotate: spin }] }]}
           />
-          <Animated.Text style={[styles.emoji, { transform: [{ scale: pulseAnim }] }]}>
-            {data.emoji}
-          </Animated.Text>
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            {data.thumbnailUrl ? (
+              <Image
+                source={{ uri: data.thumbnailUrl }}
+                style={styles.heroThumb}
+                resizeMode="cover"
+              />
+            ) : (
+              <Text style={styles.emoji}>{data.emoji}</Text>
+            )}
+          </Animated.View>
           <View style={styles.heroBadge}>
             <Text style={[styles.heroBadgeText, { color: data.color }]}>{data.category}</Text>
           </View>
@@ -367,11 +376,19 @@ const styles = StyleSheet.create({
   },
   emojiRing: {
     position: 'absolute',
-    width: 160,
-    height: 160,
-    borderRadius: 80,
+    width: 168,
+    height: 168,
+    borderRadius: 84,
     borderWidth: 1.5,
     borderStyle: 'dashed',
+  },
+  heroThumb: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: C.bgElevated,
+    borderWidth: 2,
+    borderColor: C.bgSurface,
   },
   emoji: { fontSize: 80 },
   heroBadge: {

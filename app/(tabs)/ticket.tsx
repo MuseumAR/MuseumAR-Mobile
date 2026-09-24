@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -29,31 +30,45 @@ import {
 } from '../../src/utils/groupTicketPricing';
 import { museumLocationLabel } from '../../src/utils/museumLocation';
 
-const WEEKDAYS_VI = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
-const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/** Standard tickets: book up to this many years ahead. */
+const STANDARD_MAX_YEARS_AHEAD = 3;
+const TYPE_CARD_WIDTH = 200;
 
-type DayOption = { iso: string; weekday: string; dayMonth: string };
+function startOfDay(d: Date): Date {
+  const x = new Date(d);
+  x.setHours(0, 0, 0, 0);
+  return x;
+}
 
-function nextDays(count: number, lang: 'vi' | 'en'): DayOption[] {
-  const out: DayOption[] = [];
-  const now = new Date();
-  const weekdays = lang === 'en' ? WEEKDAYS_EN : WEEKDAYS_VI;
-  for (let i = 0; i < count; i += 1) {
-    const d = new Date(now);
-    d.setDate(now.getDate() + i);
-    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    out.push({
-      iso,
-      weekday: i === 0 ? (lang === 'en' ? 'Today' : 'Hôm nay') : weekdays[d.getDay()],
-      dayMonth: `${d.getDate()}/${d.getMonth() + 1}`,
-    });
+function toIsoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function parseIsoDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value.trim());
+  if (m) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    return Number.isNaN(d.getTime()) ? null : startOfDay(d);
   }
-  return out;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return startOfDay(d);
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(year, month, 0).getDate();
+}
+
+function clampDate(d: Date, min: Date, max: Date): Date {
+  if (d < min) return new Date(min);
+  if (d > max) return new Date(max);
+  return d;
 }
 
 function formatExhibitionDate(value?: string | null, lang: 'vi' | 'en' = 'vi'): string {
   if (!value) return '—';
-  const d = new Date(value);
+  const d = parseIsoDate(value) ?? new Date(value);
   if (Number.isNaN(d.getTime())) return value;
   return d.toLocaleDateString(lang === 'en' ? 'en-US' : 'vi-VN');
 }
@@ -62,12 +77,107 @@ function exhibitionPhase(
   startDate?: string | null,
 ): 'presale' | 'ongoing' | null {
   if (!startDate) return null;
-  const start = new Date(startDate);
-  if (Number.isNaN(start.getTime())) return null;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  start.setHours(0, 0, 0, 0);
+  const start = parseIsoDate(startDate);
+  if (!start) return null;
+  const today = startOfDay(new Date());
   return start > today ? 'presale' : 'ongoing';
+}
+
+function isExhibitionTicket(item: TicketTypeDto | null): boolean {
+  if (!item) return false;
+  return Boolean(item.exhibitionName || item.exhibitionId);
+}
+
+/** Inclusive visit-date window for the selected ticket type. */
+function visitDateBounds(type: TicketTypeDto | null): { min: Date; max: Date } | null {
+  const today = startOfDay(new Date());
+  if (!type) {
+    const max = new Date(today);
+    max.setFullYear(max.getFullYear() + STANDARD_MAX_YEARS_AHEAD);
+    return { min: today, max };
+  }
+
+  if (isExhibitionTicket(type)) {
+    const start = parseIsoDate(type.exhibitionStartDate);
+    const end = parseIsoDate(type.exhibitionEndDate);
+    if (!start && !end) {
+      const max = new Date(today);
+      max.setFullYear(max.getFullYear() + STANDARD_MAX_YEARS_AHEAD);
+      return { min: today, max };
+    }
+    const min = start ? (start > today ? start : today) : today;
+    const max = end ?? (() => {
+      const d = new Date(min);
+      d.setFullYear(d.getFullYear() + 1);
+      return d;
+    })();
+    if (max < min) return null;
+    return { min, max };
+  }
+
+  const max = new Date(today);
+  max.setFullYear(max.getFullYear() + STANDARD_MAX_YEARS_AHEAD);
+  return { min: today, max };
+}
+
+function rangeYears(min: Date, max: Date): number[] {
+  const out: number[] = [];
+  for (let y = min.getFullYear(); y <= max.getFullYear(); y += 1) out.push(y);
+  return out;
+}
+
+function rangeMonths(min: Date, max: Date, year: number): number[] {
+  const out: number[] = [];
+  const from = year === min.getFullYear() ? min.getMonth() + 1 : 1;
+  const to = year === max.getFullYear() ? max.getMonth() + 1 : 12;
+  for (let m = from; m <= to; m += 1) out.push(m);
+  return out;
+}
+
+function rangeDays(min: Date, max: Date, year: number, month: number): number[] {
+  const out: number[] = [];
+  const dim = daysInMonth(year, month);
+  let from = 1;
+  let to = dim;
+  if (year === min.getFullYear() && month === min.getMonth() + 1) from = min.getDate();
+  if (year === max.getFullYear() && month === max.getMonth() + 1) to = max.getDate();
+  for (let d = from; d <= to; d += 1) out.push(d);
+  return out;
+}
+
+function DateChipRow({
+  values,
+  selected,
+  onSelect,
+  formatLabel,
+}: {
+  values: number[];
+  selected: number;
+  onSelect: (v: number) => void;
+  formatLabel?: (v: number) => string;
+}) {
+  return (
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      contentContainerStyle={styles.dateChipRow}
+    >
+      {values.map((v) => {
+        const active = v === selected;
+        return (
+          <TouchableOpacity
+            key={v}
+            style={[styles.dateChip, active && styles.dateChipActive]}
+            onPress={() => onSelect(v)}
+          >
+            <Text style={[styles.dateChipText, active && styles.dateChipTextActive]}>
+              {formatLabel ? formatLabel(v) : String(v)}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </ScrollView>
+  );
 }
 
 export default function TicketScreen() {
@@ -79,11 +189,54 @@ export default function TicketScreen() {
   const { pending, refresh: refreshPending } = usePendingOrder();
   const { isOffline } = useNetworkStatus();
 
-  const days = useMemo(() => nextDays(7, lang), [lang]);
   const [selectedType, setSelectedType] = useState<TicketTypeDto | null>(null);
   const [selectedPromoId, setSelectedPromoId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [selectedDate, setSelectedDate] = useState<string>(days[0].iso);
+  const [qtyDraft, setQtyDraft] = useState('1');
+  const [selectedDate, setSelectedDate] = useState<string>(() => toIsoDate(startOfDay(new Date())));
+
+  const dateBounds = useMemo(() => visitDateBounds(selectedType), [selectedType]);
+
+  const selectedParts = useMemo(() => {
+    const d = parseIsoDate(selectedDate) ?? startOfDay(new Date());
+    return { year: d.getFullYear(), month: d.getMonth() + 1, day: d.getDate() };
+  }, [selectedDate]);
+
+  const yearOptions = useMemo(
+    () => (dateBounds ? rangeYears(dateBounds.min, dateBounds.max) : []),
+    [dateBounds],
+  );
+  const monthOptions = useMemo(
+    () =>
+      dateBounds
+        ? rangeMonths(dateBounds.min, dateBounds.max, selectedParts.year)
+        : [],
+    [dateBounds, selectedParts.year],
+  );
+  const dayOptions = useMemo(
+    () =>
+      dateBounds
+        ? rangeDays(dateBounds.min, dateBounds.max, selectedParts.year, selectedParts.month)
+        : [],
+    [dateBounds, selectedParts.year, selectedParts.month],
+  );
+
+  const setVisitParts = useCallback(
+    (next: { year?: number; month?: number; day?: number }) => {
+      if (!dateBounds) return;
+      const year = next.year ?? selectedParts.year;
+      let month = next.month ?? selectedParts.month;
+      let day = next.day ?? selectedParts.day;
+      const months = rangeMonths(dateBounds.min, dateBounds.max, year);
+      if (!months.includes(month)) month = months[0] ?? 1;
+      const days = rangeDays(dateBounds.min, dateBounds.max, year, month);
+      if (!days.includes(day)) day = days[0] ?? 1;
+      const candidate = new Date(year, month - 1, day);
+      const clamped = clampDate(startOfDay(candidate), dateBounds.min, dateBounds.max);
+      setSelectedDate(toIsoDate(clamped));
+    },
+    [dateBounds, selectedParts],
+  );
 
   useFocusEffect(
     useCallback(() => {
@@ -103,12 +256,43 @@ export default function TicketScreen() {
     setSelectedPromoId(null);
   }, [selectedType?.id]);
 
+  // Keep visit date inside the allowed window when type (or bounds) change.
+  useEffect(() => {
+    if (!dateBounds) return;
+    setSelectedDate((prev) => {
+      const current = parseIsoDate(prev) ?? dateBounds.min;
+      return toIsoDate(clampDate(current, dateBounds.min, dateBounds.max));
+    });
+  }, [dateBounds]);
+
   // Group orders (≥30) ignore promotions on BE — clear selection.
   useEffect(() => {
     if (quantity >= GROUP_TIER_30 && selectedPromoId != null) {
       setSelectedPromoId(null);
     }
   }, [quantity, selectedPromoId]);
+
+  useEffect(() => {
+    setQtyDraft(String(quantity));
+  }, [quantity]);
+
+  const applyQuantity = (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    setQtyDraft(digits);
+    if (digits === '') return;
+    const n = Number.parseInt(digits, 10);
+    if (Number.isNaN(n) || n < 1) return;
+    setQuantity(Math.min(MAX_ORDER_QUANTITY, n));
+  };
+
+  const commitQuantity = () => {
+    const n = Number.parseInt(qtyDraft.replace(/\D/g, ''), 10);
+    const next = Number.isNaN(n)
+      ? 1
+      : Math.min(MAX_ORDER_QUANTITY, Math.max(1, n));
+    setQuantity(next);
+    setQtyDraft(String(next));
+  };
 
   const basePrice = selectedType ? Number(selectedType.price) || 0 : 0;
   const isGroup = quantity >= GROUP_TIER_30;
@@ -123,7 +307,7 @@ export default function TicketScreen() {
       : 0;
   const total = isGroup ? groupPricing.totalAmount : unitPrice * quantity;
   const promos = !isGroup ? (selectedType?.activePromotions ?? []) : [];
-
+  const exhibitionSelected = isExhibitionTicket(selectedType);
   const handleConfirm = async () => {
     if (isOffline) {
       Alert.alert(t('ticket.title'), t('ticket.offlineUnavailable'));
@@ -289,7 +473,14 @@ export default function TicketScreen() {
           ) : types.length === 0 ? (
             <Text style={styles.emptyText}>{t('ticket.emptyTypes')}</Text>
           ) : (
-            <View style={styles.typeGrid}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.typeRow}
+              decelerationRate="fast"
+              snapToInterval={TYPE_CARD_WIDTH + 10}
+              snapToAlignment="start"
+            >
               {types.map((item) => {
                 const active = selectedType?.id === item.id;
                 const isExhibition = Boolean(item.exhibitionName || item.exhibitionId);
@@ -355,7 +546,7 @@ export default function TicketScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </View>
+            </ScrollView>
           )}
         </View>
 
@@ -430,7 +621,18 @@ export default function TicketScreen() {
             >
               <MaterialCommunityIcons name="minus" size={20} color={C.textSecondary} />
             </TouchableOpacity>
-            <Text style={styles.qtyValue}>{quantity}</Text>
+            <TextInput
+              style={styles.qtyValue}
+              value={qtyDraft}
+              onChangeText={applyQuantity}
+              onBlur={commitQuantity}
+              onSubmitEditing={commitQuantity}
+              keyboardType="number-pad"
+              selectTextOnFocus
+              maxLength={3}
+              returnKeyType="done"
+              accessibilityLabel={t('ticket.quantity')}
+            />
             <TouchableOpacity
               style={styles.qtyBtn}
               onPress={() =>
@@ -467,21 +669,45 @@ export default function TicketScreen() {
             </View>
             <Text style={styles.sectionTitle}>{t('ticket.visitDate')}</Text>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
-            {days.map((d) => {
-              const active = selectedDate === d.iso;
-              return (
-                <TouchableOpacity
-                  key={d.iso}
-                  style={[styles.dayChip, active && styles.dayChipActive]}
-                  onPress={() => setSelectedDate(d.iso)}
-                >
-                  <Text style={[styles.dayWeekday, active && styles.dayTextActive]}>{d.weekday}</Text>
-                  <Text style={[styles.dayNum, active && styles.dayTextActive]}>{d.dayMonth}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+          {!dateBounds ? (
+            <Text style={styles.emptyText}>{t('ticket.dateUnavailable')}</Text>
+          ) : (
+            <View style={styles.datePicker}>
+              {exhibitionSelected ? (
+                <Text style={styles.dateHint}>
+                  {t('ticket.dateExhibitionHint')
+                    .replace(
+                      '{start}',
+                      formatExhibitionDate(selectedType?.exhibitionStartDate, lang),
+                    )
+                    .replace(
+                      '{end}',
+                      formatExhibitionDate(selectedType?.exhibitionEndDate, lang),
+                    )}
+                </Text>
+              ) : null}
+              <Text style={styles.dateFieldLabel}>{t('ticket.dateYear')}</Text>
+              <DateChipRow
+                values={yearOptions}
+                selected={selectedParts.year}
+                onSelect={(year) => setVisitParts({ year })}
+              />
+              <Text style={styles.dateFieldLabel}>{t('ticket.dateMonth')}</Text>
+              <DateChipRow
+                values={monthOptions}
+                selected={selectedParts.month}
+                onSelect={(month) => setVisitParts({ month })}
+                formatLabel={(m) => String(m).padStart(2, '0')}
+              />
+              <Text style={styles.dateFieldLabel}>{t('ticket.dateDay')}</Text>
+              <DateChipRow
+                values={dayOptions}
+                selected={selectedParts.day}
+                onSelect={(day) => setVisitParts({ day })}
+                formatLabel={(d) => String(d).padStart(2, '0')}
+              />
+            </View>
+          )}
         </View>
 
         {/* Summary */}
@@ -511,6 +737,12 @@ export default function TicketScreen() {
               {isGroup && groupPricing.focCount > 0
                 ? ` (+${groupPricing.focCount} FOC)`
                 : ''}
+            </Text>
+          </View>
+          <View style={styles.summaryRow}>
+            <Text style={styles.summaryLabel}>{t('ticket.visitDate')}</Text>
+            <Text style={styles.summaryValue}>
+              {formatExhibitionDate(selectedDate, lang)}
             </Text>
           </View>
           <View style={styles.divider} />
@@ -635,9 +867,9 @@ const styles = StyleSheet.create({
   museumName: { fontSize: 13, fontWeight: '700', color: C.textPrimary },
   museumCity: { fontSize: 11, color: C.textMuted, marginTop: 2 },
 
-  typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  typeRow: { gap: 10, paddingVertical: 2, paddingRight: 8 },
   typeCard: {
-    width: '47%',
+    width: TYPE_CARD_WIDTH,
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: C.border,
@@ -721,7 +953,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: C.bgElevated,
   },
-  qtyValue: { fontSize: 22, fontWeight: '800', color: C.textPrimary, minWidth: 30, textAlign: 'center' },
+  qtyValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: C.textPrimary,
+    minWidth: 48,
+    textAlign: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
   qtyNote: { fontSize: 12, color: C.textMuted, flex: 1 },
   groupHint: {
     marginTop: 10,
@@ -748,9 +988,22 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
 
-  dayRow: { gap: 10, paddingVertical: 2 },
-  dayChip: {
-    minWidth: 64,
+  datePicker: { gap: 8 },
+  dateHint: {
+    fontSize: 12,
+    color: C.textMuted,
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  dateFieldLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.textSecondary,
+    marginTop: 4,
+  },
+  dateChipRow: { gap: 8, paddingVertical: 2 },
+  dateChip: {
+    minWidth: 52,
     borderWidth: 1.5,
     borderColor: C.border,
     borderRadius: 12,
@@ -759,10 +1012,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: C.bgElevated,
   },
-  dayChipActive: { borderColor: C.accent, backgroundColor: C.accentMuted },
-  dayWeekday: { fontSize: 11, color: C.textMuted, fontWeight: '600' },
-  dayNum: { fontSize: 14, color: C.textPrimary, fontWeight: '700', marginTop: 4 },
-  dayTextActive: { color: C.accent },
+  dateChipActive: { borderColor: C.accent, backgroundColor: C.accentMuted },
+  dateChipText: { fontSize: 14, color: C.textPrimary, fontWeight: '700' },
+  dateChipTextActive: { color: C.accent },
 
   errorText: { color: C.danger, fontSize: 13, paddingVertical: 8 },
   emptyText: { color: C.textMuted, fontSize: 13, paddingVertical: 8 },

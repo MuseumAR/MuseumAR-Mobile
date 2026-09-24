@@ -25,12 +25,31 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { useARPacks } from '../../src/hooks/useARPacks';
-import { apiService, TicketDetailDto } from '../../src/services/apiService';
+import {
+  apiService,
+  TicketDetailDto,
+  TicketRefundRequestInfo,
+} from '../../src/services/apiService';
 import type { ARPack } from '../../src/data/arPacks';
 import { C } from '../../src/theme/colors';
 import { formatVisitorDate } from '../../src/utils/visitorLists';
 import { parseNumericId } from '../../src/utils/parseId';
 import { MAX_ORDER_QUANTITY } from '../../src/utils/groupTicketPricing';
+
+/** Same bank options as MuseumAR-Frontend refund modal. */
+const REFUND_BANKS = [
+  { value: 'Vietcombank', label: 'Vietcombank (VCB)' },
+  { value: 'MBBank', label: 'MB Bank (Quân Đội)' },
+  { value: 'Techcombank', label: 'Techcombank (TCB)' },
+  { value: 'BIDV', label: 'BIDV' },
+  { value: 'VietinBank', label: 'VietinBank' },
+  { value: 'ACB', label: 'ACB (Á Châu)' },
+  { value: 'VPBank', label: 'VPBank' },
+  { value: 'TPBank', label: 'TPBank' },
+  { value: 'Agribank', label: 'Agribank' },
+  { value: 'MoMo', label: 'Ví điện tử MoMo' },
+  { value: 'Khác', label: 'Ngân hàng khác' },
+] as const;
 
 function qrImageUrl(data: string): string {
   return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(data)}`;
@@ -73,12 +92,42 @@ function isRefundedStatus(status: string): boolean {
   return status.toLowerCase() === 'refunded';
 }
 
+function isRefundRejected(req?: TicketRefundRequestInfo | null): boolean {
+  return (req?.status ?? '').toLowerCase() === 'rejected';
+}
+
+function refundRequestStatusLabel(
+  status: string,
+  t: (key: string) => string,
+): string {
+  const s = status.toLowerCase();
+  if (s === 'approved') return t('ticket.refundStatusApproved');
+  if (s === 'rejected') return t('ticket.refundStatusRejected');
+  return t('ticket.refundStatusPending');
+}
+
+function refundRequestStatusColor(status: string): string {
+  const s = status.toLowerCase();
+  if (s === 'approved') return C.success;
+  if (s === 'rejected') return C.danger;
+  return C.warning;
+}
+
 function statusColorFor(status: string): string {
   if (isUsedStatus(status)) return C.textMuted;
   if (isRefundPendingStatus(status)) return C.warning;
   if (isRefundedStatus(status)) return C.danger;
   if (isPaidOrActive(status)) return C.success;
   return C.accent;
+}
+
+function applyRefundFormFromRequest(req?: TicketRefundRequestInfo | null) {
+  return {
+    bankName: req?.bankName?.trim() || 'Vietcombank',
+    accountNumber: req?.accountNumber ?? '',
+    accountHolderName: (req?.accountHolderName ?? '').toUpperCase(),
+    refundReason: req?.reason ?? '',
+  };
 }
 
 export default function TicketDetailScreen() {
@@ -95,12 +144,14 @@ export default function TicketDetailScreen() {
   const [groupRemaining, setGroupRemaining] = useState<number | null>(null);
 
   const [refundOpen, setRefundOpen] = useState(false);
-  const [bankName, setBankName] = useState('');
+  const [bankName, setBankName] = useState('Vietcombank');
   const [accountNumber, setAccountNumber] = useState('');
   const [accountHolderName, setAccountHolderName] = useState('');
   const [refundReason, setRefundReason] = useState('');
   const [refundLoading, setRefundLoading] = useState(false);
   const [refundError, setRefundError] = useState<string | null>(null);
+  const [refundSuccess, setRefundSuccess] = useState(false);
+  const [bankPickerOpen, setBankPickerOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (ticketId == null) {
@@ -119,6 +170,11 @@ export default function TicketDetailScreen() {
         setDetail(res.data);
         setCheckInQty(1);
         setGroupRemaining(null);
+        const form = applyRefundFormFromRequest(res.data.latestRefundRequest);
+        setBankName(form.bankName);
+        setAccountNumber(form.accountNumber);
+        setAccountHolderName(form.accountHolderName);
+        setRefundReason(form.refundReason);
         if (res.data.isGroupOrder && res.data.ticketCode) {
           try {
             const v = await apiService.validateTicket(res.data.ticketCode);
@@ -259,8 +315,14 @@ export default function TicketDetailScreen() {
 
   const openRefund = useCallback(() => {
     setRefundError(null);
+    const form = applyRefundFormFromRequest(detail?.latestRefundRequest);
+    setBankName(form.bankName);
+    setAccountNumber(form.accountNumber);
+    setAccountHolderName(form.accountHolderName);
+    setRefundReason(form.refundReason);
+    setBankPickerOpen(false);
     setRefundOpen(true);
-  }, []);
+  }, [detail?.latestRefundRequest]);
 
   const handleRefund = useCallback(async () => {
     if (!detail || refundLoading) return;
@@ -286,13 +348,29 @@ export default function TicketDetailScreen() {
       if (res.statusCode && res.statusCode >= 400) {
         throw new Error(res.message || t('ticket.refundFail'));
       }
-      setDetail((prev) => (prev ? { ...prev, status: 'Refund_Pending' } : prev));
+      const amount = detail.price ?? detail.ticketType.price ?? 0;
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              status: 'Refund_Pending',
+              latestRefundRequest: {
+                id: prev.latestRefundRequest?.id ?? 0,
+                amount,
+                reason: refundReason.trim(),
+                bankName: bankName.trim(),
+                accountNumber: accountNumber.trim(),
+                accountHolderName: accountHolderName.trim(),
+                status: 'Pending',
+                rejectReason: null,
+                createdAt: new Date().toISOString(),
+                processedAt: null,
+              },
+            }
+          : prev,
+      );
       setRefundOpen(false);
-      setBankName('');
-      setAccountNumber('');
-      setAccountHolderName('');
-      setRefundReason('');
-      Alert.alert(t('ticket.refundTitle'), t('ticket.refundSuccess'));
+      setRefundSuccess(true);
       await load();
     } catch (err: unknown) {
       setRefundError(err instanceof Error ? err.message : t('ticket.refundFail'));
@@ -334,6 +412,8 @@ export default function TicketDetailScreen() {
   const used = isUsedStatus(detail.status);
   const refundPending = isRefundPendingStatus(detail.status);
   const refunded = isRefundedStatus(detail.status);
+  const hasRejectedRefund =
+    isRefundRejected(detail.latestRefundRequest) && !refundPending && !refunded;
   const canSelfCheckIn = paidActive && Boolean(detail.ticketCode);
   const canRefund = paidActive;
   const showQr = Boolean(qrUri) && paidActive;
@@ -341,6 +421,10 @@ export default function TicketDetailScreen() {
 
   const unitPrice = detail.price ?? detail.ticketType.price ?? 0;
   const dash = '—';
+  const dateLocale = lang === 'en' ? 'en-US' : 'vi-VN';
+  const bankLabel =
+    REFUND_BANKS.find((b) => b.value === bankName)?.label ?? bankName;
+  const latestRefund = detail.latestRefundRequest;
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
@@ -377,6 +461,47 @@ export default function TicketDetailScreen() {
             <MaterialCommunityIcons name="cash-refund" size={18} color={C.danger} />
             <Text style={[styles.bannerText, { color: C.danger }]}>
               {t('ticket.refundedBanner')}
+            </Text>
+          </View>
+        ) : null}
+
+        {hasRejectedRefund ? (
+          <View style={[styles.banner, styles.bannerDanger]}>
+            <MaterialCommunityIcons name="alert-circle-outline" size={18} color={C.danger} />
+            <View style={{ flex: 1, gap: 8 }}>
+              <Text style={[styles.bannerText, { color: C.danger }]}>
+                {t('ticket.refundRejectedTitle')}
+              </Text>
+              <View style={styles.rejectBox}>
+                <Text style={styles.rejectReason}>
+                  <Text style={styles.rejectReasonStrong}>
+                    {t('ticket.refundRejectedReason')}{' '}
+                  </Text>
+                  {detail.latestRefundRequest?.rejectReason?.trim() ||
+                    t('ticket.refundRejectedFallback')}
+                </Text>
+                {detail.latestRefundRequest?.processedAt ? (
+                  <Text style={styles.rejectMeta}>
+                    {t('ticket.refundRejectedAt').replace(
+                      '{date}',
+                      formatVisitorDate(
+                        detail.latestRefundRequest.processedAt,
+                        dateLocale,
+                      ),
+                    )}
+                  </Text>
+                ) : null}
+              </View>
+              <Text style={styles.rejectHint}>{t('ticket.refundRejectedHint')}</Text>
+            </View>
+          </View>
+        ) : null}
+
+        {refundSuccess ? (
+          <View style={[styles.banner, styles.bannerSuccess]}>
+            <MaterialCommunityIcons name="check-circle" size={18} color={C.success} />
+            <Text style={[styles.bannerText, { color: C.success }]}>
+              {t('ticket.refundSuccess')}
             </Text>
           </View>
         ) : null}
@@ -466,6 +591,81 @@ export default function TicketDetailScreen() {
             }
           />
         </Section>
+
+        {latestRefund ? (
+          <Section title={t('ticket.refundSection')}>
+            <View style={styles.refundStatusRow}>
+              <View
+                style={[
+                  styles.statusPill,
+                  {
+                    borderColor:
+                      refundRequestStatusColor(latestRefund.status) + '55',
+                    backgroundColor:
+                      refundRequestStatusColor(latestRefund.status) + '18',
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusText,
+                    { color: refundRequestStatusColor(latestRefund.status) },
+                  ]}
+                >
+                  {refundRequestStatusLabel(latestRefund.status, t)}
+                </Text>
+              </View>
+            </View>
+            <Row
+              icon="cash"
+              label={t('ticket.refundRequestAmount')}
+              value={formatMoney(latestRefund.amount, lang, detail.order.currency)}
+            />
+            <Row
+              icon="bank"
+              label={t('ticket.refundBankAccount')}
+              value={`${latestRefund.bankName} - ${latestRefund.accountNumber}`}
+            />
+            <Row
+              icon="account"
+              label={t('ticket.refundHolder')}
+              value={latestRefund.accountHolderName || dash}
+            />
+            <Row
+              icon="clock-outline"
+              label={t('ticket.refundRequestedAt')}
+              value={
+                latestRefund.createdAt
+                  ? formatVisitorDate(latestRefund.createdAt, dateLocale)
+                  : dash
+              }
+            />
+            <Row
+              icon="text"
+              label={t('ticket.refundYourReason')}
+              value={latestRefund.reason?.trim() || dash}
+            />
+            {isRefundRejected(latestRefund) ? (
+              <View style={styles.rejectBox}>
+                <Text style={styles.rejectReasonStrong}>
+                  {t('ticket.refundAdminRejectTitle')}
+                </Text>
+                <Text style={styles.rejectReason}>
+                  {latestRefund.rejectReason?.trim() ||
+                    t('ticket.refundAdminRejectFallback')}
+                </Text>
+                {latestRefund.processedAt ? (
+                  <Text style={styles.rejectMeta}>
+                    {t('ticket.refundRejectedProcessedAt').replace(
+                      '{date}',
+                      formatVisitorDate(latestRefund.processedAt, dateLocale),
+                    )}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
+          </Section>
+        ) : null}
 
         {showQr ? (
           <Section title={t('ticket.sectionQr')}>
@@ -571,7 +771,11 @@ export default function TicketDetailScreen() {
         {canRefund ? (
           <TouchableOpacity style={styles.refundLink} onPress={openRefund}>
             <MaterialCommunityIcons name="cash-refund" size={18} color={C.warning} />
-            <Text style={styles.refundLinkText}>{t('ticket.refundAction')}</Text>
+            <Text style={styles.refundLinkText}>
+              {hasRejectedRefund
+                ? t('ticket.refundActionRetry')
+                : t('ticket.refundAction')}
+            </Text>
           </TouchableOpacity>
         ) : null}
       </ScrollView>
@@ -587,75 +791,145 @@ export default function TicketDetailScreen() {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{t('ticket.refundTitle')}</Text>
-            <Text style={styles.modalHint}>{t('ticket.refundHint')}</Text>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIconWrap}>
+                  <MaterialCommunityIcons
+                    name="cash-refund"
+                    size={22}
+                    color={C.accent}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.modalTitle}>{t('ticket.refundTitle')}</Text>
+                  <Text style={styles.modalAmount}>
+                    {t('ticket.refundAmountLine').replace(
+                      '{amount}',
+                      formatMoney(unitPrice, lang, detail.order.currency),
+                    )}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => !refundLoading && setRefundOpen(false)}
+                  hitSlop={10}
+                  disabled={refundLoading}
+                >
+                  <MaterialCommunityIcons
+                    name="close"
+                    size={22}
+                    color={C.textMuted}
+                  />
+                </TouchableOpacity>
+              </View>
 
-            <Text style={styles.inputLabel}>{t('ticket.refundBankName')}</Text>
-            <TextInput
-              style={styles.input}
-              value={bankName}
-              onChangeText={setBankName}
-              placeholder={t('ticket.refundBankName')}
-              placeholderTextColor={C.textPlaceholder}
-              editable={!refundLoading}
-            />
+              {refundError ? (
+                <View style={styles.modalErrorBox}>
+                  <Text style={styles.modalError}>{refundError}</Text>
+                </View>
+              ) : null}
 
-            <Text style={styles.inputLabel}>{t('ticket.refundAccountNumber')}</Text>
-            <TextInput
-              style={styles.input}
-              value={accountNumber}
-              onChangeText={setAccountNumber}
-              placeholder={t('ticket.refundAccountNumber')}
-              placeholderTextColor={C.textPlaceholder}
-              keyboardType="number-pad"
-              editable={!refundLoading}
-            />
-
-            <Text style={styles.inputLabel}>{t('ticket.refundAccountHolder')}</Text>
-            <TextInput
-              style={styles.input}
-              value={accountHolderName}
-              onChangeText={setAccountHolderName}
-              placeholder={t('ticket.refundAccountHolder')}
-              placeholderTextColor={C.textPlaceholder}
-              editable={!refundLoading}
-            />
-
-            <Text style={styles.inputLabel}>{t('ticket.refundReason')}</Text>
-            <TextInput
-              style={[styles.input, styles.inputMultiline]}
-              value={refundReason}
-              onChangeText={setRefundReason}
-              placeholder={t('ticket.refundReason')}
-              placeholderTextColor={C.textPlaceholder}
-              multiline
-              numberOfLines={3}
-              textAlignVertical="top"
-              editable={!refundLoading}
-            />
-
-            {refundError ? <Text style={styles.modalError}>{refundError}</Text> : null}
-
-            <View style={styles.modalActions}>
+              <Text style={styles.inputLabel}>{t('ticket.refundBankName')}</Text>
               <TouchableOpacity
-                style={styles.modalCancel}
-                onPress={() => setRefundOpen(false)}
+                style={styles.bankSelect}
+                onPress={() => setBankPickerOpen((o) => !o)}
                 disabled={refundLoading}
               >
-                <Text style={styles.modalCancelText}>{t('common.cancel')}</Text>
+                <Text style={styles.bankSelectText}>{bankLabel}</Text>
+                <MaterialCommunityIcons
+                  name={bankPickerOpen ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color={C.textMuted}
+                />
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalSubmit, refundLoading && styles.checkInBtnDisabled]}
-                onPress={() => void handleRefund()}
-                disabled={refundLoading}
-              >
-                {refundLoading ? (
-                  <ActivityIndicator color={C.onAccent} />
-                ) : (
-                  <Text style={styles.modalSubmitText}>{t('ticket.refundSubmit')}</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+              {bankPickerOpen ? (
+                <View style={styles.bankList}>
+                  {REFUND_BANKS.map((bank) => {
+                    const active = bank.value === bankName;
+                    return (
+                      <TouchableOpacity
+                        key={bank.value}
+                        style={[
+                          styles.bankOption,
+                          active && styles.bankOptionActive,
+                        ]}
+                        onPress={() => {
+                          setBankName(bank.value);
+                          setBankPickerOpen(false);
+                        }}
+                      >
+                        <Text
+                          style={[
+                            styles.bankOptionText,
+                            active && styles.bankOptionTextActive,
+                          ]}
+                        >
+                          {bank.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+              <Text style={styles.inputLabel}>{t('ticket.refundAccountNumber')}</Text>
+              <TextInput
+                style={[styles.input, styles.inputMono]}
+                value={accountNumber}
+                onChangeText={setAccountNumber}
+                placeholder={t('ticket.refundAccountNumberPlaceholder')}
+                placeholderTextColor={C.textPlaceholder}
+                keyboardType="number-pad"
+                editable={!refundLoading}
+              />
+
+              <Text style={styles.inputLabel}>{t('ticket.refundAccountHolder')}</Text>
+              <TextInput
+                style={[styles.input, styles.inputMono]}
+                value={accountHolderName}
+                onChangeText={(text) => setAccountHolderName(text.toUpperCase())}
+                placeholder={t('ticket.refundAccountHolderPlaceholder')}
+                placeholderTextColor={C.textPlaceholder}
+                autoCapitalize="characters"
+                editable={!refundLoading}
+              />
+
+              <Text style={styles.inputLabel}>{t('ticket.refundReason')}</Text>
+              <TextInput
+                style={[styles.input, styles.inputMultiline]}
+                value={refundReason}
+                onChangeText={setRefundReason}
+                placeholder={t('ticket.refundReasonPlaceholder')}
+                placeholderTextColor={C.textPlaceholder}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                editable={!refundLoading}
+              />
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.modalCancel}
+                  onPress={() => setRefundOpen(false)}
+                  disabled={refundLoading}
+                >
+                  <Text style={styles.modalCancelText}>{t('ticket.refundCancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.modalSubmit, refundLoading && styles.checkInBtnDisabled]}
+                  onPress={() => void handleRefund()}
+                  disabled={refundLoading}
+                >
+                  {refundLoading ? (
+                    <ActivityIndicator color={C.onAccent} />
+                  ) : (
+                    <Text style={styles.modalSubmitText}>{t('ticket.refundSubmit')}</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -732,7 +1006,33 @@ const styles = StyleSheet.create({
     backgroundColor: C.danger + '14',
     borderColor: C.danger + '44',
   },
+  bannerSuccess: {
+    backgroundColor: C.success + '14',
+    borderColor: C.success + '44',
+  },
   bannerText: { flex: 1, fontSize: 13, fontWeight: '600', lineHeight: 18 },
+  rejectBox: {
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: C.danger + '12',
+    borderWidth: 1,
+    borderColor: C.danger + '33',
+    gap: 4,
+  },
+  rejectReason: { fontSize: 12, color: C.danger, lineHeight: 17, fontWeight: '500' },
+  rejectReasonStrong: { fontSize: 12, color: C.danger, fontWeight: '800' },
+  rejectMeta: { fontSize: 11, color: C.danger, opacity: 0.8, marginTop: 2 },
+  rejectHint: {
+    fontSize: 12,
+    color: C.textSecondary,
+    fontWeight: '500',
+    lineHeight: 17,
+  },
+  refundStatusRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 4,
+  },
   section: {
     marginTop: 16,
     backgroundColor: C.bgSurface,
@@ -875,7 +1175,27 @@ const styles = StyleSheet.create({
     borderColor: C.border,
     maxHeight: '92%',
   },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: C.textPrimary },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  modalIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    backgroundColor: C.accent + '22',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTitle: { fontSize: 17, fontWeight: '800', color: C.textPrimary },
+  modalAmount: {
+    marginTop: 4,
+    fontSize: 12,
+    color: C.textMuted,
+    fontWeight: '600',
+  },
   modalHint: {
     marginTop: 6,
     marginBottom: 14,
@@ -890,6 +1210,35 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     marginTop: 8,
   },
+  bankSelect: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    backgroundColor: C.bgElevated,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  bankSelectText: { flex: 1, fontSize: 14, color: C.textPrimary, fontWeight: '600' },
+  bankList: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 12,
+    backgroundColor: C.bgElevated,
+    overflow: 'hidden',
+  },
+  bankOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: C.border,
+  },
+  bankOptionActive: { backgroundColor: C.accentMuted },
+  bankOptionText: { fontSize: 13, color: C.textPrimary, fontWeight: '500' },
+  bankOptionTextActive: { color: C.accent, fontWeight: '700' },
   input: {
     borderWidth: 1,
     borderColor: C.border,
@@ -900,8 +1249,17 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.textPrimary,
   },
+  inputMono: { fontVariant: ['tabular-nums'] },
   inputMultiline: { minHeight: 80 },
-  modalError: { marginTop: 10, color: C.danger, fontSize: 13, fontWeight: '600' },
+  modalErrorBox: {
+    marginBottom: 8,
+    borderRadius: 12,
+    padding: 10,
+    backgroundColor: C.danger + '14',
+    borderWidth: 1,
+    borderColor: C.danger + '33',
+  },
+  modalError: { color: C.danger, fontSize: 13, fontWeight: '600' },
   modalActions: {
     flexDirection: 'row',
     gap: 10,
@@ -918,10 +1276,10 @@ const styles = StyleSheet.create({
   },
   modalCancelText: { color: C.textSecondary, fontWeight: '700', fontSize: 14 },
   modalSubmit: {
-    flex: 1,
+    flex: 1.2,
     minHeight: 48,
     borderRadius: 14,
-    backgroundColor: C.warning,
+    backgroundColor: C.accent,
     alignItems: 'center',
     justifyContent: 'center',
   },

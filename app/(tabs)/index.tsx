@@ -27,7 +27,7 @@ export default function HomeScreen() {
   const { categories, themes } = useCategories();
 
   const quickActions = [
-    { label: t('home.quickScan'), icon: 'line-scan' as const, route: '/(tabs)/scan' as const },
+    { label: t('home.quickTicket'), icon: 'ticket-outline' as const, route: '/(tabs)/ticket' as const },
     { label: t('home.quickAudio'), icon: 'headphones' as const, route: '/(tabs)/explore' as const },
     { label: t('home.quickSaved'), icon: 'bookmark-outline' as const, route: '/bookmarks' as const },
   ];
@@ -312,7 +312,12 @@ export default function HomeScreen() {
                     colors={[item.color + '18', item.color + '08']}
                     style={styles.eraGradient}
                   >
-                    <Text style={[styles.eraName, { color: item.color }]} numberOfLines={2}>
+                    <Text
+                      style={[styles.eraName, { color: item.color }]}
+                      numberOfLines={3}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.78}
+                    >
                       {item.name}
                     </Text>
                   </LinearGradient>
@@ -354,7 +359,12 @@ export default function HomeScreen() {
                     colors={[item.color + '18', item.color + '08']}
                     style={styles.eraGradient}
                   >
-                    <Text style={[styles.eraName, { color: item.color }]} numberOfLines={2}>
+                    <Text
+                      style={[styles.eraName, { color: item.color }]}
+                      numberOfLines={3}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.78}
+                    >
                       {item.name}
                     </Text>
                   </LinearGradient>
@@ -366,8 +376,8 @@ export default function HomeScreen() {
 
         {/* ── Quick Actions ──────────────────────────────────────────────── */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>{t('home.quickScan').toUpperCase()}</Text>
-          <Text style={[styles.sectionTitle, { marginBottom: 16 }]}>{t('home.heroCta')}</Text>
+          <Text style={styles.sectionLabel}>{t('home.shortcut').toUpperCase()}</Text>
+          <Text style={[styles.sectionTitle, { marginBottom: 16 }]}>{t('home.quickAccess')}</Text>
 
           <View style={styles.actionsGrid}>
             {quickActions.map((action) => (
@@ -605,20 +615,27 @@ const styles = StyleSheet.create({
 
   eraGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   eraCard: {
-    width: '30%',
-    flexGrow: 1,
+    width: '47%',
+    maxWidth: '47%',
+    flexGrow: 0,
     borderRadius: 14,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: C.border,
   },
   eraGradient: {
-    paddingVertical: 16,
-    paddingHorizontal: 12,
+    minHeight: 72,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
   },
-  eraName: { fontSize: 11, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
+  eraName: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
   taxonomyEmpty: { fontSize: 13, color: C.textMuted, paddingVertical: 8 },
 
   actionsGrid: { flexDirection: 'row', gap: 12 },
