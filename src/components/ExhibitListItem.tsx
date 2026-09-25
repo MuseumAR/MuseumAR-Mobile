@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import type { ExhibitRecord } from '../data/exhibits';
+import { resolveOfflineUri, thumbLogicalKey } from '../services/offlineMedia';
 import { C } from '../theme/colors';
 
 type Props = {
@@ -15,12 +16,15 @@ export function ExhibitListItem({ exhibitId, exhibit, subtitle, onPress }: Props
   const title = exhibit?.title ?? `Hiện vật #${exhibitId}`;
   const meta = exhibit?.category || exhibit?.era || undefined;
   const color = exhibit?.color ?? C.accent;
+  const thumbUri =
+    resolveOfflineUri(exhibit?.thumbnailUrl, thumbLogicalKey(exhibitId)) ??
+    exhibit?.thumbnailUrl;
 
   return (
     <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.85}>
       <View style={[styles.thumb, { backgroundColor: color + '22' }]}>
-        {exhibit?.thumbnailUrl ? (
-          <Image source={{ uri: exhibit.thumbnailUrl }} style={styles.thumbImage} resizeMode="cover" />
+        {thumbUri ? (
+          <Image source={{ uri: thumbUri }} style={styles.thumbImage} resizeMode="cover" />
         ) : (
           <Text style={styles.emoji}>{exhibit?.emoji ?? '🏺'}</Text>
         )}

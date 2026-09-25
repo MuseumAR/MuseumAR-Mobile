@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { apiService, CategoryDto } from '../services/apiService';
 import { getExhibitById, type ExhibitRecord } from '../data/exhibits';
+import { loadMediaMap } from '../services/offlineMedia';
 import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
 import { pickLocalizedField } from '../utils/pickLocalized';
 import type { AppLanguage } from '../services/languagePrefs';
@@ -43,6 +44,7 @@ export function useExhibitDetail(routeId: string | undefined) {
       return;
     }
     try {
+      await loadMediaMap();
       const response = await apiService.getExhibitDetail(numericId, lang);
       if (response.data) {
         const enriched = await apiService.enrichExhibit(response.data);

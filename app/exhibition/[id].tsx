@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useExhibitionDetail } from '../../src/hooks/useExhibitionDetail';
 import { useCategories } from '../../src/hooks/useCategories';
 import { useLanguage } from '../../src/i18n/LanguageContext';
+import { resolveOfflineUri, thumbLogicalKey } from '../../src/services/offlineMedia';
 import { C } from '../../src/theme/colors';
 import { formatExhibitionDates } from '../../src/utils/exhibitionDates';
 
@@ -41,14 +42,17 @@ export default function ExhibitionDetailScreen() {
     exhibition.themeId != null
       ? themes.find((theme) => theme.id === Number(exhibition.themeId))?.name
       : undefined;
+  const heroUri =
+    resolveOfflineUri(exhibition.thumbnailUrl, `exhibition:${exhibition.id}`) ??
+    exhibition.thumbnailUrl;
 
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.hero}>
-          {exhibition.thumbnailUrl ? (
+          {heroUri ? (
             <Image
-              source={{ uri: exhibition.thumbnailUrl }}
+              source={{ uri: heroUri }}
               style={styles.heroImage}
               resizeMode="cover"
             />
@@ -78,7 +82,11 @@ export default function ExhibitionDetailScreen() {
             ) : exhibits.length === 0 ? (
               <Text style={styles.emptyText}>{t('exhibition.emptyExhibits')}</Text>
             ) : (
-              exhibits.map((item) => (
+              exhibits.map((item) => {
+                const thumbUri =
+                  resolveOfflineUri(item.thumbnailUrl, thumbLogicalKey(Number(item.id))) ??
+                  item.thumbnailUrl;
+                return (
                 <TouchableOpacity
                   key={item.id}
                   style={styles.exhibitRow}
@@ -86,9 +94,9 @@ export default function ExhibitionDetailScreen() {
                   onPress={() => router.push(`/exhibit/${item.id}`)}
                 >
                   <View style={[styles.exhibitThumb, { backgroundColor: item.color + '18' }]}>
-                    {item.thumbnailUrl ? (
+                    {thumbUri ? (
                       <Image
-                        source={{ uri: item.thumbnailUrl }}
+                        source={{ uri: thumbUri }}
                         style={styles.exhibitThumbImage}
                         resizeMode="cover"
                       />
@@ -104,7 +112,8 @@ export default function ExhibitionDetailScreen() {
                     {item.era ? <Text style={styles.exhibitEra}>{item.era}</Text> : null}
                   </View>
                 </TouchableOpacity>
-              ))
+                );
+              })
             )}
           </View>
         </View>

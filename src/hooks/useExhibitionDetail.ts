@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { ExhibitRecord } from '../data/exhibits';
 import { apiService, type ExhibitionDto } from '../services/apiService';
+import { loadMediaMap } from '../services/offlineMedia';
 import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
 import { localizeExhibition } from '../utils/localizeExhibition';
 import { parseNumericId } from '../utils/parseId';
@@ -28,6 +29,7 @@ export function useExhibitionDetail(id: string | number | undefined) {
     setLoading(true);
     setError(null);
     try {
+      await loadMediaMap();
       const [listRes, exhibitsRes] = await Promise.all([
         apiService.getExhibitions(lang),
         apiService.getExhibitsByExhibition(exhibitionId, lang),

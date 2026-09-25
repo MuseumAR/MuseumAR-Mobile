@@ -25,6 +25,7 @@ import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useVisitedExhibits } from '../../src/hooks/useVisitedExhibits';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { C } from '../../src/theme/colors';
+import { resolveOfflineUri, thumbLogicalKey } from '../../src/services/offlineMedia';
 import { parseNumericId } from '../../src/utils/parseId';
 
 type ActionItem = {
@@ -170,13 +171,17 @@ export default function ExhibitDetailScreen() {
     },
   ];
 
+  const thumbUri =
+    resolveOfflineUri(exhibit.thumbnailUrl, thumbLogicalKey(Number(exhibit.id))) ??
+    exhibit.thumbnailUrl;
+
   return (
     <SafeAreaView style={styles.safe} edges={['bottom']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={[styles.hero, { backgroundColor: exhibit.color + '18' }]}>
-          {exhibit.thumbnailUrl ? (
+          {thumbUri ? (
             <Image
-              source={{ uri: exhibit.thumbnailUrl }}
+              source={{ uri: thumbUri }}
               style={StyleSheet.absoluteFill}
               resizeMode="cover"
             />

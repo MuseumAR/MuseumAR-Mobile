@@ -89,15 +89,16 @@ export function rewriteRemoteImageUrl(
 }
 
 /**
- * Prefer a live, phone-reachable URL. Use a downloaded file:// only when there
- * is no remote URL (offline pack with a missing remote field).
+ * Prefer a downloaded pack file when present so exhibition/offline thumbs work.
+ * Fall back to a rewritten remote URL when nothing is cached locally.
  */
 export function pickDisplayImageUrl(
   remote?: string | null,
   logicalKey?: string,
   options?: ImageRewriteOptions,
 ): string | undefined {
-  const rewritten = rewriteRemoteImageUrl(remote, options);
-  if (rewritten) return rewritten;
-  return resolveOfflineUri(remote, logicalKey);
+  const local = resolveOfflineUri(remote, logicalKey);
+  if (local) return local;
+
+  return rewriteRemoteImageUrl(remote, options);
 }
