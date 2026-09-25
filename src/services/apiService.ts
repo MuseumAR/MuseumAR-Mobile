@@ -265,10 +265,12 @@ export interface CreateTicketRefundRequest {
 }
 
 export interface CreateOrderRequest {
-  /** POST /Ticketing/create-order body { ticketTypeId, quantity, promotionId? } */
+  /** POST /Ticketing/create-order body { ticketTypeId, quantity, promotionId?, visitDate? } */
   ticketTypeId: number;
   quantity: number;
   promotionId?: number | null;
+  /** ISO date (yyyy-MM-dd) for standard tickets; omit/null for exhibition tickets. */
+  visitDate?: string | null;
 }
 
 export interface CheckInTicketResponse {
@@ -1127,7 +1129,11 @@ export function normalizeNavigationRoute(
         instruction: String(o.instruction ?? o.Instruction ?? ''),
         action: String(o.action ?? o.Action ?? 'STRAIGHT'),
         distance: Number(o.distance ?? o.Distance) || 0,
-        floorNumber: Number(o.floorNumber ?? o.FloorNumber) || 1,
+        floorNumber: (() => {
+          const n = Number(o.floorNumber ?? o.FloorNumber);
+          // Do not coerce missing → 1 (that made "Continue to Floor 1" while text said Floor 2).
+          return Number.isFinite(n) && n > 0 ? n : 0;
+        })(),
         waypointId: String(o.waypointId ?? o.WaypointId ?? ''),
       };
     }),
@@ -1533,6 +1539,50 @@ async function tryOfflineNavigationRoute(
   };
 }
 
+/**
+ * BE NavigateAsync stops at the first stair and says "select your next destination".
+ * FE uses the full graph path instead — do the same when the museum graph is available.
+ */
+function isTruncatedAtFloorChange(
+  route: NavigationRouteResponseDto | null | undefined,
+): boolean {
+  if (!route?.instructions?.length) return false;
+  const blob = route.instructions.map((s) => s.instruction ?? '').join('\n');
+  if (/chọn tiếp|select your next destination/i.test(blob)) return true;
+  return false;
+}
+
+async function buildFullGraphNavigationRoute(
+  museumId: number,
+  fromRoomId: number,
+  toRoomId: number,
+  lang?: string,
+): Promise<NavigationRouteResponseDto | null> {
+  if (!(museumId > 0)) return null;
+  try {
+    const [graphRes, roomsRes] = await Promise.all([
+      apiFetch<NavigationGraphDto & Record<string, unknown>>(
+        `Navigation/museum/${museumId}/graph`,
+      ),
+      apiFetch<Array<Partial<RoomDto> & Record<string, unknown>>>(
+        `Content/rooms/museum/${museumId}${buildQuery(lang ? { lang } : undefined)}`,
+      ),
+    ]);
+    if (!graphRes.data) return null;
+    const graph = normalizeNavigationGraph(graphRes.data);
+    const rooms = (roomsRes.data ?? []).map((item) =>
+      normalizeRoomDto(item as Partial<RoomDto> & Record<string, unknown>),
+    );
+    const route = routeFromGraph(graph, rooms, fromRoomId, toRoomId, lang);
+    if ((route.pathWaypoints?.length ?? 0) < 2 && route.totalDistance <= 0) {
+      return null;
+    }
+    return route;
+  } catch {
+    return null;
+  }
+}
+
 // Các hàm dịch vụ chính gọi API
 export const apiService = {
   // --- AUTHENTICATION ---
@@ -1609,10 +1659,21 @@ export const apiService = {
     };
   },
 
-  async resetPassword(token: string, newPassword: string): Promise<ApiResponse<null>> {
+  async resetPassword(
+    token: string,
+    newPassword: string,
+    email?: string | null,
+  ): Promise<ApiResponse<null>> {
+    const body: Record<string, unknown> = {
+      token: token.trim(),
+      newPassword,
+    };
+    if (email != null && String(email).trim()) {
+      body.email = String(email).trim();
+    }
     return apiFetch<null>('Auth/reset-password', {
       method: 'POST',
-      body: JSON.stringify({ token, newPassword }),
+      body: JSON.stringify(body),
     });
   },
 
@@ -1992,7 +2053,8 @@ export const apiService = {
   /**
    * Room-to-room path + spoken instructions —
    * GET Navigation/route?fromRoomId=&toRoomId=&lang=
-   * Offline guests: Dijkstra on the cached museum graph (pairs are not snapshotted).
+   * When BE truncates at stairs, expand to the full graph path (same as FE).
+   * Offline guests: Dijkstra on the cached museum graph.
    */
   async getNavigationRoute(
     fromRoomId: number,
@@ -2009,11 +2071,34 @@ export const apiService = {
           lang: lang || undefined,
         })}`,
       );
+      const normalized = response.data
+        ? normalizeNavigationRoute(response.data)
+        : null;
+
+      if (normalized && isTruncatedAtFloorChange(normalized)) {
+        const museumId =
+          Number(normalized.pathWaypoints?.[0]?.museumId) ||
+          getCachedMuseumId() ||
+          (await resolveOfflineMuseumId()) ||
+          0;
+        const full = await buildFullGraphNavigationRoute(
+          museumId,
+          fromRoomId,
+          toRoomId,
+          lang,
+        );
+        if (full) {
+          return {
+            ...response,
+            data: full,
+            message: response.message || 'Expanded full floor path from graph',
+          };
+        }
+      }
+
       return {
         ...response,
-        data: response.data
-          ? normalizeNavigationRoute(response.data)
-          : (null as unknown as NavigationRouteResponseDto),
+        data: normalized as NavigationRouteResponseDto,
       };
     } catch (error) {
       const offline = await tryOfflineNavigationRoute(fromRoomId, toRoomId, lang);
@@ -2191,6 +2276,9 @@ export const apiService = {
     };
     if (payload.promotionId != null) {
       body.promotionId = payload.promotionId;
+    }
+    if (payload.visitDate != null && String(payload.visitDate).trim()) {
+      body.visitDate = String(payload.visitDate).trim();
     }
     const response = await apiFetch<CreateOrderResponse & Record<string, unknown>>(
       'Ticketing/create-order',
@@ -2410,6 +2498,15 @@ export const apiService = {
     const checkoutUrl =
       String(raw.checkoutUrl ?? raw.CheckoutUrl ?? '').trim() || null;
     const amountRaw = raw.totalAmount ?? raw.TotalAmount ?? raw.amount;
+    const qrRaw = String(raw.qrCode ?? raw.QrCode ?? '').trim() || null;
+    const qrCode =
+      qrRaw && !/^https?:\/\//i.test(qrRaw)
+        ? qrRaw
+        : qrRaw &&
+            (/\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(qrRaw) ||
+              /qrserver\.com/i.test(qrRaw))
+          ? qrRaw
+          : null;
     return {
       ...response,
       data: {
@@ -2424,7 +2521,8 @@ export const apiService = {
             ? Number(amountRaw)
             : undefined,
         checkoutUrl,
-        qrCode: String(raw.qrCode ?? raw.QrCode ?? '').trim() || null,
+        // Keep checkoutUrl separate — do not treat PayOS HTML link as QR image payload.
+        qrCode,
         createdAt: String(raw.createdAt ?? raw.CreatedAt ?? '') || undefined,
         expiresAt: String(raw.expiresAt ?? raw.ExpiresAt ?? '') || undefined,
         remainingSeconds: Number(

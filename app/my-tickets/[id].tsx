@@ -23,6 +23,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { ARPackCard } from '../../src/components/ARPackCard';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { useARPacks } from '../../src/hooks/useARPacks';
 import {
@@ -134,12 +135,15 @@ export default function TicketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const ticketId = parseNumericId(id);
   const { t, lang } = useLanguage();
-  const { downloadPack } = useARPacks();
+  const { downloadPack, deletePack, getState, syncUpdateFlags } = useARPacks();
   const [detail, setDetail] = useState<TicketDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [checkingIn, setCheckingIn] = useState(false);
+  const [packModalOpen, setPackModalOpen] = useState(false);
   const [packLoading, setPackLoading] = useState(false);
+  const [ticketPack, setTicketPack] = useState<ARPack | null>(null);
+  const [packError, setPackError] = useState<string | null>(null);
   const [checkInQty, setCheckInQty] = useState(1);
   const [groupRemaining, setGroupRemaining] = useState<number | null>(null);
 
@@ -255,17 +259,21 @@ export default function TicketDetailScreen() {
     }
   }, [checkingIn, checkInQty, detail, groupRemaining, load, t]);
 
-  const handleDownloadPackForTicket = useCallback(async () => {
-    if (!detail?.ticketCode || packLoading) return;
+  const openPackForTicket = useCallback(async () => {
+    if (!detail?.ticketCode) return;
+    const isExhibition = Boolean(
+      detail.exhibition?.id || detail.exhibition?.name?.trim(),
+    );
+    if (!isExhibition) return;
+    setPackModalOpen(true);
     setPackLoading(true);
+    setPackError(null);
+    setTicketPack(null);
     try {
       const res = await apiService.getOfflinePackageByTicket(detail.ticketCode, lang);
       const pkg = res.data;
       if (!pkg?.packageUrl && !pkg?.downloadUrl) {
-        Alert.alert(
-          t('packs.title'),
-          res.message || t('packs.byTicketFail'),
-        );
+        setPackError(res.message || t('packs.byTicketFail'));
         return;
       }
       const sizeMB =
@@ -301,17 +309,22 @@ export default function TicketDetailScreen() {
         exhibitionTitle: pkg.exhibitionTitle ?? detail.exhibition?.name ?? null,
         packageName: pkg.packageName ?? null,
       };
-      downloadPack(pack);
-      Alert.alert(t('packs.title'), t('packs.byTicketSuccess'));
+      setTicketPack(pack);
+      syncUpdateFlags([pack]);
     } catch (err: unknown) {
-      Alert.alert(
-        t('packs.title'),
+      setPackError(
         err instanceof Error ? err.message : t('packs.byTicketFail'),
       );
     } finally {
       setPackLoading(false);
     }
-  }, [detail, downloadPack, lang, packLoading, t]);
+  }, [detail, lang, syncUpdateFlags, t]);
+
+  const closePackModal = useCallback(() => {
+    setPackModalOpen(false);
+    setPackError(null);
+    setTicketPack(null);
+  }, []);
 
   const openRefund = useCallback(() => {
     setRefundError(null);
@@ -418,6 +431,11 @@ export default function TicketDetailScreen() {
   const canRefund = paidActive;
   const showQr = Boolean(qrUri) && paidActive;
   const statusColor = statusColorFor(detail.status);
+  /** Exhibition tickets only — standard tickets use museum-wide packs via AR Packs. */
+  const isExhibitionTicket = Boolean(
+    detail.exhibition?.id || detail.exhibition?.name?.trim(),
+  );
+  const showPackByTicket = (paidActive || used) && isExhibitionTicket;
 
   const unitPrice = detail.price ?? detail.ticketType.price ?? 0;
   const dash = '—';
@@ -747,24 +765,17 @@ export default function TicketDetailScreen() {
           </Section>
         ) : null}
 
-        {paidActive || used ? (
+        {showPackByTicket ? (
           <TouchableOpacity
-            style={[styles.packBtn, packLoading && styles.checkInBtnDisabled]}
-            onPress={() => void handleDownloadPackForTicket()}
-            disabled={packLoading}
+            style={styles.packBtn}
+            onPress={() => void openPackForTicket()}
           >
-            {packLoading ? (
-              <ActivityIndicator color={C.accent} />
-            ) : (
-              <>
-                <MaterialCommunityIcons
-                  name="package-down"
-                  size={20}
-                  color={C.accent}
-                />
-                <Text style={styles.packBtnText}>{t('packs.byTicketAction')}</Text>
-              </>
-            )}
+            <MaterialCommunityIcons
+              name="package-variant"
+              size={20}
+              color={C.accent}
+            />
+            <Text style={styles.packBtnText}>{t('packs.byTicketAction')}</Text>
           </TouchableOpacity>
         ) : null}
 
@@ -932,6 +943,65 @@ export default function TicketDetailScreen() {
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal
+        visible={packModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={closePackModal}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconWrap}>
+                <MaterialCommunityIcons
+                  name="package-variant"
+                  size={22}
+                  color={C.accent}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>{t('packs.byTicketModalTitle')}</Text>
+                <Text style={styles.modalAmount}>
+                  {detail?.ticketCode
+                    ? `${t('ticket.ticketCode')}: ${detail.ticketCode}`
+                    : t('packs.byTicketModalHint')}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={closePackModal}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.close')}
+              >
+                <MaterialCommunityIcons name="close" size={22} color={C.textMuted} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalHint}>{t('packs.byTicketModalHint')}</Text>
+
+            {packLoading ? (
+              <View style={styles.packModalLoading}>
+                <ActivityIndicator color={C.accent} />
+                <Text style={styles.packModalLoadingText}>
+                  {t('packs.byTicketLoading')}
+                </Text>
+              </View>
+            ) : packError ? (
+              <Text style={styles.packModalError}>{packError}</Text>
+            ) : ticketPack ? (
+              <ARPackCard
+                pack={ticketPack}
+                state={getState(ticketPack.id)}
+                onDownload={() => downloadPack(ticketPack)}
+                onDelete={() => deletePack(ticketPack.id)}
+              />
+            ) : (
+              <Text style={styles.packModalError}>{t('packs.byTicketFail')}</Text>
+            )}
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -1160,6 +1230,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   packBtnText: { color: C.accent, fontSize: 14, fontWeight: '700' },
+  packModalLoading: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    paddingVertical: 32,
+  },
+  packModalLoadingText: {
+    fontSize: 13,
+    color: C.textMuted,
+    fontWeight: '600',
+  },
+  packModalError: {
+    fontSize: 14,
+    color: C.danger,
+    fontWeight: '600',
+    lineHeight: 20,
+    paddingVertical: 16,
+    textAlign: 'center',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: C.bgOverlay,

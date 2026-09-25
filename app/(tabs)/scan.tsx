@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,13 +11,14 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import NetInfo from '@react-native-community/netinfo';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { parseQRCode } from '../../src/data/qrData';
+import { useNetworkStatus } from '../../src/hooks/useNetworkStatus';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { useVisitorLocation } from '../../src/context/VisitorLocationContext';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService } from '../../src/services/apiService';
-import { canUseOfflineContent, isGuestSession } from '../../src/services/offlineMode';
 import { getVisitorId } from '../../src/services/sessionStorage';
 import { C } from '../../src/theme/colors';
 import { parseNumericId } from '../../src/utils/parseId';
@@ -27,10 +28,19 @@ export default function ScanScreen() {
   const { t, lang } = useLanguage();
   const { track } = useTrackAction();
   const { setLocationFromScan } = useVisitorLocation();
+  const { isOffline } = useNetworkStatus();
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
   const [scanned, setScanned] = useState(false);
   const [resolving, setResolving] = useState(false);
+
+  useEffect(() => {
+    if (isOffline) {
+      setScanning(false);
+      setScanned(false);
+      setResolving(false);
+    }
+  }, [isOffline]);
 
   const rememberRoom = useCallback(
     async (exhibitId: number, scannedRoomId?: number | null, scanned?: {
@@ -113,46 +123,41 @@ export default function ScanScreen() {
       setResolving(true);
       try {
         const net = await NetInfo.fetch();
-        const offline = net.isConnected === false || net.isInternetReachable === false;
-        const guestOffline = offline && (await canUseOfflineContent());
+        const offline =
+          net.isConnected === false || net.isInternetReachable === false;
 
-        if (offline && !guestOffline) {
-          Alert.alert(
-            t('scan.offlineBlocked'),
-            (await isGuestSession())
-              ? t('common.offlineNeedPack')
-              : t('common.offlineSignedIn'),
-            [{ text: t('scan.rescan'), onPress: () => setScanned(false) }],
-          );
+        if (offline) {
+          Alert.alert(t('scan.offlineBlocked'), t('scan.offlineBlockedHint'), [
+            { text: t('scan.rescan'), onPress: () => setScanned(false) },
+          ]);
           setResolving(false);
+          setScanning(false);
           return;
         }
 
-        if (!guestOffline) {
-          // Newest WebBE: GET /Content/exhibits/scan-qr
-          // Matches exact QrcodeData (MUSEUM_EX_…), ExhibitCode, or numeric Id.
-          const visitorId = await getVisitorId();
-          const response = await apiService.scanExhibitQr({
-            qrData: raw,
-            lang,
-            visitorId,
+        // Newest WebBE: GET /Content/exhibits/scan-qr
+        // Matches exact QrcodeData (MUSEUM_EX_…), ExhibitCode, or numeric Id.
+        const visitorId = await getVisitorId();
+        const response = await apiService.scanExhibitQr({
+          qrData: raw,
+          lang,
+          visitorId,
+        });
+        const exhibitId = response.data?.exhibitId;
+        if (exhibitId != null && exhibitId > 0) {
+          await rememberRoom(exhibitId, response.data?.roomId, {
+            roomName: response.data?.roomName,
+            roomCode: response.data?.roomCode,
+            floorNumber: response.data?.floorNumber,
           });
-          const exhibitId = response.data?.exhibitId;
-          if (exhibitId != null && exhibitId > 0) {
-            await rememberRoom(exhibitId, response.data?.roomId, {
-              roomName: response.data?.roomName,
-              roomCode: response.data?.roomCode,
-              floorNumber: response.data?.floorNumber,
-            });
-            openExhibit(exhibitId);
-            return;
-          }
+          openExhibit(exhibitId);
+          return;
         }
       } catch {
-        // Fall through to local parse (offline / deep-link payloads).
+        // Fall through to local parse for deep-link payloads while online.
       }
 
-      // Offline / deep-link fallback: MUSEUM_EX_{id}_…, museumar://exhibit/…, numeric id
+      // Online deep-link fallback: MUSEUM_EX_{id}_…, museumar://exhibit/…, numeric id
       if (local.type === 'exhibit') {
         const exhibitId = parseNumericId(local.id);
         if (exhibitId != null) {
@@ -197,51 +202,61 @@ export default function ScanScreen() {
         <Text style={styles.title}>{t('scan.title')}</Text>
         <Text style={styles.subtitle}>{t('scan.subtitle')}</Text>
 
-        <View style={styles.cameraWrap}>
-          {scanning ? (
-            <CameraView
-              style={StyleSheet.absoluteFill}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-              onBarcodeScanned={scanned || resolving ? undefined : handleBarcodeScanned}
-            />
-          ) : (
-            <View style={styles.cameraOff}>
-              <Text style={styles.cameraHint}>{t('scan.cameraOff')}</Text>
-              <Text style={styles.cameraSubHint}>{t('scan.cameraOffHint')}</Text>
-            </View>
-          )}
-
-          <View style={styles.scanFrame} pointerEvents="none">
-            <View style={[styles.corner, styles.cornerTL]} />
-            <View style={[styles.corner, styles.cornerTR]} />
-            <View style={[styles.corner, styles.cornerBL]} />
-            <View style={[styles.corner, styles.cornerBR]} />
+        {isOffline ? (
+          <View style={styles.offlineBox}>
+            <MaterialCommunityIcons name="wifi-off" size={28} color={C.danger} />
+            <Text style={styles.offlineTitle}>{t('scan.offlineBlocked')}</Text>
+            <Text style={styles.offlineHint}>{t('scan.offlineBlockedHint')}</Text>
           </View>
+        ) : (
+          <>
+            <View style={styles.cameraWrap}>
+              {scanning ? (
+                <CameraView
+                  style={StyleSheet.absoluteFill}
+                  facing="back"
+                  barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
+                  onBarcodeScanned={scanned || resolving ? undefined : handleBarcodeScanned}
+                />
+              ) : (
+                <View style={styles.cameraOff}>
+                  <Text style={styles.cameraHint}>{t('scan.cameraOff')}</Text>
+                  <Text style={styles.cameraSubHint}>{t('scan.cameraOffHint')}</Text>
+                </View>
+              )}
 
-          {resolving ? (
-            <View style={styles.resolvingOverlay} pointerEvents="none">
-              <ActivityIndicator color={C.accent} />
-              <Text style={styles.resolvingText}>{t('scan.resolving')}</Text>
+              <View style={styles.scanFrame} pointerEvents="none">
+                <View style={[styles.corner, styles.cornerTL]} />
+                <View style={[styles.corner, styles.cornerTR]} />
+                <View style={[styles.corner, styles.cornerBL]} />
+                <View style={[styles.corner, styles.cornerBR]} />
+              </View>
+
+              {resolving ? (
+                <View style={styles.resolvingOverlay} pointerEvents="none">
+                  <ActivityIndicator color={C.accent} />
+                  <Text style={styles.resolvingText}>{t('scan.resolving')}</Text>
+                </View>
+              ) : null}
             </View>
-          ) : null}
-        </View>
 
-        <TouchableOpacity
-          style={[styles.scanBtn, scanning && styles.scanBtnStop]}
-          disabled={resolving}
-          onPress={() => {
-            setScanned(false);
-            setResolving(false);
-            setScanning((v) => !v);
-          }}
-        >
-          <Text style={styles.scanBtnText}>
-            {scanning ? t('scan.stop') : t('scan.start')}
-          </Text>
-        </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.scanBtn, scanning && styles.scanBtnStop]}
+              disabled={resolving}
+              onPress={() => {
+                setScanned(false);
+                setResolving(false);
+                setScanning((v) => !v);
+              }}
+            >
+              <Text style={styles.scanBtnText}>
+                {scanning ? t('scan.stop') : t('scan.start')}
+              </Text>
+            </TouchableOpacity>
 
-        <Text style={styles.tip}>{t('scan.tip')}</Text>
+            <Text style={styles.tip}>{t('scan.tip')}</Text>
+          </>
+        )}
       </View>
     </SafeAreaView>
   );
@@ -319,5 +334,28 @@ const styles = StyleSheet.create({
     color: C.textMuted,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  offlineBox: {
+    width: '100%',
+    marginTop: 32,
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: C.danger + '44',
+    backgroundColor: C.danger + '12',
+    alignItems: 'center',
+    gap: 8,
+  },
+  offlineTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: C.danger,
+    textAlign: 'center',
+  },
+  offlineHint: {
+    fontSize: 13,
+    color: C.textSecondary,
+    textAlign: 'center',
+    lineHeight: 19,
   },
 });

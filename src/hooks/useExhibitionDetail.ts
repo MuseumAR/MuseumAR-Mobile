@@ -1,24 +1,26 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import type { ExhibitRecord } from '../data/exhibits';
 import { apiService, type ExhibitionDto } from '../services/apiService';
 import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
 import { localizeExhibition } from '../utils/localizeExhibition';
 import { parseNumericId } from '../utils/parseId';
+import { useCategories } from './useCategories';
 
 /** Chi tiết triển lãm + hiện vật bên trong (giống exhibit detail). */
 export function useExhibitionDetail(id: string | number | undefined) {
   const { lang } = useLanguage();
+  const { categoryNameById } = useCategories();
   const exhibitionId = parseNumericId(id);
   const [exhibition, setExhibition] = useState<ExhibitionDto | null>(null);
-  const [exhibits, setExhibits] = useState<ExhibitRecord[]>([]);
+  const [baseExhibits, setBaseExhibits] = useState<ExhibitRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (exhibitionId == null) {
       setExhibition(null);
-      setExhibits([]);
+      setBaseExhibits([]);
       setLoading(false);
       return;
     }
@@ -36,10 +38,10 @@ export function useExhibitionDetail(id: string | number | undefined) {
 
       const raw = exhibitsRes.data ?? [];
       const enriched = await Promise.all(raw.map((dto) => apiService.enrichExhibit(dto)));
-      setExhibits(enriched.map((dto) => mapExhibitDtoToRecord(dto, undefined, lang)));
+      setBaseExhibits(enriched.map((dto) => mapExhibitDtoToRecord(dto, undefined, lang)));
     } catch (err: unknown) {
       setExhibition(null);
-      setExhibits([]);
+      setBaseExhibits([]);
       setError(
         err instanceof Error ? err.message : 'Không thể tải chi tiết triển lãm',
       );
@@ -51,6 +53,17 @@ export function useExhibitionDetail(id: string | number | undefined) {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const exhibits = useMemo(() => {
+    return baseExhibits.map((item) => {
+      const resolved =
+        item.categoryId != null
+          ? categoryNameById.get(Number(item.categoryId))
+          : undefined;
+      if (!resolved || resolved === item.category) return item;
+      return { ...item, category: resolved };
+    });
+  }, [baseExhibits, categoryNameById]);
 
   return { exhibition, exhibits, loading, error, refresh };
 }

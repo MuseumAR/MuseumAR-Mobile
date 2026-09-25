@@ -51,6 +51,56 @@ export function secondsLeftUntil(expiresAtMs?: number | null): number {
   return Math.max(0, Math.floor((expiresAtMs - Date.now()) / 1000));
 }
 
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value.trim());
+}
+
+/** True when the string can be shown in an <Image> (EMV→qrserver, data:, or image URL). */
+export function isRenderableQrPayload(value: string | null | undefined): boolean {
+  const raw = (value ?? '').trim();
+  if (!raw) return false;
+  if (raw.startsWith('data:')) return true;
+  if (isHttpUrl(raw)) {
+    // Checkout HTML pages are not QR images (would show a blank box).
+    return (
+      /\.(png|jpe?g|webp|gif|svg)(\?|#|$)/i.test(raw) ||
+      /qrserver\.com|api\.qrserver/i.test(raw)
+    );
+  }
+  // VietQR / EMV text
+  return raw.length >= 8;
+}
+
+/**
+ * Prefer EMV / data / image-QR over PayOS checkout HTTPS links.
+ * Never treat checkoutUrl as the QR payload for Image rendering.
+ */
+export function pickBestQrCode(
+  ...candidates: Array<string | null | undefined>
+): string | null {
+  const list = candidates
+    .map((c) => (typeof c === 'string' ? c.trim() : ''))
+    .filter(Boolean);
+  const emvOrData = list.find((c) => !isHttpUrl(c));
+  if (emvOrData) return emvOrData;
+  const imageHttp = list.find((c) => isRenderableQrPayload(c));
+  if (imageHttp) return imageHttp;
+  return null;
+}
+
+/** Build an <Image> URI from a QR payload (never load PayOS HTML as an image). */
+export function resolveQrImageUri(qrCode: string | null | undefined): string | null {
+  const raw = (qrCode ?? '').trim();
+  if (!raw) return null;
+  if (raw.startsWith('data:')) return raw;
+  if (isHttpUrl(raw)) {
+    if (isRenderableQrPayload(raw)) return raw;
+    // Fallback: encode the payment link as a scannable QR (not as Image src of the page).
+    return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=8&data=${encodeURIComponent(raw)}`;
+  }
+  return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=8&data=${encodeURIComponent(raw)}`;
+}
+
 export function setPaymentCheckoutSession(
   next: PaymentCheckoutSession | null,
 ): void {
@@ -144,4 +194,39 @@ export function pendingFromCheckoutSession(): {
         ? new Date(session.expiresAtMs).toISOString()
         : undefined,
   };
+}
+
+/**
+ * Seed / merge checkout session from a pending-order (or create-order) payload.
+ * Used by My tickets resume and ticket-shop continue — FE keeps QR in client state.
+ */
+export function seedPaymentCheckoutFromPending(
+  pending: {
+    orderCode: string;
+    checkoutUrl?: string | null;
+    qrCode?: string | null;
+    totalAmount?: number | null;
+    amount?: number | null;
+    ticketTypeName?: string | null;
+    quantity?: number | null;
+    expiresAt?: string | null;
+    remainingSeconds?: number | null;
+  },
+  paidBefore?: number,
+): PaymentCheckoutSession {
+  const prev = getPaymentCheckoutSession(pending.orderCode);
+  const expiresAtMs = expiresAtMsFromPending(pending);
+  const next: PaymentCheckoutSession = {
+    orderCode: pending.orderCode.trim(),
+    checkoutUrl: pending.checkoutUrl ?? prev?.checkoutUrl ?? null,
+    // Keep a real VietQR/EMV from create-order; don't overwrite with checkout HTTPS.
+    qrCode: pickBestQrCode(pending.qrCode, prev?.qrCode),
+    amount: pending.totalAmount ?? pending.amount ?? prev?.amount ?? null,
+    ticketTypeName: pending.ticketTypeName ?? prev?.ticketTypeName ?? null,
+    quantity: pending.quantity ?? prev?.quantity ?? null,
+    paidBefore: paidBefore ?? prev?.paidBefore ?? 0,
+    expiresAtMs,
+  };
+  setPaymentCheckoutSession(next);
+  return next;
 }

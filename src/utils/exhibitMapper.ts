@@ -22,6 +22,14 @@ export function pickTranslation(
   return pickLocalizedRow(dto.translations, lang);
 }
 
+function readCategoryId(dto: ExhibitDto): number | undefined {
+  const raw = dto as ExhibitDto & { CategoryId?: unknown };
+  const value = raw.categoryId ?? raw.CategoryId;
+  if (value == null || value === '') return undefined;
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : undefined;
+}
+
 function readTagIds(dto: ExhibitDto): number[] {
   const raw = dto as ExhibitDto & {
     TagIds?: unknown;
@@ -59,6 +67,7 @@ export function mapExhibitDtoToRecord(
   const color = COLOR_PALETTE[dto.id % COLOR_PALETTE.length];
   const description = tr?.description ?? '';
   const meta = dto.exhibitMetadata;
+  const categoryId = readCategoryId(dto);
 
   return {
     id: String(dto.id),
@@ -70,14 +79,14 @@ export function mapExhibitDtoToRecord(
         : (meta?.era ?? ''),
     category:
       categoryName ??
-      (dto.categoryId != null
+      (categoryId != null
         ? lang === 'en'
-          ? `Category ${dto.categoryId}`
-          : `Danh mục ${dto.categoryId}`
+          ? `Category ${categoryId}`
+          : `Danh mục ${categoryId}`
         : lang === 'en'
           ? 'Exhibit'
           : 'Hiện vật'),
-    categoryId: dto.categoryId,
+    categoryId,
     themeId: dto.themeId,
     tagIds: readTagIds(dto),
     origin: '',

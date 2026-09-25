@@ -15,7 +15,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   confirmOrderPayment,
-  countPaidTickets,
 } from '../src/hooks/useTicketing';
 import { useLanguage } from '../src/i18n/LanguageContext';
 import { apiService, PendingOrderDto } from '../src/services/apiService';
@@ -24,6 +23,8 @@ import {
   expiresAtMsFromPending,
   getPaymentCheckoutSession,
   lockPaymentCheckoutSession,
+  pickBestQrCode,
+  resolveQrImageUri,
   secondsLeftUntil,
   setPaymentCheckoutSession,
   unlockPaymentCheckoutSession,
@@ -35,14 +36,6 @@ function formatCountdown(totalSeconds: number): string {
   const m = Math.floor(s / 60);
   const r = s % 60;
   return `${m}:${String(r).padStart(2, '0')}`;
-}
-
-/** PayOS returns VietQR EMV string; render via public QR image API (no native QR dep). */
-function resolveQrImageUri(qrCode: string | null | undefined): string | null {
-  const raw = (qrCode ?? '').trim();
-  if (!raw) return null;
-  if (raw.startsWith('data:') || /^https?:\/\//i.test(raw)) return raw;
-  return `https://api.qrserver.com/v1/create-qr-code/?size=280x280&margin=8&data=${encodeURIComponent(raw)}`;
 }
 
 function paramOne(v: string | string[] | undefined): string {
@@ -103,12 +96,19 @@ export default function PaymentCheckoutScreen() {
   orderCodeRef.current = orderCode;
 
   const locale = lang === 'en' ? 'en-US' : 'vi-VN';
-  const qrUri = useMemo(() => resolveQrImageUri(qrCode), [qrCode]);
+  // Prefer VietQR/EMV; if missing on resume, QR-encode checkoutUrl so the box is not blank.
+  const qrUri = useMemo(() => {
+    const best = pickBestQrCode(qrCode);
+    if (best) return resolveQrImageUri(best);
+    return resolveQrImageUri(checkoutUrl);
+  }, [qrCode, checkoutUrl]);
 
   const applyPending = useCallback((pending: PendingOrderDto) => {
     setOrderCode(pending.orderCode);
     if (pending.checkoutUrl) setCheckoutUrl(pending.checkoutUrl);
-    if (pending.qrCode) setQrCode(pending.qrCode);
+    const prev = getPaymentCheckoutSession(pending.orderCode);
+    const bestQr = pickBestQrCode(pending.qrCode, prev?.qrCode);
+    if (bestQr) setQrCode(bestQr);
     if (pending.ticketTypeName) setTicketTypeName(pending.ticketTypeName);
     if (pending.quantity != null) setQuantity(pending.quantity);
     if (pending.totalAmount != null) setAmount(Number(pending.totalAmount));
@@ -116,8 +116,8 @@ export default function PaymentCheckoutScreen() {
     setSecondsLeft(secondsLeftUntil(expiresAtMs));
     setPaymentCheckoutSession({
       orderCode: pending.orderCode,
-      checkoutUrl: pending.checkoutUrl,
-      qrCode: pending.qrCode,
+      checkoutUrl: pending.checkoutUrl ?? prev?.checkoutUrl ?? null,
+      qrCode: bestQr,
       amount: pending.totalAmount,
       ticketTypeName: pending.ticketTypeName,
       quantity: pending.quantity,
@@ -140,14 +140,12 @@ export default function PaymentCheckoutScreen() {
   }, [applyPending, lang]);
 
   const goResult = useCallback(
-    (status: 'success' | 'cancel' | 'pending') => {
+    (status: 'success' | 'cancel') => {
       if (navigatingRef.current) return;
       navigatingRef.current = true;
       const code = orderCodeRef.current;
       unlockPaymentCheckoutSession(code);
-      if (status === 'success' || status === 'cancel') {
-        clearPaymentCheckoutSession(code);
-      }
+      clearPaymentCheckoutSession(code);
       router.replace({
         pathname: '/payment-result',
         params: {
@@ -161,23 +159,27 @@ export default function PaymentCheckoutScreen() {
     [checkoutUrl, paidBefore, router],
   );
 
+  /** FE-style: close unpaid keeps session and returns to My tickets (no pending-result loop). */
+  const dismissUnpaid = useCallback(() => {
+    if (navigatingRef.current) return;
+    navigatingRef.current = true;
+    const code = orderCodeRef.current;
+    unlockPaymentCheckoutSession(code);
+    // Keep session so resume can reopen the same QR / countdown.
+    router.replace('/my-tickets');
+  }, [router]);
+
   const probePaid = useCallback(async (): Promise<'paid' | 'cancel' | 'pending'> => {
     const code = orderCodeRef.current;
     if (!code) return 'pending';
+    // Trust only this order's check-status. Do NOT use "paid ticket count increased"
+    // — that false-positives when the user already has other Paid tickets and sends
+    // resume into payment-result "Checking…" forever.
     const status = await confirmOrderPayment(code);
     if (status.isPaid) return 'paid';
     if (status.isCancelled) return 'cancel';
-    // Fallback: webhook may mark tickets Paid even if check-status lags.
-    if (paidBefore >= 0) {
-      try {
-        const list = (await apiService.getMyTickets(lang)).data ?? [];
-        if (countPaidTickets(list) > paidBefore) return 'paid';
-      } catch {
-        // ignore
-      }
-    }
     return 'pending';
-  }, [lang, paidBefore]);
+  }, []);
 
   // Lock so other screens do not regenerate the PayOS link mid-payment.
   useEffect(() => {
@@ -206,49 +208,35 @@ export default function PaymentCheckoutScreen() {
             return;
           }
         }
+
+        const cached = getPaymentCheckoutSession(initialOrderCode);
         const hasQr = Boolean(
-          (qrCode || getPaymentCheckoutSession(initialOrderCode)?.qrCode || '').trim(),
+          (qrCode || cached?.qrCode || '').trim() ||
+            (checkoutUrl || cached?.checkoutUrl || '').trim(),
         );
-        // Only regenerate PayOS link when we truly have no QR (resume path).
-        if (!hasQr) {
-          unlockPaymentCheckoutSession(initialOrderCode);
-          await refreshPending();
+
+        if (hasQr) {
+          // Already have PayOS payload — never call pending-order (can break check-status).
+          const bestQr = pickBestQrCode(qrCode, cached?.qrCode);
+          if (bestQr && bestQr !== qrCode) setQrCode(bestQr);
+          if (cached?.checkoutUrl && !checkoutUrl) {
+            setCheckoutUrl(cached.checkoutUrl);
+          }
+          if (cached?.ticketTypeName && !ticketTypeName) {
+            setTicketTypeName(cached.ticketTypeName);
+          }
+          if (cached?.amount != null && !amount) setAmount(Number(cached.amount));
+          if (cached?.quantity != null) setQuantity(cached.quantity);
+          setSecondsLeft(secondsLeftUntil(cached?.expiresAtMs));
           if (initialOrderCode || orderCodeRef.current) {
             lockPaymentCheckoutSession(initialOrderCode || orderCodeRef.current);
           }
         } else {
-          const cached = getPaymentCheckoutSession(initialOrderCode);
-          if (cached?.qrCode && !qrCode) setQrCode(cached.qrCode);
-          if (cached?.checkoutUrl && !checkoutUrl) {
-            setCheckoutUrl(cached.checkoutUrl);
-          }
-          // Continue the same payment window — never reset to a fresh 15:00.
-          setSecondsLeft(secondsLeftUntil(cached?.expiresAtMs));
-          // Soft-sync expiry from BE without regenerating QR when URL already exists.
+          // Cold resume with no session QR — fetch once.
           unlockPaymentCheckoutSession(initialOrderCode);
-          try {
-            const res = await apiService.getPendingOrder(lang);
-            if (!cancelled && res.data) {
-              const expiresAtMs = expiresAtMsFromPending(res.data);
-              setSecondsLeft(secondsLeftUntil(expiresAtMs));
-              setPaymentCheckoutSession({
-                orderCode: res.data.orderCode,
-                checkoutUrl: res.data.checkoutUrl || cached?.checkoutUrl,
-                qrCode: cached?.qrCode || res.data.qrCode,
-                amount: res.data.totalAmount ?? cached?.amount,
-                ticketTypeName: res.data.ticketTypeName ?? cached?.ticketTypeName,
-                quantity: res.data.quantity ?? cached?.quantity,
-                paidBefore,
-                expiresAtMs,
-              });
-              if (res.data.checkoutUrl) setCheckoutUrl(res.data.checkoutUrl);
-            }
-          } catch {
-            // keep cached countdown
-          } finally {
-            if (initialOrderCode || orderCodeRef.current) {
-              lockPaymentCheckoutSession(initialOrderCode || orderCodeRef.current);
-            }
+          await refreshPending();
+          if (initialOrderCode || orderCodeRef.current) {
+            lockPaymentCheckoutSession(initialOrderCode || orderCodeRef.current);
           }
         }
       } finally {
@@ -341,7 +329,7 @@ export default function PaymentCheckoutScreen() {
         setBusy(false);
       }
     }
-    goResult('pending');
+    dismissUnpaid();
   };
 
   const handleCancelOrder = () => {

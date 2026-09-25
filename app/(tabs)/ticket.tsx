@@ -20,7 +20,7 @@ import {
   TicketTypeDto,
   unitPriceWithPromotion,
 } from '../../src/services/apiService';
-import { setPaymentCheckoutSession, lockPaymentCheckoutSession } from '../../src/services/paymentCheckoutSession';
+import { setPaymentCheckoutSession, lockPaymentCheckoutSession, seedPaymentCheckoutFromPending } from '../../src/services/paymentCheckoutSession';
 import { getSession } from '../../src/services/sessionStorage';
 import { C } from '../../src/theme/colors';
 import {
@@ -319,17 +319,31 @@ export default function TicketScreen() {
       return;
     }
 
+    if (!isExhibitionTicket(selectedType) && !selectedDate) {
+      Alert.alert(t('ticket.visitDate'), t('ticket.selectTypeHint'));
+      return;
+    }
+
+    if (isExhibitionTicket(selectedType) && !dateBounds) {
+      Alert.alert(t('ticket.title'), t('ticket.dateUnavailable'));
+      return;
+    }
+
     // Newest BE: only one pending order (<15 min). Guide user instead of silent reuse.
     if (pending?.checkoutUrl || pending?.orderCode) {
       Alert.alert(t('ticket.statusPending'), t('ticket.pendingExists'), [
         { text: t('common.cancel'), style: 'cancel' },
         {
           text: t('ticket.continuePayment'),
-          onPress: () =>
-            router.push({
+          onPress: () => {
+            if (pending?.orderCode) {
+              seedPaymentCheckoutFromPending(pending);
+            }
+            router.replace({
               pathname: '/payment-checkout',
-              params: { orderCode: pending.orderCode ?? '' },
-            }),
+              params: { orderCode: pending?.orderCode ?? '' },
+            });
+          },
         },
         {
           text: t('ticket.myTickets'),
@@ -343,6 +357,8 @@ export default function TicketScreen() {
       ticketTypeId: selectedType.id,
       quantity,
       promotionId: isGroup ? null : selectedPromoId,
+      // FE/BE: visitDate only for standard tickets; exhibition uses EndDate as ValidDate.
+      visitDate: isExhibitionTicket(selectedType) ? null : selectedDate,
     });
 
     if (result.ok) {
@@ -572,8 +588,10 @@ export default function TicketScreen() {
                   ]}
                   onPress={() => setSelectedPromoId(null)}
                 >
-                  <Text style={styles.promoName}>{t('ticket.promoNone')}</Text>
-                  <Text style={styles.promoMeta}>{t('ticket.promoNoneHint')}</Text>
+                  <View style={{ flex: 1, paddingRight: 8 }}>
+                    <Text style={styles.promoName}>{t('ticket.promoNone')}</Text>
+                    <Text style={styles.promoMeta}>{t('ticket.promoNoneHint')}</Text>
+                  </View>
                 </TouchableOpacity>
                 {promos.map((promo) => {
                   const discountText =
@@ -757,9 +775,13 @@ export default function TicketScreen() {
         </View>
 
         <TouchableOpacity
-          style={[styles.buyBtn, (submitting || !selectedType || isOffline) && styles.buyBtnDisabled]}
+          style={[
+            styles.buyBtn,
+            (submitting || !selectedType || isOffline || !dateBounds) &&
+              styles.buyBtnDisabled,
+          ]}
           onPress={handleConfirm}
-          disabled={submitting || !selectedType || isOffline}
+          disabled={submitting || !selectedType || isOffline || !dateBounds}
         >
           {submitting ? (
             <ActivityIndicator color={C.onAccent} size="small" />
@@ -939,7 +961,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.danger + '10',
   },
   promoName: { fontSize: 14, fontWeight: '700', color: C.textPrimary },
-  promoMeta: { fontSize: 12, color: C.textMuted, marginTop: 2 },
+  promoMeta: { fontSize: 12, color: C.textMuted, marginTop: 4, lineHeight: 16 },
   promoDiscount: { fontSize: 14, fontWeight: '800', color: C.danger },
 
   quantityRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },

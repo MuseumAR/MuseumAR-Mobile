@@ -74,6 +74,7 @@ function generateInstructions(
 
     if (w1.floorNumber !== w2.floorNumber) {
       const action = w2.floorNumber > w1.floorNumber ? 'STAIR_UP' : 'STAIR_DOWN';
+      const goingUp = action === 'STAIR_UP';
       const actionText =
         w2.waypointType === 'ELEVATOR'
           ? en
@@ -81,12 +82,18 @@ function generateInstructions(
             : 'Đi thang máy'
           : en
             ? 'Take the stairs'
-            : 'Đi cầu thang';
+            : 'Đi cầu thang bộ';
       const floorWord = en ? 'Floor' : 'Tầng';
-      const toWord = en ? 'to' : 'lên';
+      const dirText = en
+        ? goingUp
+          ? 'up to'
+          : 'down to'
+        : goingUp
+          ? 'lên'
+          : 'xuống';
       instructions.push({
         stepIndex: stepIndex++,
-        instruction: `${actionText} ${toWord} ${floorWord} ${w2.floorNumber}`,
+        instruction: `${actionText} ${dirText} ${floorWord} ${w2.floorNumber}`,
         action,
         distance: 1,
         floorNumber: w2.floorNumber,

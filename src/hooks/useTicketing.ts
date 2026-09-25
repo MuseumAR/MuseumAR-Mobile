@@ -19,6 +19,7 @@ import {
   getPaymentCheckoutSession,
   isPaymentCheckoutLocked,
   pendingFromCheckoutSession,
+  pickBestQrCode,
   setPaymentCheckoutSession,
 } from '../services/paymentCheckoutSession';
 import { getToken } from '../services/tokenStorage';
@@ -288,14 +289,15 @@ export function usePendingOrder() {
         if (status.isPaid || status.isCancelled) {
           next = null;
         } else if (!isPaymentCheckoutLocked(next.orderCode)) {
+          const prev = getPaymentCheckoutSession(next.orderCode);
           setPaymentCheckoutSession({
             orderCode: next.orderCode,
-            checkoutUrl: next.checkoutUrl,
-            qrCode: next.qrCode,
+            checkoutUrl: next.checkoutUrl ?? prev?.checkoutUrl ?? null,
+            qrCode: pickBestQrCode(next.qrCode, prev?.qrCode),
             amount: next.totalAmount,
             ticketTypeName: next.ticketTypeName,
             quantity: next.quantity,
-            paidBefore: getPaymentCheckoutSession(next.orderCode)?.paidBefore,
+            paidBefore: prev?.paidBefore,
             expiresAtMs: expiresAtMsFromPending(next),
           });
         }

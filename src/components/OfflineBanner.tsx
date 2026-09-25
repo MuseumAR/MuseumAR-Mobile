@@ -1,23 +1,28 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOfflineCapability } from '../hooks/useOfflineCapability';
 import { useLanguage } from '../i18n/LanguageContext';
 import { C } from '../theme/colors';
+
+const BANNER_BODY_HEIGHT = 40;
 
 export function OfflineBanner() {
   const { isOffline, guestOfflineReady, signedInOffline, guestOfflineNoPack } =
     useOfflineCapability();
   const { t } = useLanguage();
-  const translateY = useRef(new Animated.Value(-60)).current;
+  const insets = useSafeAreaInsets();
+  const translateY = useRef(new Animated.Value(-(BANNER_BODY_HEIGHT + 80))).current;
 
   useEffect(() => {
+    const hiddenOffset = -(BANNER_BODY_HEIGHT + insets.top + 24);
     Animated.timing(translateY, {
-      toValue: isOffline ? 0 : -60,
+      toValue: isOffline ? 0 : hiddenOffset,
       duration: 300,
       useNativeDriver: true,
     }).start();
-  }, [isOffline, translateY]);
+  }, [isOffline, insets.top, translateY]);
 
   if (isOffline === null || isOffline === false) return null;
 
@@ -30,7 +35,16 @@ export function OfflineBanner() {
         : t('common.offline');
 
   return (
-    <Animated.View style={[styles.banner, { transform: [{ translateY }] }]}>
+    <Animated.View
+      style={[
+        styles.banner,
+        {
+          top: insets.top,
+          paddingTop: 8,
+          transform: [{ translateY }],
+        },
+      ]}
+    >
       <MaterialCommunityIcons name="wifi-off" size={16} color={C.danger} />
       <Text style={styles.text}>{message}</Text>
     </Animated.View>
@@ -40,7 +54,6 @@ export function OfflineBanner() {
 const styles = StyleSheet.create({
   banner: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
     zIndex: 999,
@@ -50,7 +63,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingBottom: 8,
     paddingHorizontal: 16,
     gap: 8,
   },

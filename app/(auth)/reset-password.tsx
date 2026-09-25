@@ -82,7 +82,7 @@ export default function ResetPasswordScreen() {
   const handleSubmit = useCallback(async () => {
     clearMessages();
     const otpTrim = otp.trim();
-    if (!otpTrim || otpTrim.length < 6) {
+    if (!otpTrim || !/^\d{6}$/.test(otpTrim)) {
       setFieldError(t('auth.changePasswordOtpInvalid'));
       return;
     }
@@ -98,7 +98,7 @@ export default function ResetPasswordScreen() {
 
     setSubmitting(true);
     try {
-      const res = await apiService.resetPassword(otpTrim, newPassword);
+      const res = await apiService.resetPassword(otpTrim, newPassword, email);
       setInfo(res.message || t('auth.resetSuccess'));
       setTimeout(() => {
         router.replace('/(auth)/login');
@@ -108,7 +108,7 @@ export default function ResetPasswordScreen() {
     } finally {
       setSubmitting(false);
     }
-  }, [confirmPassword, newPassword, otp, router, t]);
+  }, [confirmPassword, email, newPassword, otp, router, t]);
 
   if (!email) {
     return (
@@ -167,10 +167,11 @@ export default function ResetPasswordScreen() {
               placeholderTextColor="#9CA3AF"
               value={otp}
               onChangeText={(text) => {
-                setOtp(text.trim());
+                setOtp(text.replace(/\D/g, '').slice(0, 6));
                 clearMessages();
               }}
               keyboardType="number-pad"
+              maxLength={6}
               autoCapitalize="none"
               autoCorrect={false}
             />

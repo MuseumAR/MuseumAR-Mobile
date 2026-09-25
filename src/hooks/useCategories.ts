@@ -36,13 +36,31 @@ function pickCategoryName(
   raw: CategoryDto,
   lang: AppLanguage | string = 'vi',
 ): string | null {
+  const extended = raw as CategoryDto & {
+    CategoryTranslations?: Array<Record<string, unknown>>;
+    Name?: unknown;
+  };
+  const rawTranslations = Array.isArray(raw.categoryTranslations)
+    ? raw.categoryTranslations
+    : Array.isArray(extended.CategoryTranslations)
+      ? extended.CategoryTranslations
+      : [];
+  const translations = rawTranslations.map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      categoryId: asId(r.categoryId) ?? asId(r.CategoryId) ?? undefined,
+      languageCode: String(r.languageCode ?? r.LanguageCode ?? '').trim(),
+      categoryName: String(r.categoryName ?? r.CategoryName ?? '').trim(),
+      description: String(r.description ?? r.Description ?? '').trim() || undefined,
+    };
+  });
   const fromTr = pickLocalizedField(
-    raw.categoryTranslations,
+    translations,
     lang,
     'categoryName',
     raw.name,
   );
-  return toLabel(fromTr) ?? toLabel(raw.name);
+  return toLabel(fromTr) ?? toLabel(raw.name) ?? toLabel(extended.Name);
 }
 
 function normalizeCategory(

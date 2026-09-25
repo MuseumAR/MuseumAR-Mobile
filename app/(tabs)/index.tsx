@@ -24,7 +24,7 @@ export default function HomeScreen() {
   const { featured: featuredExhibitions, exhibitions } = useExhibitions(
     museumId > 0 ? museumId : null,
   );
-  const { categories, themes } = useCategories();
+  const { categories, themes, categoryNameById } = useCategories();
 
   const quickActions = [
     { label: t('home.quickTicket'), icon: 'ticket-outline' as const, route: '/(tabs)/ticket' as const },
@@ -54,6 +54,12 @@ export default function HomeScreen() {
       })),
     [themes],
   );
+
+  const themeNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    themes.forEach((theme) => map.set(theme.id, theme.name));
+    return map;
+  }, [themes]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -197,6 +203,10 @@ export default function HomeScreen() {
           ) : (
             featuredExhibitions.map((item) => {
               const dates = formatExhibitionDates(item, lang);
+              const themeName =
+                item.themeId != null
+                  ? themeNameById.get(Number(item.themeId))
+                  : undefined;
               return (
                 <TouchableOpacity
                   key={item.id}
@@ -216,7 +226,9 @@ export default function HomeScreen() {
                     )}
                   </View>
                   <View style={styles.artifactInfo}>
-                    <Text style={styles.artifactCategory}>{t('content.exhibition')}</Text>
+                    <Text style={styles.artifactCategory}>
+                      {themeName || t('content.exhibition')}
+                    </Text>
                     <Text style={styles.artifactTitle} numberOfLines={1}>
                       {item.name || `Exhibition #${item.id}`}
                     </Text>
@@ -243,7 +255,12 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {featuredExhibits.map((item) => (
+          {featuredExhibits.map((item) => {
+            const categoryName =
+              item.categoryId != null
+                ? categoryNameById.get(Number(item.categoryId))
+                : undefined;
+            return (
             <TouchableOpacity
               key={item.id}
               style={styles.artifactRow}
@@ -263,7 +280,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.artifactInfo}>
-                <Text style={styles.artifactCategory}>{item.category}</Text>
+                <Text style={styles.artifactCategory}>
+                  {categoryName || item.category}
+                </Text>
                 <Text style={styles.artifactTitle} numberOfLines={1}>{item.title}</Text>
                 <Text style={styles.artifactEra}>{item.era}</Text>
               </View>
@@ -277,7 +296,8 @@ export default function HomeScreen() {
                 <MaterialCommunityIcons name="chevron-right" size={18} color={C.textMuted} />
               </View>
             </TouchableOpacity>
-          ))}
+            );
+          })}
         </View>
 
         {/* ── Explore by Category ────────────────────────────────────────── */}

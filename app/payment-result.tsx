@@ -17,6 +17,10 @@ import {
 } from '../src/hooks/useTicketing';
 import { useLanguage } from '../src/i18n/LanguageContext';
 import { apiService, MyTicketDto } from '../src/services/apiService';
+import {
+  getPaymentCheckoutSession,
+  seedPaymentCheckoutFromPending,
+} from '../src/services/paymentCheckoutSession';
 import { C } from '../src/theme/colors';
 
 type UiStatus = 'checking' | 'paid' | 'pending' | 'cancel';
@@ -134,8 +138,31 @@ export default function PaymentResultScreen() {
       setHintKey('payment.checkingHint');
 
       if (orderCodeParam) {
-        // Poll this order specifically (updates BE Pending → Completed).
-        for (let i = 0; i < 12; i += 1) {
+        // Quick first check — if still unpaid after a "success" deep-link, bail to My tickets.
+        const first = await confirmOrderPayment(orderCodeParam);
+        if (cancelled) return;
+        if (first.isPaid) {
+          const list = (await apiService.getMyTickets()).data ?? [];
+          if (cancelled) return;
+          setTickets(list);
+          setUiStatus('paid');
+          setHintKey('payment.successHint');
+          return;
+        }
+        if (first.isCancelled) {
+          setUiStatus('cancel');
+          setHintKey('payment.cancelOrExpiredHint');
+          return;
+        }
+        if (statusParam === 'success' || statusParam === 'paid') {
+          // Not actually paid — don't sit on Checking…; let user resume QR from My tickets.
+          router.replace('/my-tickets');
+          return;
+        }
+
+        // Unknown / return-URL verify: short poll for webhook lag.
+        for (let i = 0; i < 8; i += 1) {
+          await new Promise((r) => setTimeout(r, 1500));
           const status = await confirmOrderPayment(orderCodeParam);
           if (cancelled) return;
           if (status.isPaid) {
@@ -150,9 +177,6 @@ export default function PaymentResultScreen() {
             setUiStatus('cancel');
             setHintKey('payment.cancelOrExpiredHint');
             return;
-          }
-          if (i < 11) {
-            await new Promise((r) => setTimeout(r, 1500));
           }
         }
       } else {
@@ -172,6 +196,11 @@ export default function PaymentResultScreen() {
       }
 
       if (cancelled) return;
+      // Still unpaid after "success" verify — don't trap user on Checking/Pending result.
+      if (statusParam === 'success' || statusParam === 'paid') {
+        router.replace('/my-tickets');
+        return;
+      }
       setUiStatus('pending');
       setHintKey('payment.notConfirmed');
       const resume = await resolveResumeCheckout(orderCodeParam || undefined);
@@ -188,7 +217,7 @@ export default function PaymentResultScreen() {
     return () => {
       cancelled = true;
     };
-  }, [statusParam, paidBefore, orderCodeParam]);
+  }, [statusParam, paidBefore, orderCodeParam, router]);
 
   // Poll Payment/check-status while pending (matches WebBE 15-min window + webhook lag).
   useEffect(() => {
@@ -225,14 +254,43 @@ export default function PaymentResultScreen() {
     };
   }, [uiStatus, orderCode, orderCodeParam]);
 
-  const handleResume = () => {
+  const handleResume = async () => {
     const code = orderCode || orderCodeParam;
     if (!code) return;
-    router.push({
+
+    // Prefer cached session; if missing, fetch pending once then open checkout.
+    let cached = getPaymentCheckoutSession(code);
+    if (!cached?.qrCode && !cached?.checkoutUrl) {
+      try {
+        const res = await apiService.getPendingOrder();
+        if (res.data?.orderCode) {
+          cached = seedPaymentCheckoutFromPending(res.data, paidBefore);
+        }
+      } catch {
+        // open checkout anyway — screen will cold-fetch if needed
+      }
+    } else if (cached) {
+      seedPaymentCheckoutFromPending(
+        {
+          orderCode: cached.orderCode,
+          checkoutUrl: cached.checkoutUrl,
+          qrCode: cached.qrCode,
+          totalAmount: cached.amount,
+          ticketTypeName: cached.ticketTypeName,
+          quantity: cached.quantity,
+          expiresAt:
+            cached.expiresAtMs != null
+              ? new Date(cached.expiresAtMs).toISOString()
+              : undefined,
+        },
+        paidBefore,
+      );
+    }
+
+    router.replace({
       pathname: '/payment-checkout',
       params: {
         orderCode: code,
-        checkoutUrl: checkoutUrl || '',
         paidBefore: String(paidBefore),
       },
     });
@@ -295,7 +353,10 @@ export default function PaymentResultScreen() {
 
         <View style={styles.actions}>
           {canResume ? (
-            <TouchableOpacity style={styles.primaryBtn} onPress={handleResume}>
+            <TouchableOpacity
+              style={styles.primaryBtn}
+              onPress={() => void handleResume()}
+            >
               <Text style={styles.primaryText}>{t('payment.resume')}</Text>
             </TouchableOpacity>
           ) : null}

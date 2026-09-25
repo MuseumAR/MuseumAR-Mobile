@@ -165,10 +165,12 @@ const vi: Dict = {
     'Hiển thị gói bảo tàng mới nhất và gói mới nhất của từng triển lãm (nếu có).',
   'packs.scopeMuseum': 'Gói bảo tàng',
   'packs.scopeExhibition': 'Gói triển lãm',
-  'packs.byTicketAction': 'Tải gói offline theo vé',
+  'packs.byTicketAction': 'Gói offline theo vé',
   'packs.byTicketLoading': 'Đang tìm gói…',
   'packs.byTicketFail': 'Không tìm thấy gói offline cho vé này (triển lãm có thể đã kết thúc).',
   'packs.byTicketSuccess': 'Đã bắt đầu tải gói offline phù hợp với vé.',
+  'packs.byTicketModalTitle': 'Gói offline của vé',
+  'packs.byTicketModalHint': 'Chỉ hiển thị gói khớp với vé này. Tải để dùng AR offline.',
 
   'visited.countOne': 'hiện vật đã xem',
   'visited.countMany': 'hiện vật đã xem',
@@ -229,12 +231,14 @@ const vi: Dict = {
   'scan.start': 'Bật camera quét QR',
   'scan.stop': 'Tắt camera',
   'scan.tip':
-    'Mẹo: Đủ ánh sáng, giữ máy ổn định. Quét QR hiện vật (MUSEUM_EX_…) để xem chi tiết.',
+    'Mẹo: Đủ ánh sáng, giữ máy ổn định. Quét QR hiện vật để xem chi tiết.',
   'scan.invalidQr': 'Mã QR không hợp lệ',
   'scan.rescan': 'Quét lại',
   'scan.resolving': 'Đang tìm hiện vật…',
   'scan.pointCamera': 'Hướng camera vào mã QR',
   'scan.offlineBlocked': 'Không quét được khi offline',
+  'scan.offlineBlockedHint':
+    'Quét QR cần kết nối mạng để xác thực hiện vật với máy chủ. Bật mạng rồi thử lại.',
 
   // Museum about / detail
   'museum.about': 'GIỚI THIỆU',
@@ -329,6 +333,12 @@ const vi: Dict = {
   'nav.destination': 'Điểm đến',
   'nav.unknownHere': 'Chưa xác định',
   'nav.located': 'Đã định vị',
+  'nav.continueToFloor': 'Tiếp tục lên tầng {floor}',
+  'nav.backToOriginFloor': 'Quay lại tầng {floor}',
+  'nav.phaseOriginHint': 'Đi tới cầu thang / thang máy trên tầng này.',
+  'nav.phaseContinueHint': 'Tiếp tục trên tầng này tới phòng đích.',
+  'nav.floorsAlongPath': 'Đường đi qua {count} tầng: {floors}',
+  'nav.floorChip': 'Tầng {floor}',
 
   // Tickets
   'ticket.title': 'Đặt vé',
@@ -351,7 +361,7 @@ const vi: Dict = {
   'ticket.expiredHint': 'Đã hết hạn thanh toán',
   'ticket.cancelOrder': 'Huỷ đơn',
   'ticket.cancelOrderThis': 'Huỷ đơn hàng này',
-  'ticket.cancelOrderConfirm': 'Huỷ đơn chờ thanh toán này? Vé Pending sẽ bị Cancelled.',
+  'ticket.cancelOrderConfirm': 'Huỷ đơn chờ thanh toán này? Vé đang chờ sẽ bị huỷ.',
   'ticket.cancelOrderFail': 'Không huỷ được đơn. Thử lại sau.',
   'ticket.viewDetail': 'Chi tiết',
   'ticket.orderCode': 'Mã đơn',
@@ -481,14 +491,14 @@ const vi: Dict = {
   'payment.pending': 'Chờ thanh toán',
   'payment.checking': 'Đang kiểm tra…',
   'payment.successHint': 'Thanh toán thành công — vé đã sẵn sàng.',
-  'payment.cancelHint': 'Bạn đã huỷ thanh toán. Vé được đánh dấu Cancelled.',
+  'payment.cancelHint': 'Bạn đã huỷ thanh toán. Vé được đánh dấu đã huỷ.',
   'payment.pendingHint':
-    'Bạn đã đóng PayOS chưa thanh toán. Vé vẫn Pending — có thể mở lại PayOS hoặc xem Vé của tôi.',
-  'payment.expiredHint': 'Link PayOS đã hết hạn. Vé đã được huỷ (Cancelled).',
+    'Bạn đã đóng PayOS chưa thanh toán. Vé vẫn đang chờ — có thể mở lại PayOS hoặc xem Vé của tôi.',
+  'payment.expiredHint': 'Link PayOS đã hết hạn. Vé đã được huỷ.',
   'payment.checkingHint': 'Đang kiểm tra vé đã thanh toán…',
   'payment.waitingConfirm': 'Đang chờ xác nhận thanh toán…',
   'payment.notConfirmed':
-    'Chưa xác nhận Paid. Bạn có thể mở lại PayOS hoặc kiểm tra Vé của tôi sau vài giây.',
+    'Chưa xác nhận đã thanh toán. Bạn có thể mở lại PayOS hoặc kiểm tra Vé của tôi sau vài giây.',
   'payment.stillPending': 'Vẫn chưa thanh toán. Bạn có thể mở lại PayOS hoặc vào Vé của tôi.',
   'payment.myTickets': 'Vé của tôi',
   'payment.resume': 'Trở lại thanh toán',
@@ -530,7 +540,7 @@ const vi: Dict = {
   'exhibit.error': 'Lỗi',
   'exhibit.goToRoom': 'Đi tới phòng khác',
   'exhibit.goToRoomHint':
-    'Chọn phòng đích. Bản đồ tầng hiện tại hiện đường đi từ phòng bạn đang đứng tới phòng đó.',
+    'Chọn phòng đích. Khác tầng: tới cầu thang → Tiếp tục lên tầng đó để xem bản đồ và chỉ đường còn lại.',
   'exhibit.scanToLocate': 'Quét QR để định vị',
   'exhibit.noOtherRooms': 'Chưa có phòng khác trong bảo tàng này.',
   'exhibit.notFoundGuide': 'Không tìm thấy thuyết minh',
@@ -723,11 +733,14 @@ const en: Dict = {
     'Shows the newest museum pack and the newest pack per exhibition (when available).',
   'packs.scopeMuseum': 'Museum pack',
   'packs.scopeExhibition': 'Exhibition pack',
-  'packs.byTicketAction': 'Download offline pack for this ticket',
+  'packs.byTicketAction': 'Offline pack for this ticket',
   'packs.byTicketLoading': 'Looking up pack…',
   'packs.byTicketFail':
     'No offline pack for this ticket (the exhibition may have ended).',
   'packs.byTicketSuccess': 'Started downloading the pack for this ticket.',
+  'packs.byTicketModalTitle': 'Ticket offline pack',
+  'packs.byTicketModalHint':
+    'Shows only the pack matched to this ticket. Download to use AR offline.',
 
   'visited.countOne': 'exhibit viewed',
   'visited.countMany': 'exhibits viewed',
@@ -785,12 +798,14 @@ const en: Dict = {
   'scan.start': 'Turn on camera',
   'scan.stop': 'Turn off camera',
   'scan.tip':
-    'Tip: Good lighting, hold steady. Scan exhibit QR (MUSEUM_EX_…) to open details.',
+    'Tip: Good lighting, hold steady. Scan exhibit QR to open details.',
   'scan.invalidQr': 'Invalid QR code',
   'scan.rescan': 'Scan again',
   'scan.resolving': 'Looking up exhibit…',
   'scan.pointCamera': 'Point camera at the QR code',
   'scan.offlineBlocked': 'Scanning is not available offline',
+  'scan.offlineBlockedHint':
+    'QR scanning needs a network connection to verify the exhibit with the server. Go online and try again.',
 
   'museum.about': 'ABOUT',
   'museum.title': 'Museum',
@@ -882,6 +897,12 @@ const en: Dict = {
   'nav.destination': 'Destination',
   'nav.unknownHere': 'Not set',
   'nav.located': 'Located',
+  'nav.continueToFloor': 'Continue to Floor {floor}',
+  'nav.backToOriginFloor': 'Back to Floor {floor}',
+  'nav.phaseOriginHint': 'Walk to the stairs / elevator on this floor.',
+  'nav.phaseContinueHint': 'Continue on this floor to the destination room.',
+  'nav.floorsAlongPath': 'Route spans {count} floors: {floors}',
+  'nav.floorChip': 'Floor {floor}',
 
   'ticket.title': 'Buy tickets',
   'ticket.selectType': 'Select ticket type',
@@ -1032,14 +1053,14 @@ const en: Dict = {
   'payment.pending': 'Payment pending',
   'payment.checking': 'Checking…',
   'payment.successHint': 'Payment successful — your tickets are ready.',
-  'payment.cancelHint': 'You cancelled payment. The ticket is marked Cancelled.',
+  'payment.cancelHint': 'You cancelled payment. The ticket is marked cancelled.',
   'payment.pendingHint':
-    'You closed PayOS without paying. Ticket stays Pending — reopen PayOS or view My tickets.',
+    'You closed PayOS without paying. The ticket is still awaiting payment — reopen PayOS or view My tickets.',
   'payment.expiredHint': 'PayOS link expired. Ticket was cancelled.',
   'payment.checkingHint': 'Checking paid tickets…',
   'payment.waitingConfirm': 'Waiting for payment confirmation…',
   'payment.notConfirmed':
-    'Not confirmed as Paid yet. Reopen PayOS or check My tickets in a few seconds.',
+    'Payment not confirmed yet. Reopen PayOS or check My tickets in a few seconds.',
   'payment.stillPending': 'Still unpaid. Reopen PayOS or go to My tickets.',
   'payment.myTickets': 'My tickets',
   'payment.resume': 'Return to payment',
@@ -1080,7 +1101,7 @@ const en: Dict = {
   'exhibit.error': 'Error',
   'exhibit.goToRoom': 'Go to another room',
   'exhibit.goToRoomHint':
-    'Pick a destination room. The current floor map then shows the path from where you are to that room.',
+    'Pick a destination room. Other floor: walk to the stairs → Continue to see that floor’s map and remaining directions.',
   'exhibit.scanToLocate': 'Scan QR to locate',
   'exhibit.noOtherRooms': 'No other rooms in this museum yet.',
   'exhibit.notFoundGuide': 'Audio guide not found',

@@ -20,6 +20,7 @@ import { apiService, MyTicketDto, PendingOrderDto } from '../../src/services/api
 import {
   expiresAtMsFromPending,
   secondsLeftUntil,
+  seedPaymentCheckoutFromPending,
 } from '../../src/services/paymentCheckoutSession';
 import { C } from '../../src/theme/colors';
 import { formatVisitorDate } from '../../src/utils/visitorLists';
@@ -253,13 +254,12 @@ export default function MyTicketsScreen() {
     const paidBefore = tickets.filter(
       (item) => (item.status ?? '').toLowerCase() === 'paid',
     ).length;
-    // Re-check before opening QR — clears the loop when order is already paid.
     setBusy(true);
     try {
       const status = await apiService.checkPayment(pending.orderCode);
       if (status.data?.isPaid) {
         await refreshAll();
-        router.push({
+        router.replace({
           pathname: '/payment-result',
           params: {
             status: 'success',
@@ -278,7 +278,10 @@ export default function MyTicketsScreen() {
     } finally {
       setBusy(false);
     }
-    router.push({
+
+    // FE-style: keep QR/checkout in client session, then open checkout (replace to avoid stack loops).
+    seedPaymentCheckoutFromPending(pending, paidBefore);
+    router.replace({
       pathname: '/payment-checkout',
       params: {
         orderCode: pending.orderCode,
