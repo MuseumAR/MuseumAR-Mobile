@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLanguage } from '../i18n/LanguageContext';
 import { apiService } from '../services/apiService';
 import type { ExhibitRecord } from '../data/exhibits';
+import { loadMediaMap } from '../services/offlineMedia';
 import { mapExhibitDtoToRecord } from '../utils/exhibitMapper';
 import { useCategories } from './useCategories';
 
@@ -28,6 +29,7 @@ export function useExhibits(options: UseExhibitsOptions = {}) {
     setLoading(true);
     setError(null);
     try {
+      await loadMediaMap();
       const response = await apiService.getContentExhibits(lang);
       const raw = response.data ?? [];
       const enriched = await Promise.all(raw.map((dto) => apiService.enrichExhibit(dto)));
