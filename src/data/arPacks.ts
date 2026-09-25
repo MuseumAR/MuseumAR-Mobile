@@ -13,6 +13,9 @@ export type ARPack = {
   packageUrl?: string;
   checksum?: string;
   versionId?: number;
+  exhibitionId?: number | null;
+  exhibitionTitle?: string | null;
+  packageName?: string | null;
 };
 
 export const AR_PACKS: ARPack[] = [

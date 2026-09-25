@@ -1,5 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useEffect } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ARPackCard } from '../../src/components/ARPackCard';
@@ -12,32 +13,28 @@ const TOTAL_STORAGE_MB = 2048;
 
 export default function ARPacksScreen() {
   const { t } = useLanguage();
-  const { downloadPack, deletePack, getState } = useARPacks();
+  const { downloadPack, deletePack, getState, syncUpdateFlags } = useARPacks();
   const { packs, loading, error } = usePackages();
 
-  const downloadedPacks   = packs.filter((p) => getState(p.id).status === 'downloaded');
-  const downloadedCount   = downloadedPacks.length;
-  const usedStorageMB     = downloadedPacks.reduce((s, p) => s + p.sizeMB, 0);
-  const storagePercent    = Math.min((usedStorageMB / TOTAL_STORAGE_MB) * 100, 100);
-  const totalArtifacts    = downloadedPacks.reduce((s, p) => s + p.artifactCount, 0);
+  useEffect(() => {
+    if (packs.length > 0) syncUpdateFlags(packs);
+  }, [packs, syncUpdateFlags]);
+
+  const downloadedPacks = packs.filter((p) => getState(p.id).status === 'downloaded');
+  const downloadedCount = downloadedPacks.length;
+  const usedStorageMB = downloadedPacks.reduce((s, p) => s + p.sizeMB, 0);
+  const storagePercent = Math.min((usedStorageMB / TOTAL_STORAGE_MB) * 100, 100);
+  const totalArtifacts = downloadedPacks.reduce((s, p) => s + p.artifactCount, 0);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-
-        {/* ── Header ───────────────────────────────────────────────────── */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.headerLabel}>{t('packs.headerLabel')}</Text>
-            <Text style={styles.title}>{t('packs.title')}</Text>
-            <Text style={styles.subtitle}>{t('packs.subtitle')}</Text>
-          </View>
-          <View style={[styles.headerIcon, { backgroundColor: C.accentDark, borderColor: C.accent + '40' }]}>
-            <MaterialCommunityIcons name="package-variant-closed" size={22} color={C.accent} />
-          </View>
+          <Text style={styles.headerLabel}>{t('packs.headerLabel')}</Text>
+          <Text style={styles.title}>{t('packs.title')}</Text>
+          <Text style={styles.subtitle}>{t('packs.subtitle')}</Text>
         </View>
 
-        {/* ── Storage card ─────────────────────────────────────────────── */}
         <View style={styles.storageCard}>
           <LinearGradient
             colors={[C.accent + '12', C.bronze + '08']}
@@ -58,7 +55,7 @@ export default function ARPacksScreen() {
                 <MaterialCommunityIcons name="package-check" size={18} color={C.accent} />
               </View>
               <Text style={styles.statValue}>{downloadedCount}</Text>
-              <Text style={styles.statLabel}>Downloaded</Text>
+              <Text style={styles.statLabel}>{t('packs.statDownloaded')}</Text>
             </View>
 
             <View style={styles.statDivider} />
@@ -68,7 +65,7 @@ export default function ARPacksScreen() {
                 <MaterialCommunityIcons name="harddisk" size={18} color={C.accent} />
               </View>
               <Text style={styles.statValue}>{usedStorageMB} MB</Text>
-              <Text style={styles.statLabel}>Storage used</Text>
+              <Text style={styles.statLabel}>{t('packs.statStorage')}</Text>
             </View>
 
             <View style={styles.statDivider} />
@@ -78,27 +75,28 @@ export default function ARPacksScreen() {
                 <MaterialCommunityIcons name="cube-scan" size={18} color={C.accent} />
               </View>
               <Text style={styles.statValue}>{totalArtifacts}</Text>
-              <Text style={styles.statLabel}>Artifacts ready</Text>
+              <Text style={styles.statLabel}>{t('packs.statArtifacts')}</Text>
             </View>
           </View>
 
           <View style={styles.storageBarWrap}>
             <View style={styles.storageBarRow}>
-              <Text style={styles.storageBarLabel}>Local storage</Text>
-              <Text style={styles.storageBarValue}>{usedStorageMB} / {TOTAL_STORAGE_MB} MB</Text>
+              <Text style={styles.storageBarLabel}>{t('packs.statStorageLabel')}</Text>
+              <Text style={styles.storageBarValue}>
+                {usedStorageMB} / {TOTAL_STORAGE_MB} MB
+              </Text>
             </View>
             <View style={styles.storageTrack}>
               <LinearGradient
                 colors={[C.accent, C.bronze]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
-                style={[styles.storageFill, { width: `${storagePercent}%` as any }]}
+                style={[styles.storageFill, { width: `${storagePercent}%` as `${number}%` }]}
               />
             </View>
           </View>
         </View>
 
-        {/* ── Flat pack list ───────────────────────────────────────────── */}
         <View style={styles.packList}>
           {loading && packs.length === 0 ? (
             <ActivityIndicator color={C.accent} style={{ paddingVertical: 24 }} />
@@ -119,6 +117,11 @@ export default function ARPacksScreen() {
 
         <View style={styles.tip}>
           <MaterialCommunityIcons name="information-outline" size={14} color={C.textMuted} />
+          <Text style={styles.tipText}>{t('packs.newestOnlyHint')}</Text>
+        </View>
+
+        <View style={styles.tip}>
+          <MaterialCommunityIcons name="information-outline" size={14} color={C.textMuted} />
           <Text style={styles.tipText}>{t('packs.offlineGuestHint')}</Text>
         </View>
 
@@ -129,60 +132,81 @@ export default function ARPacksScreen() {
 }
 
 const styles = StyleSheet.create({
-  safe:          { flex: 1, backgroundColor: C.bgPrimary },
+  safe: { flex: 1, backgroundColor: C.bgPrimary },
   scrollContent: { paddingBottom: 8 },
 
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
-    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    paddingBottom: 20,
   },
-  headerLabel: { fontSize: 10, fontWeight: '700', color: C.accent, letterSpacing: 2, marginBottom: 3 },
-  title:    { fontSize: 26, fontWeight: '800', color: C.textPrimary, letterSpacing: -0.4 },
-  subtitle: { fontSize: 13, color: C.textSecondary, marginTop: 4 },
-  headerIcon: {
-    width: 46, height: 46, borderRadius: 23,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1, marginTop: 4,
+  headerLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: C.accent,
+    letterSpacing: 2,
+    marginBottom: 3,
   },
+  title: { fontSize: 26, fontWeight: '800', color: C.textPrimary, letterSpacing: -0.4 },
+  subtitle: { fontSize: 13, color: C.textSecondary, marginTop: 4, lineHeight: 18 },
 
   storageCard: {
-    marginHorizontal: 20, marginBottom: 28,
-    borderRadius: 18, overflow: 'hidden',
-    borderWidth: 1, borderColor: C.accent + '30',
+    marginHorizontal: 20,
+    marginBottom: 28,
+    borderRadius: 18,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: C.accent + '30',
     backgroundColor: C.bgSurface,
   },
   storageAccentLine: { height: 2 },
 
   statsRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingTop: 16, paddingBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
   },
-  statItem:    { flex: 1, alignItems: 'center', gap: 6 },
+  statItem: { flex: 1, alignItems: 'center', gap: 6 },
   statIcon: {
-    width: 38, height: 38, borderRadius: 19,
-    alignItems: 'center', justifyContent: 'center', borderWidth: 1,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
   },
-  statValue:   { fontSize: 17, fontWeight: '800', color: C.textPrimary },
-  statLabel:   { fontSize: 10, color: C.textSecondary, textAlign: 'center' },
+  statValue: { fontSize: 17, fontWeight: '800', color: C.textPrimary },
+  statLabel: { fontSize: 10, color: C.textSecondary, textAlign: 'center' },
   statDivider: { width: 1, height: 52, backgroundColor: C.border },
 
   storageBarWrap: { paddingHorizontal: 16, paddingBottom: 16, gap: 8 },
-  storageBarRow:  { flexDirection: 'row', justifyContent: 'space-between' },
-  storageBarLabel:{ fontSize: 11, color: C.textSecondary, fontWeight: '600' },
-  storageBarValue:{ fontSize: 11, color: C.accent, fontWeight: '700' },
+  storageBarRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  storageBarLabel: { fontSize: 11, color: C.textSecondary, fontWeight: '600' },
+  storageBarValue: { fontSize: 11, color: C.accent, fontWeight: '700' },
   storageTrack: {
-    height: 6, backgroundColor: C.bgElevated,
-    borderRadius: 3, overflow: 'hidden',
+    height: 6,
+    backgroundColor: C.bgElevated,
+    borderRadius: 3,
+    overflow: 'hidden',
   },
-  storageFill:  { height: 6, borderRadius: 3 },
+  storageFill: { height: 6, borderRadius: 3 },
 
   packList: { paddingHorizontal: 20 },
   emptyText: { fontSize: 14, color: C.textMuted, textAlign: 'center', paddingVertical: 24 },
 
   tip: {
-    flexDirection: 'row', gap: 8, alignItems: 'flex-start',
-    marginHorizontal: 20, marginTop: 8,
-    padding: 14, borderRadius: 12,
-    backgroundColor: C.bgSurface, borderWidth: 1, borderColor: C.border,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+    marginHorizontal: 20,
+    marginTop: 8,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: C.bgSurface,
+    borderWidth: 1,
+    borderColor: C.border,
   },
   tipText: { flex: 1, fontSize: 12, color: C.textMuted, lineHeight: 18 },
 });

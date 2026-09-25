@@ -1,11 +1,20 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { unzipSync } from 'fflate';
-import { API_ORIGIN } from '../config/apiConfig';
-import { apiService, type ExhibitDto } from './apiService';
+import { rewriteRemoteImageUrl, toAbsoluteMediaUrl } from '../utils/mobileImageUrl';
+import {
+  apiService,
+  attachExhibitRoomFields,
+  type ArAssetDto,
+  type ExhibitDto,
+  type ExhibitionDto,
+  type TourRouteDto,
+} from './apiService';
 import {
   ensureOfflineDirs,
   getPackExtractDir,
   markPackDownloaded,
+  readCachedResponseFlexible,
+  readPackIndex,
   removePackRecord,
   saveCachedResponse,
 } from './offlineCache';
@@ -13,18 +22,20 @@ import {
   audioLogicalKey,
   markerLogicalKey,
   mergeMediaMap,
+  modelLogicalKey,
   overlayLogicalKey,
   thumbLogicalKey,
 } from './offlineMedia';
 
 export type DownloadProgressCb = (percent: number) => void;
 
-function resolveUrl(url?: string | null): string | null {
-  const trimmed = url?.trim();
-  if (!trimmed) return null;
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  const path = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  return `${API_ORIGIN}${path}`;
+function resolveUrl(url?: string | null, preserveAlpha = false): string | null {
+  return rewriteRemoteImageUrl(url, { preserveAlpha }) ?? null;
+}
+
+/** Models and audio must not go through the Cloudinary image transform. */
+function resolveMediaUrl(url?: string | null): string | null {
+  return toAbsoluteMediaUrl(url) ?? null;
 }
 
 function logicalKeysFromZipPath(relativePath: string): string[] {
@@ -36,6 +47,8 @@ function logicalKeysFromZipPath(relativePath: string): string[] {
   if (thumb) keys.push(thumbLogicalKey(Number(thumb[1])));
   const overlay = name.match(/ar\/exhibit_(\d+)_overlay/i);
   if (overlay) keys.push(overlayLogicalKey(Number(overlay[1])));
+  const model = name.match(/ar\/exhibit_(\d+)_model/i);
+  if (model) keys.push(modelLogicalKey(Number(model[1])));
   const marker = name.match(/ar\/exhibit_(\d+)_marker/i);
   if (marker) keys.push(markerLogicalKey(Number(marker[1])));
   return keys;
@@ -80,28 +93,147 @@ function base64ToU8(b64: string): Uint8Array {
   return bytes;
 }
 
-async function snapshotContentApis(museumId?: number): Promise<ExhibitDto[]> {
-  const jobs: Array<{ key: string; run: () => Promise<unknown> }> = [
-    { key: 'Content/exhibits', run: () => apiService.getContentExhibits() },
-    { key: 'Content/exhibits?lang=vi', run: () => apiService.getContentExhibits('vi') },
-    { key: 'Content/exhibits?lang=en', run: () => apiService.getContentExhibits('en') },
+function cacheOk<T>(data: T) {
+  return {
+    statusCode: 200,
+    status: 'Success',
+    message: '',
+    data,
+  };
+}
+
+function isExhibitionScope(exhibitionId?: number | null): exhibitionId is number {
+  return exhibitionId != null && Number.isFinite(exhibitionId) && exhibitionId > 0;
+}
+
+/** Union exhibit lists so multiple exhibition packs stay visible offline. */
+async function saveExhibitsListForOffline(
+  exhibits: ExhibitDto[],
+  scopeExhibitionId: number | null,
+  lang?: string,
+): Promise<void> {
+  const key = lang ? `Content/exhibits?lang=${lang}` : 'Content/exhibits';
+  if (!isExhibitionScope(scopeExhibitionId)) {
+    await saveCachedResponse(key, cacheOk(exhibits));
+    return;
+  }
+
+  const index = await readPackIndex();
+  const packs = Object.values(index);
+  const hasMuseumWide = packs.some(
+    (p) => p.exhibitionId == null || p.exhibitionId === undefined,
+  );
+
+  const merged = new Map<number, ExhibitDto>();
+  if (hasMuseumWide) {
+    const existing = await readCachedResponseFlexible<{ data?: ExhibitDto[] }>(key);
+    for (const row of existing?.data ?? []) {
+      if (row?.id != null) merged.set(Number(row.id), row);
+    }
+  } else {
+    for (const pack of packs) {
+      const otherId = pack.exhibitionId;
+      if (!isExhibitionScope(otherId) || otherId === scopeExhibitionId) continue;
+      const otherKey = lang
+        ? `Content/exhibitions/${otherId}/exhibits?lang=${lang}`
+        : `Content/exhibitions/${otherId}/exhibits`;
+      const other = await readCachedResponseFlexible<{ data?: ExhibitDto[] }>(otherKey);
+      for (const row of other?.data ?? []) {
+        if (row?.id != null) merged.set(Number(row.id), row);
+      }
+    }
+  }
+
+  for (const row of exhibits) {
+    if (row?.id != null) merged.set(Number(row.id), row);
+  }
+  await saveCachedResponse(key, cacheOk([...merged.values()]));
+}
+
+async function saveExhibitionsListForOffline(
+  exhibitions: ExhibitionDto[],
+  scopeExhibitionId: number | null,
+  lang?: string,
+): Promise<void> {
+  const key = lang ? `Content/exhibitions?lang=${lang}` : 'Content/exhibitions';
+  if (!isExhibitionScope(scopeExhibitionId)) {
+    await saveCachedResponse(key, cacheOk(exhibitions));
+    return;
+  }
+
+  const scoped = exhibitions.filter((e) => Number(e.id) === scopeExhibitionId);
+  const index = await readPackIndex();
+  const packs = Object.values(index);
+  const hasMuseumWide = packs.some(
+    (p) => p.exhibitionId == null || p.exhibitionId === undefined,
+  );
+
+  if (hasMuseumWide) {
+    const existing = await readCachedResponseFlexible<{ data?: ExhibitionDto[] }>(key);
+    const merged = new Map<number, ExhibitionDto>();
+    for (const row of existing?.data ?? []) {
+      if (row?.id != null) merged.set(Number(row.id), row);
+    }
+    for (const row of scoped) {
+      if (row?.id != null) merged.set(Number(row.id), row);
+    }
+    await saveCachedResponse(key, cacheOk([...merged.values()]));
+    return;
+  }
+
+  const merged = new Map<number, ExhibitionDto>();
+  for (const pack of packs) {
+    const otherId = pack.exhibitionId;
+    if (!isExhibitionScope(otherId)) continue;
+    const existing = await readCachedResponseFlexible<{ data?: ExhibitionDto[] }>(key);
+    for (const row of existing?.data ?? []) {
+      if (Number(row.id) === otherId) merged.set(otherId, row);
+    }
+  }
+  for (const row of scoped) {
+    if (row?.id != null) merged.set(Number(row.id), row);
+  }
+  await saveCachedResponse(key, cacheOk([...merged.values()]));
+}
+
+/**
+ * Snapshot APIs used offline.
+ * Museum-wide pack → full museum content.
+ * Exhibition pack → only that exhibition’s exhibits (+ shared maps/rooms/graph).
+ */
+async function snapshotContentApis(
+  museumId?: number,
+  exhibitionId?: number | null,
+): Promise<ExhibitDto[]> {
+  const scoped = isExhibitionScope(exhibitionId) ? exhibitionId : null;
+
+  const sharedJobs: Array<{ key: string; run: () => Promise<unknown> }> = [
     { key: 'Content/themes', run: () => apiService.getThemes() },
     { key: 'Content/themes?lang=en', run: () => apiService.getThemes('en') },
     { key: 'Content/tags', run: () => apiService.getTags() },
     { key: 'Content/tags?lang=en', run: () => apiService.getTags('en') },
     { key: 'Content/tag-groups', run: () => apiService.getTagGroups() },
     { key: 'Content/categories', run: () => apiService.getCategories() },
-    { key: 'Content/maps', run: () => apiService.getMaps() },
-    { key: 'Content/routes', run: () => apiService.getRoutes() },
-    { key: 'Content/exhibitions', run: () => apiService.getExhibitions() },
-    { key: 'Content/exhibitions?lang=en', run: () => apiService.getExhibitions('en') },
-    { key: 'Content/packages', run: () => apiService.getPackages() },
+    { key: 'Content/maps', run: () => apiService.getMaps('vi') },
+    { key: 'Content/maps?lang=en', run: () => apiService.getMaps('en') },
     { key: 'Admin/museum-profile', run: () => apiService.getMuseumProfile() },
     { key: 'Admin/museum-profile?lang=en', run: () => apiService.getMuseumProfile('en') },
   ];
 
+  if (!scoped) {
+    sharedJobs.push(
+      { key: 'Content/packages', run: () => apiService.getPackages(undefined, 'vi') },
+      { key: 'Content/packages?lang=en', run: () => apiService.getPackages(undefined, 'en') },
+    );
+  } else {
+    sharedJobs.push({
+      key: `Content/packages?exhibitionId=${scoped}`,
+      run: () => apiService.getPackages(scoped, 'vi'),
+    });
+  }
+
   if (museumId) {
-    jobs.push(
+    sharedJobs.push(
       {
         key: `Content/rooms/museum/${museumId}`,
         run: () => apiService.getRoomsByMuseum(museumId),
@@ -121,52 +253,138 @@ async function snapshotContentApis(museumId?: number): Promise<ExhibitDto[]> {
     );
   }
 
-  let exhibits: ExhibitDto[] = [];
-  let exhibitionIds: number[] = [];
-  let routeIds: number[] = [];
-  for (const job of jobs) {
+  for (const job of sharedJobs) {
     try {
       const result = await job.run();
       await saveCachedResponse(job.key, result);
-      if (job.key.startsWith('Content/exhibits') && result && typeof result === 'object') {
-        const data = (result as { data?: ExhibitDto[] }).data;
-        if (Array.isArray(data) && data.length > exhibits.length) {
-          exhibits = data;
-        }
-      }
-      if (job.key.startsWith('Content/exhibitions') && result && typeof result === 'object') {
-        const data = (result as { data?: Array<{ id?: number }> }).data;
-        if (Array.isArray(data)) {
-          exhibitionIds = data.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
-        }
-      }
-      if (job.key === 'Content/routes' && result && typeof result === 'object') {
-        const data = (result as { data?: Array<{ id?: number }> }).data;
-        if (Array.isArray(data)) {
-          routeIds = data.map((row) => Number(row.id)).filter((id) => Number.isFinite(id) && id > 0);
-        }
-      }
     } catch {
       // keep going — partial snapshot is still useful
     }
   }
 
-  for (const routeId of routeIds) {
+  let exhibits: ExhibitDto[] = [];
+  let exhibitsEn: ExhibitDto[] = [];
+  let exhibitions: ExhibitionDto[] = [];
+  let exhibitionsEn: ExhibitionDto[] = [];
+
+  try {
+    if (scoped) {
+      const [viRes, enRes, defRes] = await Promise.all([
+        apiService.getExhibitsByExhibition(scoped, 'vi'),
+        apiService.getExhibitsByExhibition(scoped, 'en'),
+        apiService.getExhibitsByExhibition(scoped),
+      ]);
+      exhibits = defRes.data?.length ? defRes.data : (viRes.data ?? []);
+      exhibitsEn = enRes.data ?? exhibits;
+      await saveCachedResponse(
+        `Content/exhibitions/${scoped}/exhibits`,
+        cacheOk(exhibits),
+      );
+      await saveCachedResponse(
+        `Content/exhibitions/${scoped}/exhibits?lang=vi`,
+        cacheOk(viRes.data ?? exhibits),
+      );
+      await saveCachedResponse(
+        `Content/exhibitions/${scoped}/exhibits?lang=en`,
+        cacheOk(exhibitsEn),
+      );
+      await saveExhibitsListForOffline(exhibits, scoped);
+      await saveExhibitsListForOffline(viRes.data ?? exhibits, scoped, 'vi');
+      await saveExhibitsListForOffline(exhibitsEn, scoped, 'en');
+    } else {
+      const [defRes, viRes, enRes] = await Promise.all([
+        apiService.getContentExhibits(),
+        apiService.getContentExhibits('vi'),
+        apiService.getContentExhibits('en'),
+      ]);
+      exhibits = defRes.data?.length ? defRes.data : (viRes.data ?? []);
+      exhibitsEn = enRes.data ?? exhibits;
+      await saveExhibitsListForOffline(exhibits, null);
+      await saveExhibitsListForOffline(viRes.data ?? exhibits, null, 'vi');
+      await saveExhibitsListForOffline(exhibitsEn, null, 'en');
+    }
+  } catch {
+    // exhibits optional if ZIP still has media
+  }
+
+  try {
+    const [viEx, enEx] = await Promise.all([
+      apiService.getExhibitions(),
+      apiService.getExhibitions('en'),
+    ]);
+    exhibitions = viEx.data ?? [];
+    exhibitionsEn = enEx.data ?? exhibitions;
+    await saveExhibitionsListForOffline(exhibitions, scoped);
+    await saveExhibitionsListForOffline(exhibitionsEn, scoped, 'en');
+  } catch {
+    // exhibitions optional
+  }
+
+  if (scoped) {
     try {
-      await apiService.getRouteById(routeId);
+      await apiService.getExhibitionTranslations(scoped);
     } catch {
-      // ignore per-route failures
+      // ignore
+    }
+  } else {
+    for (const row of exhibitions) {
+      const id = Number(row.id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      try {
+        await apiService.getExhibitsByExhibition(id);
+        await apiService.getExhibitsByExhibition(id, 'en');
+        await apiService.getExhibitionTranslations(id);
+      } catch {
+        // ignore per-exhibition failures
+      }
     }
   }
 
-  for (const exhibitionId of exhibitionIds) {
-    try {
-      await apiService.getExhibitsByExhibition(exhibitionId);
-      await apiService.getExhibitsByExhibition(exhibitionId, 'en');
-      await apiService.getExhibitionTranslations(exhibitionId);
-    } catch {
-      // ignore per-exhibition failures
+  const exhibitIdSet = new Set(
+    exhibits.map((e) => Number(e.id)).filter((id) => Number.isFinite(id) && id > 0),
+  );
+
+  let routeIds: number[] = [];
+  try {
+    const routesRes = await apiService.getRoutes();
+    const allRoutes = routesRes.data ?? [];
+    if (!scoped) {
+      await saveCachedResponse('Content/routes', routesRes);
+      routeIds = allRoutes
+        .map((r) => Number(r.id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+      for (const routeId of routeIds) {
+        try {
+          await apiService.getRouteById(routeId);
+        } catch {
+          // ignore
+        }
+      }
+    } else {
+      const kept: TourRouteDto[] = [];
+      for (const route of allRoutes) {
+        const id = Number(route.id);
+        if (!Number.isFinite(id) || id <= 0) continue;
+        try {
+          const full = await apiService.getRouteById(id);
+          const data = full.data;
+          if (!data) continue;
+          const stops = data.stops ?? [];
+          if (
+            stops.length > 0 &&
+            stops.every((s) => exhibitIdSet.has(Number(s.exhibitId)))
+          ) {
+            kept.push(data);
+          }
+        } catch {
+          // ignore per-route failures
+        }
+      }
+      await saveCachedResponse('Content/routes', cacheOk(kept));
+      routeIds = kept.map((r) => Number(r.id));
     }
+  } catch {
+    // routes optional
   }
 
   const enriched: ExhibitDto[] = [];
@@ -181,18 +399,8 @@ async function snapshotContentApis(museumId?: number): Promise<ExhibitDto[]> {
         // detail/assets optional
       }
       enriched.push(full);
-      await saveCachedResponse(`Content/exhibits/${dto.id}`, {
-        statusCode: 200,
-        status: 'Success',
-        message: '',
-        data: full,
-      });
-      await saveCachedResponse(`Content/exhibits/${dto.id}?lang=en`, {
-        statusCode: 200,
-        status: 'Success',
-        message: '',
-        data: full,
-      });
+      await saveCachedResponse(`Content/exhibits/${dto.id}`, cacheOk(full));
+      await saveCachedResponse(`Content/exhibits/${dto.id}?lang=en`, cacheOk(full));
     } catch {
       enriched.push(dto);
     }
@@ -244,10 +452,13 @@ async function unzipPack(zipPath: string, extractDir: string): Promise<Record<st
   return map;
 }
 
-async function downloadExtraImages(): Promise<Record<string, string>> {
+async function downloadExtraImages(
+  exhibitionId?: number | null,
+): Promise<Record<string, string>> {
   const map: Record<string, string> = {};
   const mediaDir = `${FileSystem.documentDirectory}offline/media/`;
   await FileSystem.makeDirectoryAsync(mediaDir, { intermediates: true });
+  const scoped = isExhibitionScope(exhibitionId) ? exhibitionId : null;
 
   const enqueue = async (url: string | null, key: string, file: string) => {
     if (!url) return;
@@ -261,7 +472,7 @@ async function downloadExtraImages(): Promise<Record<string, string>> {
   };
 
   try {
-    const maps = await apiService.getMaps();
+    const maps = await apiService.getMaps('vi');
     for (const item of maps.data ?? []) {
       await enqueue(
         resolveUrl(item.mapImageUrl ?? item.imageUrl),
@@ -289,6 +500,7 @@ async function downloadExtraImages(): Promise<Record<string, string>> {
   try {
     const exhibitions = await apiService.getExhibitions();
     for (const item of exhibitions.data ?? []) {
+      if (scoped != null && Number(item.id) !== scoped) continue;
       await enqueue(
         resolveUrl(item.thumbnailUrl),
         `exhibition:${item.id}`,
@@ -307,51 +519,160 @@ async function downloadExhibitMedia(exhibits: ExhibitDto[]): Promise<Record<stri
   const mediaDir = `${FileSystem.documentDirectory}offline/media/`;
   await FileSystem.makeDirectoryAsync(mediaDir, { intermediates: true });
 
+  const enqueue = async (url: string | null, key: string, file: string) => {
+    if (!url || map[key]) return;
+    const ext = url.split('?')[0].split('.').pop() || 'bin';
+    const dest = `${mediaDir}${file}.${ext}`;
+    const ok = await downloadFile(url, dest);
+    if (!ok) return;
+    const uri = dest.startsWith('file://') ? dest : `file://${dest}`;
+    map[key] = uri;
+    map[url] = uri;
+  };
+
   for (const exhibit of exhibits) {
-    const jobs: Array<{ url: string | null; key: string; file: string }> = [
-      {
-        url: resolveUrl(exhibit.thumbnailUrl),
-        key: thumbLogicalKey(exhibit.id),
-        file: `exhibit_${exhibit.id}_thumb`,
-      },
-      {
-        url: resolveUrl(exhibit.arOverlayUrl),
-        key: overlayLogicalKey(exhibit.id),
-        file: `exhibit_${exhibit.id}_overlay`,
-      },
-      {
-        url: resolveUrl(exhibit.arMarkerUrl),
-        key: markerLogicalKey(exhibit.id),
-        file: `exhibit_${exhibit.id}_marker`,
-      },
-    ];
+    await enqueue(resolveUrl(exhibit.thumbnailUrl), thumbLogicalKey(exhibit.id), `exhibit_${exhibit.id}_thumb`);
+    await enqueue(
+      resolveUrl(exhibit.arOverlayUrl, true),
+      overlayLogicalKey(exhibit.id),
+      `exhibit_${exhibit.id}_overlay`,
+    );
+    await enqueue(
+      resolveUrl(exhibit.arMarkerUrl),
+      markerLogicalKey(exhibit.id),
+      `exhibit_${exhibit.id}_marker`,
+    );
+
     for (const tr of exhibit.translations ?? []) {
       const lang = (tr.languageCode || 'vi').toLowerCase();
-      jobs.push({
-        url: resolveUrl(tr.audioUrl),
-        key: audioLogicalKey(exhibit.id, lang),
-        file: `exhibit_${exhibit.id}_${lang}`,
-      });
+      await enqueue(
+        resolveMediaUrl(tr.audioUrl),
+        audioLogicalKey(exhibit.id, lang),
+        `exhibit_${exhibit.id}_${lang}`,
+      );
     }
 
-    for (const job of jobs) {
-      if (!job.url) continue;
-      const ext = job.url.split('?')[0].split('.').pop() || 'bin';
-      const dest = `${mediaDir}${job.file}.${ext}`;
-      const ok = await downloadFile(job.url, dest);
-      if (!ok) continue;
-      const uri = dest.startsWith('file://') ? dest : `file://${dest}`;
-      map[job.key] = uri;
-      map[job.url] = uri;
+    try {
+      const assetsRes = await apiService.getExhibitArAssets(exhibit.id);
+      for (const asset of assetsRes.data ?? []) {
+        if (isOverlayArAsset(asset)) {
+          const remote = String(asset.url ?? asset.assetUrl ?? '').trim();
+          await enqueue(
+            resolveUrl(remote, true),
+            overlayLogicalKey(exhibit.id),
+            `exhibit_${exhibit.id}_overlay`,
+          );
+          continue;
+        }
+        if (isModel3dArAsset(asset)) {
+          const remote = String(asset.url ?? asset.assetUrl ?? '').trim();
+          await enqueue(
+            resolveMediaUrl(remote),
+            modelLogicalKey(exhibit.id),
+            `exhibit_${exhibit.id}_model`,
+          );
+        }
+      }
+    } catch {
+      // AR asset list optional during pack build
     }
   }
   return map;
+}
+
+function isOverlayArAsset(asset: ArAssetDto): boolean {
+  const type = String(asset.assetType ?? '').toLowerCase();
+  if (type === 'markerimage' || type === 'marker') return false;
+  if (
+    type === 'overlayimage' ||
+    type === 'overlay' ||
+    type === 'image' ||
+    type === '2d' ||
+    type === 'texture'
+  ) {
+    return true;
+  }
+  const url = String(asset.url ?? asset.assetUrl ?? '');
+  return /\.(png|jpe?g|webp|gif)(\?|$)/i.test(url);
+}
+
+function isModel3dArAsset(asset: ArAssetDto): boolean {
+  const type = String(asset.assetType ?? '').toLowerCase();
+  if (
+    type === 'model3d' ||
+    type === '3dmodel' ||
+    type === 'model' ||
+    type === '3d' ||
+    type === 'mesh'
+  ) {
+    return true;
+  }
+  const url = String(asset.url ?? asset.assetUrl ?? '');
+  return /\.(glb|gltf|usdz|fbx|obj)(\?|$)/i.test(url);
+}
+
+async function readManifestExhibits(extractDir: string): Promise<ExhibitDto[]> {
+  try {
+    const path = `${extractDir}manifest.json`;
+    const info = await FileSystem.getInfoAsync(path);
+    if (!info.exists) return [];
+    const rawText = await FileSystem.readAsStringAsync(path);
+    const json = JSON.parse(rawText) as Record<string, unknown>;
+    const list = (json.Exhibits ?? json.exhibits) as unknown;
+    if (!Array.isArray(list)) return [];
+
+    const out: ExhibitDto[] = [];
+    for (const item of list) {
+      const raw = (item ?? {}) as Partial<ExhibitDto> & Record<string, unknown>;
+      const id = Number(raw.id ?? raw.Id);
+      if (!Number.isFinite(id) || id <= 0) continue;
+      const base: ExhibitDto = {
+        id,
+        museumId: Number(raw.museumId ?? raw.MuseumId) || 0,
+        categoryId:
+          raw.categoryId != null || raw.CategoryId != null
+            ? Number(raw.categoryId ?? raw.CategoryId) || undefined
+            : undefined,
+        themeId:
+          raw.themeId != null || raw.ThemeId != null
+            ? Number(raw.themeId ?? raw.ThemeId) || undefined
+            : undefined,
+        exhibitCode: String(raw.exhibitCode ?? raw.ExhibitCode ?? '').trim() || undefined,
+        qrCodeData: String(raw.qrCodeData ?? raw.QrcodeData ?? raw.QRCodeData ?? '').trim() || undefined,
+        thumbnailUrl:
+          String(raw.thumbnailUrl ?? raw.ThumbnailUrl ?? '').trim() || undefined,
+        arOverlayUrl:
+          String(
+            raw.arOverlayUrl ??
+              raw.AroverlayUrl ??
+              raw.aroverlayUrl ??
+              raw.AROverlayUrl ??
+              '',
+          ).trim() || undefined,
+        arMarkerUrl:
+          String(
+            raw.arMarkerUrl ?? raw.ArmarkerUrl ?? raw.armarkerUrl ?? raw.ARMarkerUrl ?? '',
+          ).trim() || undefined,
+        status: String(raw.status ?? raw.Status ?? 'Published').trim() || 'Published',
+        translations: Array.isArray(raw.translations)
+          ? (raw.translations as ExhibitDto['translations'])
+          : Array.isArray(raw.Translations)
+            ? (raw.Translations as ExhibitDto['translations'])
+            : [],
+      };
+      out.push(attachExhibitRoomFields(raw, base));
+    }
+    return out;
+  } catch {
+    return [];
+  }
 }
 
 export async function downloadOfflinePack(options: {
   packId: string;
   museumId?: number;
   versionId?: number;
+  exhibitionId?: number | null;
   packageUrl?: string | null;
   checksum?: string | null;
   onProgress?: DownloadProgressCb;
@@ -360,7 +681,7 @@ export async function downloadOfflinePack(options: {
   await ensureOfflineDirs();
   onProgress?.(4);
 
-  const exhibits = await snapshotContentApis(options.museumId);
+  let exhibits = await snapshotContentApis(options.museumId, options.exhibitionId);
   onProgress?.(22);
 
   const extractDir = getPackExtractDir(packId);
@@ -383,9 +704,39 @@ export async function downloadOfflinePack(options: {
     }
   }
 
+  // Prefer ZIP manifest exhibits so offline lists match pack counts (FE Hiện vật).
+  const fromManifest = await readManifestExhibits(extractDir);
+  if (fromManifest.length > 0) {
+    const scoped = isExhibitionScope(options.exhibitionId) ? options.exhibitionId : null;
+    if (fromManifest.length >= exhibits.length || exhibits.length === 0) {
+      exhibits = fromManifest;
+      await saveExhibitsListForOffline(exhibits, scoped);
+      await saveExhibitsListForOffline(exhibits, scoped, 'vi');
+      await saveExhibitsListForOffline(exhibits, scoped, 'en');
+      if (scoped) {
+        await saveCachedResponse(
+          `Content/exhibitions/${scoped}/exhibits`,
+          cacheOk(exhibits),
+        );
+        await saveCachedResponse(
+          `Content/exhibitions/${scoped}/exhibits?lang=vi`,
+          cacheOk(exhibits),
+        );
+        await saveCachedResponse(
+          `Content/exhibitions/${scoped}/exhibits?lang=en`,
+          cacheOk(exhibits),
+        );
+      }
+      for (const dto of exhibits) {
+        await saveCachedResponse(`Content/exhibits/${dto.id}`, cacheOk(dto));
+        await saveCachedResponse(`Content/exhibits/${dto.id}?lang=en`, cacheOk(dto));
+      }
+    }
+  }
+
   onProgress?.(86);
   const downloadedMedia = await downloadExhibitMedia(exhibits);
-  const extraImages = await downloadExtraImages();
+  const extraImages = await downloadExtraImages(options.exhibitionId);
   const mediaMap = { ...unzipped, ...downloadedMedia, ...extraImages };
   await mergeMediaMap(mediaMap);
   onProgress?.(96);
@@ -402,6 +753,7 @@ export async function downloadOfflinePack(options: {
     id: packId,
     museumId: options.museumId,
     versionId: options.versionId,
+    exhibitionId: options.exhibitionId ?? null,
     checksum: options.checksum,
     packageUrl: options.packageUrl,
     downloadedAt: new Date().toISOString(),

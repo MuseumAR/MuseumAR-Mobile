@@ -1,6 +1,7 @@
 import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,34 +12,40 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService, getAuthErrorMessage } from '../../src/services/apiService';
 import { C } from '../../src/theme/colors';
 import { validateEmail } from '../../src/utils/authValidation';
 
+/** Step 1 — enter email, then continue to OTP / new-password screen. */
 export default function ForgotPasswordScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const [email, setEmail] = useState('');
   const [emailError, setEmailError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async () => {
+  const handleContinue = async () => {
     const err = validateEmail(email);
     setEmailError(err);
     setFormError(null);
-    setSuccessMessage(null);
     if (err) return;
 
     setLoading(true);
     try {
       const response = await apiService.forgotPassword(email.trim());
-      setSuccessMessage(
-        response.message ||
-          'Chúng tôi đã gửi hướng dẫn đặt lại mật khẩu đến email của bạn.',
-      );
+      router.push({
+        pathname: '/(auth)/reset-password',
+        params: {
+          email: email.trim(),
+          hint: response.message ?? '',
+        },
+      });
     } catch (error: unknown) {
-      setFormError(getAuthErrorMessage(error, 'Không thể gửi yêu cầu. Vui lòng thử lại.'));
+      setFormError(
+        getAuthErrorMessage(error, t('auth.forgotPasswordFail')),
+      );
     } finally {
       setLoading(false);
     }
@@ -57,16 +64,14 @@ export default function ForgotPasswordScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <TouchableOpacity style={styles.backBtn} onPress={() => router.back()}>
-            <Text style={styles.backText}>‹ Quay lại</Text>
+            <Text style={styles.backText}>‹ {t('common.back')}</Text>
           </TouchableOpacity>
 
-          <Text style={styles.title}>Quên mật khẩu</Text>
-          <Text style={styles.subtitle}>
-            Nhập email đã đăng ký. Chúng tôi sẽ gửi mã xác nhận để bạn đặt lại mật khẩu.
-          </Text>
+          <Text style={styles.title}>{t('auth.forgotPasswordTitle')}</Text>
+          <Text style={styles.subtitle}>{t('auth.forgotPasswordSubtitle')}</Text>
 
           <View style={styles.form}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>{t('auth.email')}</Text>
             <TextInput
               style={[styles.input, emailError && styles.inputError]}
               placeholder="email@example.com"
@@ -76,7 +81,6 @@ export default function ForgotPasswordScreen() {
                 setEmail(text);
                 if (emailError) setEmailError(null);
                 if (formError) setFormError(null);
-                if (successMessage) setSuccessMessage(null);
               }}
               keyboardType="email-address"
               autoCapitalize="none"
@@ -84,36 +88,23 @@ export default function ForgotPasswordScreen() {
             />
             {emailError ? <Text style={styles.fieldError}>{emailError}</Text> : null}
             {formError ? <Text style={styles.formError}>{formError}</Text> : null}
-            {successMessage ? <Text style={styles.successText}>{successMessage}</Text> : null}
 
             <TouchableOpacity
               style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-              onPress={handleSubmit}
+              onPress={() => void handleContinue()}
               disabled={loading}
             >
-              <Text style={styles.submitBtnText}>
-                {loading ? 'Đang gửi...' : 'Gửi mã xác nhận'}
-              </Text>
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.submitBtnText}>{t('auth.forgotPasswordContinue')}</Text>
+              )}
             </TouchableOpacity>
 
-            {successMessage ? (
-              <TouchableOpacity
-                style={styles.resetLinkBtn}
-                onPress={() =>
-                  router.push({
-                    pathname: '/(auth)/reset-password',
-                    params: { email: email.trim() },
-                  })
-                }
-              >
-                <Text style={styles.resetLinkText}>Tôi đã có mã — Đặt lại mật khẩu</Text>
-              </TouchableOpacity>
-            ) : null}
-
             <View style={styles.loginRow}>
-              <Text style={styles.loginText}>Nhớ mật khẩu? </Text>
+              <Text style={styles.loginText}>{t('auth.rememberPassword')} </Text>
               <Link href="/(auth)/login">
-                <Text style={styles.loginLink}>Đăng nhập</Text>
+                <Text style={styles.loginLink}>{t('auth.login')}</Text>
               </Link>
             </View>
           </View>
@@ -130,7 +121,13 @@ const styles = StyleSheet.create({
   backBtn: { marginBottom: 20 },
   backText: { color: C.accent, fontSize: 16, fontWeight: '600' },
   title: { fontSize: 28, fontWeight: '800', color: C.textPrimary },
-  subtitle: { fontSize: 14, color: C.textMuted, marginTop: 8, marginBottom: 28, lineHeight: 22 },
+  subtitle: {
+    fontSize: 14,
+    color: C.textMuted,
+    marginTop: 8,
+    marginBottom: 28,
+    lineHeight: 22,
+  },
   form: {
     backgroundColor: C.bgSurface,
     borderRadius: 20,
@@ -138,7 +135,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.border,
   },
-  label: { fontSize: 13, fontWeight: '600', color: C.textSecondary, marginBottom: 6 },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.textSecondary,
+    marginBottom: 6,
+  },
   input: {
     borderWidth: 1,
     borderColor: C.border,
@@ -152,25 +154,22 @@ const styles = StyleSheet.create({
   },
   inputError: { borderColor: C.danger },
   fieldError: { color: C.danger, fontSize: 12, marginBottom: 10 },
-  formError: { color: C.danger, fontSize: 13, textAlign: 'center', marginBottom: 12, lineHeight: 18 },
-  successText: {
-    color: C.success,
+  formError: {
+    color: C.danger,
     fontSize: 13,
     textAlign: 'center',
     marginBottom: 12,
-    lineHeight: 20,
+    lineHeight: 18,
   },
   submitBtn: {
     backgroundColor: C.accent,
     borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: 12,
   },
   submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
-  resetLinkBtn: { marginTop: 16, alignItems: 'center' },
-  resetLinkText: { color: C.accent, fontSize: 14, fontWeight: '700' },
   loginRow: { flexDirection: 'row', justifyContent: 'center', marginTop: 20 },
   loginText: { color: C.textSecondary, fontSize: 14 },
   loginLink: { color: C.accent, fontSize: 14, fontWeight: '700' },

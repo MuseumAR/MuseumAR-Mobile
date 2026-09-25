@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLanguage } from '../src/i18n/LanguageContext';
@@ -12,6 +12,7 @@ const OPTIONS: { code: AppLanguage; flag: string }[] = [
 ];
 
 export default function SettingsScreen() {
+  const router = useRouter();
   const { lang, setLanguage, t } = useLanguage();
 
   return (
@@ -60,6 +61,20 @@ export default function SettingsScreen() {
             );
           })}
         </View>
+
+        <Text style={[styles.sectionLabel, { marginTop: 18 }]}>
+          {t('settings.changePassword')}
+        </Text>
+        <Text style={styles.hint}>{t('settings.changePasswordHint')}</Text>
+        <TouchableOpacity
+          style={styles.actionCard}
+          onPress={() => router.push('/(auth)/change-password')}
+          activeOpacity={0.85}
+        >
+          <MaterialCommunityIcons name="lock-reset" size={22} color={C.accent} />
+          <Text style={styles.actionText}>{t('settings.changePassword')}</Text>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={C.textMuted} />
+        </TouchableOpacity>
       </View>
     </SafeAreaView>
   );
@@ -120,5 +135,22 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     borderWidth: 1.5,
     borderColor: C.border,
+  },
+  actionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: C.bgSurface,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  actionText: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '700',
+    color: C.textPrimary,
   },
 });

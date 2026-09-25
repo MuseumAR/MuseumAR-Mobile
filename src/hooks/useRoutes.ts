@@ -10,20 +10,29 @@ import {
 import type { AppLanguage } from '../services/languagePrefs';
 import { pickLocalizedField, pickLocalizedRow } from '../utils/pickLocalized';
 
-function pickStops(raw: TourRouteDto & Record<string, unknown>): TourRouteStopDto[] {
+function pickStops(
+  raw: TourRouteDto & Record<string, unknown>,
+  lang: AppLanguage | string = 'vi',
+): TourRouteStopDto[] {
   const stopsRaw = (raw.stops ?? raw.Stops) as unknown;
   if (Array.isArray(stopsRaw) && stopsRaw.length > 0) {
     return stopsRaw.map((s) =>
-      normalizeTourRouteStop(s as Partial<TourRouteStopDto> & Record<string, unknown>),
+      normalizeTourRouteStop(
+        s as Partial<TourRouteStopDto> & Record<string, unknown>,
+        lang,
+      ),
     );
   }
   if (Array.isArray(raw.points) && raw.points.length > 0) {
     return raw.points.map((p, i) =>
-      normalizeTourRouteStop({
-        exhibitId: p.exhibitId ?? p.id ?? i + 1,
-        exhibitName: p.title,
-        stopOrder: p.order ?? i + 1,
-      }),
+      normalizeTourRouteStop(
+        {
+          exhibitId: p.exhibitId ?? p.id ?? i + 1,
+          exhibitName: p.title,
+          stopOrder: p.order ?? i + 1,
+        },
+        lang,
+      ),
     );
   }
   return [];
@@ -80,7 +89,7 @@ export function normalizeTourRoute(
       : null) ??
     `Tour #${raw.id || index + 1}`;
 
-  const stops = pickStops(raw as TourRouteDto & Record<string, unknown>);
+  const stops = pickStops(raw as TourRouteDto & Record<string, unknown>, lang);
 
   return {
     ...raw,
@@ -137,6 +146,24 @@ export function useRoutes() {
   );
 
   return { routes, loading, error, refresh, loadRouteDetail };
+}
+
+/** Re-pick exhibit/room labels on an already-normalized stop for UI language. */
+export function localizeTourStop(
+  stop: TourRouteStopDto,
+  lang: AppLanguage | string,
+): TourRouteStopDto {
+  return normalizeTourRouteStop(
+    stop as Partial<TourRouteStopDto> & Record<string, unknown>,
+    lang,
+  );
+}
+
+export function localizeTourStops(
+  stops: TourRouteStopDto[] | undefined,
+  lang: AppLanguage | string,
+): TourRouteStopDto[] {
+  return (stops ?? []).map((s) => localizeTourStop(s, lang));
 }
 
 /** Expose helper for one-off picks without remapping whole route. */

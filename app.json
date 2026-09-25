@@ -11,6 +11,15 @@
       "expo-router",
       "expo-web-browser",
       "expo-dev-client",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
       "@azesmway/react-native-unity",
       [
         "expo-camera",
@@ -59,10 +68,8 @@
       "package": "com.museumar.app",
       "usesCleartextTraffic": true,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundColor": "#FFFFFF",
+        "foregroundImage": "./assets/icon.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [
@@ -75,8 +82,8 @@
     },
     "extra": {
       "apiHost": "",
-      "apiPort": "5149",
-      "apiBaseUrl": "",
+      "apiPort": "443",
+      "apiBaseUrl": "https://museumar-geb6b8ajf7fuh4ba.japaneast-01.azurewebsites.net/api",
       "googleClientIds": {
         "web": "",
         "ios": "",

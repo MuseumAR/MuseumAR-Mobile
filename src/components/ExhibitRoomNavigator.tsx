@@ -9,15 +9,50 @@ import {
   View,
 } from 'react-native';
 import { useVisitorLocation } from '../context/VisitorLocationContext';
+import { useMaps } from '../hooks/useMaps';
+import { useNavigationGraph } from '../hooks/useNavigationGraph';
+import { useNavigationRoute } from '../hooks/useNavigationRoute';
 import { useRooms } from '../hooks/useRooms';
 import { useLanguage } from '../i18n/LanguageContext';
+import type {
+  MuseumMapDto,
+  NavigationInstructionDto,
+  NavigationWaypointDto,
+  RoomDto,
+} from '../services/apiService';
 import { C } from '../theme/colors';
 import { formatRoomRef, sortRoomsForLayout } from '../utils/routeNavigation';
+import { FloorPathMap } from './FloorPathMap';
 import { NavigationGuideCard } from './RouteNavigationOverlay';
+
+function pickFloorMap(
+  maps: MuseumMapDto[],
+  room: RoomDto | null | undefined,
+  floorNumber?: number | null,
+): MuseumMapDto | null {
+  const withImage = maps.filter((m) => Boolean(m.imageUrl));
+  if (withImage.length === 0) return null;
+  const mapId = room?.mapId != null ? Number(room.mapId) : 0;
+  if (mapId > 0 && floorNumber == null) {
+    const byId = withImage.find((m) => m.id === mapId);
+    if (byId) return byId;
+  }
+  const floor = floorNumber ?? room?.floorNumber;
+  if (floor != null && floor > 0) {
+    const byFloor = withImage.find((m) => m.floorNumber === floor);
+    if (byFloor) return byFloor;
+  }
+  if (mapId > 0) {
+    const byId = withImage.find((m) => m.id === mapId);
+    if (byId) return byId;
+  }
+  return withImage[0] ?? null;
+}
 
 /**
  * After a QR scan, current room is set. Buttons choose another room;
- * walking steps come from GET Navigation/route (existing BE).
+ * walking steps come from GET Navigation/route. Cross-floor: path to stairs
+ * on this floor, then Continue switches the map + remaining steps.
  */
 export function ExhibitRoomNavigator({
   museumId,
@@ -30,15 +65,43 @@ export function ExhibitRoomNavigator({
   const router = useRouter();
   const { location } = useVisitorLocation();
   const { rooms, loading } = useRooms(museumId);
+  const { maps } = useMaps();
+  const { graph } = useNavigationGraph(museumId);
   const [destRoomId, setDestRoomId] = useState<number | null>(null);
+  const [viewFloor, setViewFloor] = useState<number | null>(null);
+  const [phasePath, setPhasePath] = useState<NavigationWaypointDto[]>([]);
+  const [phaseInstructions, setPhaseInstructions] = useState<
+    NavigationInstructionDto[]
+  >([]);
 
   const hereId = location?.roomId ?? null;
+  const hereRoom = hereId != null ? rooms.find((r) => r.id === hereId) : null;
+  const destRoom = destRoomId != null ? rooms.find((r) => r.id === destRoomId) : null;
+
+  const { route, hasPath } = useNavigationRoute(hereId, destRoomId, {
+    enabled: Boolean(hereId && destRoomId),
+  });
+
+  const floorMap = useMemo(
+    () =>
+      pickFloorMap(
+        maps,
+        viewFloor != null ? null : hereRoom,
+        viewFloor ?? location?.floorNumber ?? hereRoom?.floorNumber,
+      ),
+    [maps, hereRoom, location?.floorNumber, viewFloor],
+  );
+
   const sorted = useMemo(() => sortRoomsForLayout(rooms), [rooms]);
   const otherRooms = useMemo(
     () => sorted.filter((r) => hereId == null || r.id !== hereId),
     [sorted, hereId],
   );
-  const destRoom = destRoomId != null ? rooms.find((r) => r.id === destRoomId) : null;
+
+  const showPath = Boolean(hereId && destRoomId && hasPath);
+  const mapPath = phasePath.length > 0 ? phasePath : route?.pathWaypoints;
+  const mapInstructions =
+    phaseInstructions.length > 0 ? phaseInstructions : route?.instructions;
 
   return (
     <View style={styles.section}>
@@ -64,11 +127,25 @@ export function ExhibitRoomNavigator({
         </TouchableOpacity>
       )}
 
+      {hereId && floorMap ? (
+        <FloorPathMap
+          map={floorMap}
+          waypoints={graph?.waypoints ?? []}
+          edges={graph?.edges ?? []}
+          rooms={rooms}
+          pathWaypoints={mapPath}
+          instructions={mapInstructions}
+          hereRoomId={hereId}
+          destRoomId={destRoomId}
+          showPath={showPath}
+        />
+      ) : null}
+
       {loading ? (
         <ActivityIndicator color={accentColor} style={{ marginVertical: 8 }} />
       ) : otherRooms.length === 0 ? (
         <Text style={styles.empty}>{t('exhibit.noOtherRooms')}</Text>
-      ) : (
+      ) : hereId ? (
         <View style={styles.chipWrap}>
           {otherRooms.map((room) => {
             const selected = destRoomId === room.id;
@@ -82,9 +159,12 @@ export function ExhibitRoomNavigator({
                     backgroundColor: accentColor + '18',
                   },
                 ]}
-                onPress={() =>
-                  setDestRoomId((prev) => (prev === room.id ? null : room.id))
-                }
+                onPress={() => {
+                  setDestRoomId((prev) => (prev === room.id ? null : room.id));
+                  setViewFloor(null);
+                  setPhasePath([]);
+                  setPhaseInstructions([]);
+                }}
               >
                 <Text
                   style={[
@@ -98,13 +178,20 @@ export function ExhibitRoomNavigator({
                 {room.roomName && room.roomCode ? (
                   <Text style={styles.chipSub} numberOfLines={1}>
                     {room.roomName}
+                    {room.floorNumber != null
+                      ? ` · ${t('museum.floor')} ${room.floorNumber}`
+                      : ''}
+                  </Text>
+                ) : room.floorNumber != null ? (
+                  <Text style={styles.chipSub} numberOfLines={1}>
+                    {t('museum.floor')} {room.floorNumber}
                   </Text>
                 ) : null}
               </TouchableOpacity>
             );
           })}
         </View>
-      )}
+      ) : null}
 
       {hereId || destRoomId ? (
         <NavigationGuideCard
@@ -128,6 +215,9 @@ export function ExhibitRoomNavigator({
           }
           rooms={rooms}
           accentColor={accentColor}
+          onViewFloorChange={setViewFloor}
+          onPhasePathChange={setPhasePath}
+          onPhaseInstructionsChange={setPhaseInstructions}
         />
       ) : null}
     </View>

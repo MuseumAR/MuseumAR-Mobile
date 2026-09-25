@@ -12,12 +12,16 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  openPayOsCheckout,
   useMyTickets,
   usePendingOrder,
 } from '../../src/hooks/useTicketing';
 import { useLanguage } from '../../src/i18n/LanguageContext';
 import { apiService, MyTicketDto, PendingOrderDto } from '../../src/services/apiService';
+import {
+  expiresAtMsFromPending,
+  secondsLeftUntil,
+  seedPaymentCheckoutFromPending,
+} from '../../src/services/paymentCheckoutSession';
 import { C } from '../../src/theme/colors';
 import { formatVisitorDate } from '../../src/utils/visitorLists';
 
@@ -27,11 +31,17 @@ function statusStyle(
 ): { color: string; label: string } {
   const s = (status ?? '').toLowerCase();
   if (s === 'pending') return { color: C.accent, label: t('ticket.statusPending') };
-  if (s === 'paid') return { color: C.success, label: t('ticket.statusPaid') };
-  if (s.includes('cancel')) return { color: C.danger, label: t('ticket.statusCancelled') };
-  if (s.includes('used') || s.includes('đã dùng')) {
-    return { color: C.textMuted, label: status ?? '—' };
+  if (s === 'paid' || s === 'active') return { color: C.success, label: t('ticket.statusPaid') };
+  if (s === 'used' || s.includes('used') || s.includes('đã dùng')) {
+    return { color: C.textMuted, label: t('ticket.statusUsed') };
   }
+  if (s === 'refund_pending' || s.includes('refund_pending')) {
+    return { color: C.warning, label: t('ticket.statusRefundPending') };
+  }
+  if (s === 'refunded' || s.includes('refunded')) {
+    return { color: C.danger, label: t('ticket.statusRefunded') };
+  }
+  if (s.includes('cancel')) return { color: C.danger, label: t('ticket.statusCancelled') };
   return { color: C.textMuted, label: status ?? '—' };
 }
 
@@ -54,23 +64,24 @@ function PendingOrderCard({
   busy: boolean;
 }) {
   const { t, lang } = useLanguage();
-  const [secondsLeft, setSecondsLeft] = useState(
-    Math.max(0, pending.remainingSeconds ?? 0),
+  const [secondsLeft, setSecondsLeft] = useState(() =>
+    secondsLeftUntil(expiresAtMsFromPending(pending)),
   );
 
   useEffect(() => {
-    setSecondsLeft(Math.max(0, pending.remainingSeconds ?? 0));
+    setSecondsLeft(secondsLeftUntil(expiresAtMsFromPending(pending)));
   }, [pending.orderCode, pending.remainingSeconds, pending.expiresAt]);
 
   useEffect(() => {
     if (secondsLeft <= 0) return;
+    const deadline = expiresAtMsFromPending(pending);
     const id = setInterval(() => {
-      setSecondsLeft((prev) => Math.max(0, prev - 1));
+      setSecondsLeft(secondsLeftUntil(deadline));
     }, 1000);
     return () => clearInterval(id);
-  }, [secondsLeft > 0, pending.orderCode]);
+  }, [secondsLeft > 0, pending.orderCode, pending.expiresAt, pending.remainingSeconds]);
 
-  const canResume = Boolean(pending.checkoutUrl) && secondsLeft > 0;
+  const canResume = Boolean(pending.orderCode) && secondsLeft > 0;
   const expired = secondsLeft <= 0;
 
   return (
@@ -123,7 +134,7 @@ function PendingOrderCard({
               ) : (
                 <>
                   <MaterialCommunityIcons name="credit-card-outline" size={16} color={C.onAccent} />
-                  <Text style={styles.resumeBtnText}>{t('ticket.resumePayos')}</Text>
+                  <Text style={styles.resumeBtnText}>{t('ticket.continuePayment')}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -239,79 +250,44 @@ export default function MyTicketsScreen() {
   }, [pending?.orderCode, pending?.remainingSeconds, refreshAll]);
 
   const handleResumePending = async () => {
-    if (!pending?.checkoutUrl) return;
-    const orderCode = pending.orderCode;
-    const checkoutUrl = pending.checkoutUrl;
+    if (!pending?.orderCode) return;
     const paidBefore = tickets.filter(
       (item) => (item.status ?? '').toLowerCase() === 'paid',
     ).length;
-
     setBusy(true);
     try {
-      try {
-        const check = await apiService.checkPayment(orderCode);
-        if (check.data?.isPaid) {
-          await refreshAll();
-          router.push({
-            pathname: '/payment-result',
-            params: {
-              status: 'success',
-              orderCode,
-              paidBefore: String(Math.max(0, paidBefore - 1)),
-            },
-          });
-          return;
-        }
-        if (check.data?.isCancelled) {
-          await refreshAll();
-          return;
-        }
-      } catch {
-        // still try checkout
-      }
-
-      const outcome = await openPayOsCheckout(checkoutUrl);
-
-      if (outcome === 'cancel') {
-        try {
-          await apiService.cancelOrder(orderCode);
-        } catch {
-          // ignore
-        }
+      const status = await apiService.checkPayment(pending.orderCode);
+      if (status.data?.isPaid) {
         await refreshAll();
-        router.push({
-          pathname: '/payment-result',
-          params: { status: 'cancel', orderCode, paidBefore: String(paidBefore) },
-        });
-        return;
-      }
-
-      if (outcome === 'success') {
-        router.push({
+        router.replace({
           pathname: '/payment-result',
           params: {
             status: 'success',
-            orderCode,
+            orderCode: pending.orderCode,
             paidBefore: String(paidBefore),
-            checkoutUrl,
           },
         });
         return;
       }
-
-      await refreshAll();
-      router.push({
-        pathname: '/payment-result',
-        params: {
-          status: 'pending',
-          orderCode,
-          paidBefore: String(paidBefore),
-          checkoutUrl,
-        },
-      });
+      if (status.data?.isCancelled) {
+        await refreshAll();
+        return;
+      }
+    } catch {
+      // still open checkout
     } finally {
       setBusy(false);
     }
+
+    // FE-style: keep QR/checkout in client session, then open checkout (replace to avoid stack loops).
+    seedPaymentCheckoutFromPending(pending, paidBefore);
+    router.replace({
+      pathname: '/payment-checkout',
+      params: {
+        orderCode: pending.orderCode,
+        paidBefore: String(paidBefore),
+      },
+    });
   };
 
   const handleCancelPending = () => {

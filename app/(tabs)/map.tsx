@@ -30,14 +30,9 @@ export default function MuseumAboutScreen() {
 
         {/* ── Header ───────────────────────────────────────────────────── */}
         <View style={styles.header}>
-          <View>
-            <Text style={styles.headerLabel}>{t('museum.about')}</Text>
-            <Text style={styles.title}>{t('museum.title')}</Text>
-            <Text style={styles.subtitle}>{museumLocationLabel(museum) || museum.city}</Text>
-          </View>
-          <View style={[styles.headerIcon, { backgroundColor: C.accentDark, borderColor: C.accent + '40' }]}>
-            <MaterialCommunityIcons name="bank-outline" size={22} color={C.accent} />
-          </View>
+          <Text style={styles.headerLabel}>{t('museum.about')}</Text>
+          <Text style={styles.title}>{t('museum.title')}</Text>
+          <Text style={styles.subtitle}>{museumLocationLabel(museum) || museum.city}</Text>
         </View>
 
         {/* ── Hero card ────────────────────────────────────────────────── */}
@@ -185,17 +180,11 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 8 },
 
   header: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
     paddingHorizontal: 20, paddingTop: 10, paddingBottom: 18,
   },
   headerLabel: { fontSize: 10, fontWeight: '700', color: C.accent, letterSpacing: 2, marginBottom: 3 },
   title:    { fontSize: 26, fontWeight: '800', color: C.textPrimary, letterSpacing: -0.4 },
-  subtitle: { fontSize: 13, color: C.textSecondary, marginTop: 4 },
-  headerIcon: {
-    width: 46, height: 46, borderRadius: 23,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, marginTop: 4,
-  },
+  subtitle: { fontSize: 13, color: C.textSecondary, marginTop: 4, lineHeight: 18 },
 
   heroCard: {
     marginHorizontal: 20, marginBottom: 20,

@@ -13,8 +13,7 @@ import { useMuseumProfile } from '../../src/hooks/useMuseumProfile';
 import { useMuseumSyncCheck } from '../../src/hooks/useMuseumSyncCheck';
 import { usePackages } from '../../src/hooks/usePackages';
 import { useRooms } from '../../src/hooks/useRooms';
-import { useRoutes } from '../../src/hooks/useRoutes';
-import { useNavigationGraph } from '../../src/hooks/useNavigationGraph';
+import { useRoutes, localizeTourStops } from '../../src/hooks/useRoutes';
 import { useTrackAction } from '../../src/hooks/useTrackAction';
 import { AnalyticsAction } from '../../src/constants/analyticsActions';
 import { useVisitorLocation } from '../../src/context/VisitorLocationContext';
@@ -96,6 +95,8 @@ type FloorPlanProps = {
   destRoomId?: number | null;
   tourNextRoomId?: number | null;
   hereFloorNumber?: number | null;
+  /** Nav phase drives which floor tab is shown (origin → continuation). */
+  viewFloorNumber?: number | null;
 };
 
 function FloorPlan({
@@ -108,6 +109,7 @@ function FloorPlan({
   destRoomId,
   tourNextRoomId,
   hereFloorNumber,
+  viewFloorNumber,
 }: FloorPlanProps) {
   const { t } = useLanguage();
   const useRoomsLayout = rooms.length > 0;
@@ -132,19 +134,35 @@ function FloorPlan({
   const [activeFloorNum, setActiveFloorNum] = useState(
     floors[0]?.floorNumber ?? 1,
   );
+  const [userPickedFloor, setUserPickedFloor] = useState(false);
+  const lastHereFloor = useRef<number | null>(null);
+
+  // Follow "you are here" only when location first appears / changes — not after user picks a floor.
+  useEffect(() => {
+    if (hereFloorNumber == null) return;
+    if (hereFloorNumber === lastHereFloor.current) return;
+    lastHereFloor.current = hereFloorNumber;
+    if (!userPickedFloor && viewFloorNumber == null) {
+      setActiveFloorNum(hereFloorNumber);
+    }
+  }, [hereFloorNumber, userPickedFloor, viewFloorNumber]);
+
+  // Navigation phase (Continue to Floor N) overrides the visible floor.
+  useEffect(() => {
+    if (viewFloorNumber != null && viewFloorNumber > 0) {
+      setActiveFloorNum(viewFloorNumber);
+      setUserPickedFloor(false);
+    }
+  }, [viewFloorNumber]);
 
   useEffect(() => {
-    if (hereFloorNumber != null) {
-      setActiveFloorNum(hereFloorNumber);
-      return;
-    }
     if (
       floors.length > 0 &&
       !floors.some((f) => f.floorNumber === activeFloorNum)
     ) {
       setActiveFloorNum(floors[0].floorNumber);
     }
-  }, [floors, activeFloorNum, hereFloorNumber]);
+  }, [floors, activeFloorNum]);
 
   const floorRooms = sortedRooms.filter((r) => r.floorNumber === activeFloorNum);
 
@@ -163,7 +181,10 @@ function FloorPlan({
               <TouchableOpacity
                 key={f.floorNumber}
                 style={[fpS.floorTab, active && { borderColor: accentColor + '70' }]}
-                onPress={() => setActiveFloorNum(f.floorNumber)}
+                onPress={() => {
+                  setUserPickedFloor(true);
+                  setActiveFloorNum(f.floorNumber);
+                }}
               >
                 {active && (
                   <LinearGradient
@@ -442,6 +463,35 @@ type MuseumMapImagesProps = {
 /** Horizontal padding of the screen content — page width must exclude it. */
 const CONTENT_PADDING = 20;
 
+function MapPhotoSlide({ uri, width }: { uri: string; width: number }) {
+  const [aspect, setAspect] = useState(2.2);
+
+  useEffect(() => {
+    if (!uri) return;
+    Image.getSize(
+      uri,
+      (w, h) => {
+        if (w > 0 && h > 0) setAspect(w / h);
+      },
+      () => {},
+    );
+  }, [uri]);
+
+  return (
+    <View style={[mapImgS.frame, { width }]}>
+      <Image
+        source={{ uri }}
+        style={{ width: '100%', aspectRatio: aspect }}
+        resizeMode="contain"
+        onLoad={(e) => {
+          const { width: iw, height: ih } = e.nativeEvent.source;
+          if (iw > 0 && ih > 0) setAspect(iw / ih);
+        }}
+      />
+    </View>
+  );
+}
+
 function MuseumMapImages({ maps, accentColor }: MuseumMapImagesProps) {
   const { width: windowWidth } = useWindowDimensions();
   const pageWidth = Math.max(1, windowWidth - CONTENT_PADDING * 2);
@@ -511,13 +561,7 @@ function MuseumMapImages({ maps, accentColor }: MuseumMapImagesProps) {
         }}
       >
         {maps.map((m) => (
-          <View key={m.id} style={[mapImgS.frame, { width: pageWidth }]}>
-            <Image
-              source={{ uri: m.imageUrl }}
-              style={mapImgS.image}
-              resizeMode="contain"
-            />
-          </View>
+          <MapPhotoSlide key={m.id} uri={m.imageUrl ?? ''} width={pageWidth} />
         ))}
       </ScrollView>
 
@@ -552,11 +596,6 @@ const mapImgS = StyleSheet.create({
     backgroundColor: C.bgElevated,
     borderWidth: 1,
     borderColor: C.border,
-    minHeight: 220,
-  },
-  image: {
-    width: '100%',
-    height: 280,
   },
   footer: { marginTop: 8, alignItems: 'center', gap: 8 },
   caption: {
@@ -579,6 +618,7 @@ export default function MuseumDetailScreen() {
   const { location } = useVisitorLocation();
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [navTargetRoomId, setNavTargetRoomId] = useState<number | null>(null);
+  const [navViewFloor, setNavViewFloor] = useState<number | null>(null);
   const { downloadPack, deletePack, getState } = useARPacks();
   const { checkSync } = useMuseumSyncCheck();
   const { packs: arPacks } = usePackages();
@@ -586,11 +626,6 @@ export default function MuseumDetailScreen() {
     useRoutes();
   const { maps, loading: mapsLoading } = useMaps();
   const { rooms } = useRooms(museumId > 0 ? museumId : null);
-  const {
-    waypointCount,
-    edgeCount,
-    hasGraph,
-  } = useNavigationGraph(museumId > 0 ? museumId : null);
   const { exhibitions, loading: exhibitionsLoading } = useExhibitions(
     museumId > 0 ? museumId : null,
   );
@@ -600,10 +635,11 @@ export default function MuseumDetailScreen() {
   const [startingRouteId, setStartingRouteId] = useState<number | null>(null);
 
   const routeStops = useMemo(
-    () => sortStops(activeRoute?.stops ?? []),
-    [activeRoute],
+    () => localizeTourStops(sortStops(activeRoute?.stops ?? []), lang),
+    [activeRoute, lang],
   );
   const routeMode = routeStops.length > 0;
+  const currentStop = routeMode ? routeStops[stopIndex] ?? null : null;
   const nextStop =
     routeMode && stopIndex < routeStops.length - 1
       ? routeStops[stopIndex + 1]
@@ -612,7 +648,11 @@ export default function MuseumDetailScreen() {
   const mapsWithImage = useMemo(
     () =>
       maps
-        .filter((m) => Boolean(m.imageUrl))
+        .filter((m) => {
+          if (!m.imageUrl) return false;
+          if (museumId <= 0 || m.museumId == null) return true;
+          return m.museumId === museumId;
+        })
         .sort((a, b) => {
           const fa = a.floorNumber;
           const fb = b.floorNumber;
@@ -621,10 +661,10 @@ export default function MuseumDetailScreen() {
           if (fa == null && fb != null) return 1;
           return a.id - b.id;
         }),
-    [maps],
+    [maps, museumId],
   );
   const hasMapImage = mapsWithImage.length > 0;
-  const showInteractivePlan = routeMode || Boolean(location) || navTargetRoomId != null || !hasMapImage;
+  const showInteractivePlan = !hasMapImage;
 
   /** Rooms for layout — fall back to unique rooms inferred from active route stops. */
   const layoutRooms = useMemo(() => {
@@ -672,12 +712,35 @@ export default function MuseumDetailScreen() {
     ? floors.find((f) => f.floorNumber === selectedRoom.floorNumber)
     : undefined;
 
+  const tourFromRoomId = resolveStopRoomId(currentStop, layoutRooms);
   const tourDestRoomId = resolveStopRoomId(nextStop, layoutRooms);
-  const destRoomId = navTargetRoomId;
+  /** Free pick overrides tour next; tour navigates current stop → next stop. */
+  const destRoomId = navTargetRoomId ?? tourDestRoomId;
   const destRoom = destRoomId != null
     ? layoutRooms.find((r) => r.id === destRoomId) ?? null
     : null;
-  const destHint = destRoom?.roomName ?? destRoom?.roomCode ?? null;
+  const tourFromRoom =
+    tourFromRoomId != null
+      ? layoutRooms.find((r) => r.id === tourFromRoomId) ?? null
+      : null;
+  const destHint = destRoom?.roomName ?? destRoom?.roomCode ?? nextStop?.exhibitName ?? null;
+  const guideFrom =
+    routeMode && !navTargetRoomId
+      ? {
+          roomId: tourFromRoomId,
+          roomName: tourFromRoom?.roomName ?? currentStop?.roomName,
+          roomCode: tourFromRoom?.roomCode ?? currentStop?.roomCode,
+        }
+      : location
+        ? {
+            roomId: location.roomId,
+            roomName: location.roomName,
+            roomCode: location.roomCode,
+          }
+        : null;
+  const showNavGuide = routeMode
+    ? Boolean(tourFromRoomId && (tourDestRoomId || navTargetRoomId))
+    : Boolean(location || destRoomId);
 
   const startRoute = async (route: TourRouteDto) => {
     setStartingRouteId(route.id);
@@ -693,6 +756,7 @@ export default function MuseumDetailScreen() {
       setActiveRoute({ ...detail, stops });
       setStopIndex(0);
       setNavTargetRoomId(null);
+      setNavViewFloor(null);
       track({
         actionType: AnalyticsAction.ROUTE_VIEW,
         museumId,
@@ -706,6 +770,7 @@ export default function MuseumDetailScreen() {
   const exitRoute = () => {
     setActiveRoute(null);
     setStopIndex(0);
+    setNavViewFloor(null);
   };
 
   return (
@@ -945,11 +1010,13 @@ export default function MuseumDetailScreen() {
                 onSelectRoom={(room) => {
                   setSelectedZone(room.roomName);
                   setNavTargetRoomId((prev) => (prev === room.id ? null : room.id));
+                  setNavViewFloor(null);
                 }}
                 hereRoomId={location?.roomId ?? null}
                 destRoomId={destRoomId}
                 tourNextRoomId={tourDestRoomId}
                 hereFloorNumber={location?.floorNumber ?? null}
+                viewFloorNumber={navViewFloor}
               />
             ) : (
               <MuseumMapImages maps={mapsWithImage} accentColor={museum.color} />
@@ -963,27 +1030,21 @@ export default function MuseumDetailScreen() {
                 routeName={activeRoute.name}
                 onPrev={() => {
                   setNavTargetRoomId(null);
+                  setNavViewFloor(null);
                   setStopIndex((i) => Math.max(0, i - 1));
                 }}
                 onNext={() => {
                   setNavTargetRoomId(null);
+                  setNavViewFloor(null);
                   setStopIndex((i) => Math.min(routeStops.length - 1, i + 1));
                 }}
                 onExit={exitRoute}
               />
             ) : null}
 
-            {location || destRoomId ? (
+            {showNavGuide ? (
               <NavigationGuideCard
-                from={
-                  location
-                    ? {
-                        roomId: location.roomId,
-                        roomName: location.roomName,
-                        roomCode: location.roomCode,
-                      }
-                    : null
-                }
+                from={guideFrom}
                 to={
                   destRoomId
                     ? {
@@ -996,11 +1057,13 @@ export default function MuseumDetailScreen() {
                 rooms={layoutRooms}
                 accentColor={museum.color}
                 destHint={destHint}
+                floorPhasesEnabled={!routeMode || navTargetRoomId != null}
+                onViewFloorChange={setNavViewFloor}
               />
             ) : null}
 
             {/* Selected zone info card — only when not in route mode */}
-            {!routeMode && selectedRoom && !hasMapImage ? (
+            {!routeMode && selectedRoom ? (
               <View style={[styles.zoneInfoCard, { borderColor: museum.color + '50' }]}>
                 <LinearGradient
                   colors={[museum.color + '10', 'transparent']}
@@ -1043,11 +1106,6 @@ export default function MuseumDetailScreen() {
             {!routeMode ? (
               <Text style={[styles.routeMeta, { marginTop: 8 }]}>
                 {t('museum.pickTourHint')}
-              </Text>
-            ) : null}
-            {hasGraph ? (
-              <Text style={[styles.routeMeta, { marginTop: 4 }]}>
-                {`${waypointCount} ${t('museum.graphWaypoints')} · ${edgeCount} ${t('museum.graphEdges')}`}
               </Text>
             ) : null}
           </View>

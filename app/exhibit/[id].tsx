@@ -44,8 +44,8 @@ export default function ExhibitDetailScreen() {
   const { setLocationFromScan } = useVisitorLocation();
   const exhibitId = parseNumericId(id);
   const museumId = parseNumericId(exhibit?.museumId);
-  const { hasAr, hasAudio, audioAsset } = useExhibitArAssets(exhibitId);
-  const arAvailable = hasAr || Boolean(exhibit?.arAvailable);
+  const { hasAr3d, hasAudio, audioAsset } = useExhibitArAssets(exhibitId);
+  const arAvailable = hasAr3d;
   const audioAvailable =
     hasAudio || Boolean(audioAsset?.url) || Boolean(exhibit?.audioUrl?.trim());
   const { packs, loading: packsLoading } = usePackages();
@@ -154,11 +154,6 @@ export default function ExhibitDetailScreen() {
       icon: 'ticket-outline',
       label: t('exhibit.ticket'),
       onPress: () => router.push('/(tabs)/ticket'),
-    },
-    {
-      icon: 'line-scan',
-      label: t('exhibit.arScan'),
-      onPress: () => router.push('/(tabs)/scan'),
     },
     {
       icon: bookmarked ? 'heart' : 'heart-outline',

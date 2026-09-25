@@ -8,6 +8,7 @@ import {
   resolveOfflineUri,
   thumbLogicalKey,
 } from '../services/offlineMedia';
+import { pickDisplayImageUrl, toAbsoluteMediaUrl } from './mobileImageUrl';
 import { pickLocalizedRow } from './pickLocalized';
 
 /** Bảng màu chủ đạo dùng khi backend không cung cấp màu cho hiện vật. */
@@ -19,6 +20,14 @@ export function pickTranslation(
   lang: AppLanguage | string = 'vi',
 ): ExhibitTranslationDto | undefined {
   return pickLocalizedRow(dto.translations, lang);
+}
+
+function readCategoryId(dto: ExhibitDto): number | undefined {
+  const raw = dto as ExhibitDto & { CategoryId?: unknown };
+  const value = raw.categoryId ?? raw.CategoryId;
+  if (value == null || value === '') return undefined;
+  const id = Number(value);
+  return Number.isFinite(id) && id > 0 ? id : undefined;
 }
 
 function readTagIds(dto: ExhibitDto): number[] {
@@ -45,15 +54,6 @@ function readTagIds(dto: ExhibitDto): number[] {
   return [];
 }
 
-/** Tách mô tả dài thành các đoạn transcript ngắn để hiển thị theo audio. */
-function splitTranscript(description?: string): string[] {
-  if (!description) return [];
-  return description
-    .split(/\n+|(?<=[.!?])\s+(?=[A-ZĐÀ-Ỹ])/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 0);
-}
-
 /**
  * Chuyển ExhibitDto (từ backend) sang ExhibitRecord (định dạng UI đang dùng).
  * Các trường không có trong DTO sẽ được điền giá trị mặc định hợp lý.
@@ -67,6 +67,7 @@ export function mapExhibitDtoToRecord(
   const color = COLOR_PALETTE[dto.id % COLOR_PALETTE.length];
   const description = tr?.description ?? '';
   const meta = dto.exhibitMetadata;
+  const categoryId = readCategoryId(dto);
 
   return {
     id: String(dto.id),
@@ -78,8 +79,14 @@ export function mapExhibitDtoToRecord(
         : (meta?.era ?? ''),
     category:
       categoryName ??
-      (dto.categoryId != null ? `Danh mục ${dto.categoryId}` : 'Hiện vật'),
-    categoryId: dto.categoryId,
+      (categoryId != null
+        ? lang === 'en'
+          ? `Category ${categoryId}`
+          : `Danh mục ${categoryId}`
+        : lang === 'en'
+          ? 'Exhibit'
+          : 'Hiện vật'),
+    categoryId,
     themeId: dto.themeId,
     tagIds: readTagIds(dto),
     origin: '',
@@ -87,17 +94,19 @@ export function mapExhibitDtoToRecord(
     description,
     arAvailable: Boolean(dto.arOverlayUrl || dto.arMarkerUrl),
     arOverlayUrl:
-      resolveOfflineUri(dto.arOverlayUrl, overlayLogicalKey(dto.id)) ?? dto.arOverlayUrl,
+      pickDisplayImageUrl(dto.arOverlayUrl, overlayLogicalKey(dto.id), {
+        preserveAlpha: true,
+      }) ?? dto.arOverlayUrl,
     arMarkerUrl:
-      resolveOfflineUri(dto.arMarkerUrl, markerLogicalKey(dto.id)) ?? dto.arMarkerUrl,
+      pickDisplayImageUrl(dto.arMarkerUrl, markerLogicalKey(dto.id)) ?? dto.arMarkerUrl,
     emoji: '🏺',
     color,
     audioUrl:
       resolveOfflineUri(tr?.audioUrl, audioLogicalKey(dto.id, String(lang))) ??
-      tr?.audioUrl ??
+      toAbsoluteMediaUrl(tr?.audioUrl) ??
       '',
     audioDuration: tr?.audioDuration ?? 0,
-    transcript: splitTranscript(description),
+    transcript: description.trim() ? [description.trim()] : [],
     highlights: (() => {
       const event =
         lang === 'en' && meta?.historicalEventEn?.trim()
@@ -106,7 +115,7 @@ export function mapExhibitDtoToRecord(
       return event ? [event] : [];
     })(),
     thumbnailUrl:
-      resolveOfflineUri(dto.thumbnailUrl, thumbLogicalKey(dto.id)) ?? dto.thumbnailUrl,
+      pickDisplayImageUrl(dto.thumbnailUrl, thumbLogicalKey(dto.id)) ?? dto.thumbnailUrl,
     roomId: dto.roomId ?? null,
     roomName: dto.roomName ?? null,
     roomCode: dto.roomCode ?? null,

@@ -7,12 +7,21 @@ import {
   CreateOrderRequest,
   CreateOrderResponse,
   getAuthErrorMessage,
+  isUnverifiedEmailError,
   MyTicketDto,
   PendingOrderDto,
   TicketTypeDto,
 } from '../services/apiService';
 import { useLanguage } from '../i18n/LanguageContext';
 import { ensureVisitorSynced } from '../services/ensureVisitorSynced';
+import {
+  expiresAtMsFromPending,
+  getPaymentCheckoutSession,
+  isPaymentCheckoutLocked,
+  pendingFromCheckoutSession,
+  pickBestQrCode,
+  setPaymentCheckoutSession,
+} from '../services/paymentCheckoutSession';
 import { getToken } from '../services/tokenStorage';
 
 async function isNetworkOffline(): Promise<boolean> {
@@ -212,6 +221,28 @@ export function useMyTickets() {
   return { tickets, loading, authRequired, error, refresh };
 }
 
+/**
+ * Confirm a specific order via GET /Payment/check-status/{orderCode}.
+ * Prefer this over "paid ticket count increased" — that false-positives when
+ * the user already has other Paid tickets and resume forgot paidBefore.
+ */
+export async function confirmOrderPayment(orderCode: string): Promise<{
+  isPaid: boolean;
+  isCancelled: boolean;
+}> {
+  const code = orderCode.trim();
+  if (!code) return { isPaid: false, isCancelled: false };
+  try {
+    const check = await apiService.checkPayment(code);
+    return {
+      isPaid: Boolean(check.data?.isPaid),
+      isCancelled: Boolean(check.data?.isCancelled),
+    };
+  } catch {
+    return { isPaid: false, isCancelled: false };
+  }
+}
+
 /** Active pending PayOS order — GET /Ticketing/pending-order. */
 export function usePendingOrder() {
   const { lang } = useLanguage();
@@ -229,8 +260,49 @@ export function usePendingOrder() {
     setError(null);
     try {
       await ensureVisitorSynced().catch(() => undefined);
+
+      // While QR checkout is open, do NOT call pending-order (regenerates PayOS link).
+      const locked = pendingFromCheckoutSession();
+      if (locked) {
+        const status = await confirmOrderPayment(locked.orderCode);
+        if (status.isPaid || status.isCancelled) {
+          setPending(null);
+          return;
+        }
+        setPending({
+          orderCode: locked.orderCode,
+          checkoutUrl: locked.checkoutUrl,
+          qrCode: locked.qrCode,
+          ticketTypeName: locked.ticketTypeName,
+          quantity: locked.quantity,
+          totalAmount: locked.totalAmount,
+          remainingSeconds: locked.remainingSeconds,
+          expiresAt: locked.expiresAt,
+        });
+        return;
+      }
+
       const response = await apiService.getPendingOrder(lang);
-      setPending(response.data ?? null);
+      let next = response.data ?? null;
+      if (next?.orderCode) {
+        const status = await confirmOrderPayment(next.orderCode);
+        if (status.isPaid || status.isCancelled) {
+          next = null;
+        } else if (!isPaymentCheckoutLocked(next.orderCode)) {
+          const prev = getPaymentCheckoutSession(next.orderCode);
+          setPaymentCheckoutSession({
+            orderCode: next.orderCode,
+            checkoutUrl: next.checkoutUrl ?? prev?.checkoutUrl ?? null,
+            qrCode: pickBestQrCode(next.qrCode, prev?.qrCode),
+            amount: next.totalAmount,
+            ticketTypeName: next.ticketTypeName,
+            quantity: next.quantity,
+            paidBefore: prev?.paidBefore,
+            expiresAtMs: expiresAtMsFromPending(next),
+          });
+        }
+      }
+      setPending(next);
     } catch (err: unknown) {
       setError(getAuthErrorMessage(err, 'Không thể tải đơn chờ thanh toán'));
       setPending(null);
@@ -246,15 +318,18 @@ export type CreateOrderSubmitResult =
   | {
       ok: true;
       order: CreateOrderResponse;
-      paymentOpened: boolean;
-      browserOutcome: PaymentBrowserOutcome;
       paidCountBefore: number;
     }
-  | { ok: false; authRequired?: boolean; message: string };
+  | {
+      ok: false;
+      authRequired?: boolean;
+      emailVerifyRequired?: boolean;
+      message: string;
+    };
 
 /**
- * Đặt vé + PayOS:
- * success → Paid screen | cancel → Payment/cancel | close → Pending (resume via pending-order)
+ * Create ticket order — does NOT open PayOS browser.
+ * Caller navigates to in-app payment-checkout with the order / pending data.
  */
 export function useCreateOrder() {
   const { lang, t } = useLanguage();
@@ -290,49 +365,34 @@ export function useCreateOrder() {
         const response = await apiService.createOrder(payload);
         const order = response.data;
         if (!order) {
-          return { ok: false, message: response.message || 'Đặt vé thất bại.' };
+          const message = response.message || 'Đặt vé thất bại.';
+          if (isUnverifiedEmailError(message)) {
+            return { ok: false, emailVerifyRequired: true, message };
+          }
+          return { ok: false, message };
         }
 
         const checkoutUrl = (order.checkoutUrl || order.paymentUrl || '').trim();
-        if (!checkoutUrl) {
+        if (!checkoutUrl && !order.qrCode) {
           return {
             ok: false,
             message:
               response.message ||
-              'Đơn đã tạo nhưng không nhận được link thanh toán PayOS.',
+              'Đơn đã tạo nhưng không nhận được link / QR thanh toán PayOS.',
           };
-        }
-
-        let browserOutcome = await openPayOsCheckout(checkoutUrl);
-
-        // If closed without redirect, webhook may still have paid — quick probe.
-        if (browserOutcome === 'pending') {
-          const probe = await waitForPaidTickets({
-            attempts: 4,
-            intervalMs: 1200,
-            minCountBefore: paidCountBefore,
-          });
-          if (probe.confirmed) browserOutcome = 'success';
-        }
-
-        if (browserOutcome === 'cancel' && order.orderCode) {
-          try {
-            await apiService.cancelOrder(order.orderCode);
-          } catch (cancelErr) {
-            console.warn('Payment/cancel failed:', cancelErr);
-          }
         }
 
         return {
           ok: true,
           order,
-          paymentOpened: true,
-          browserOutcome,
           paidCountBefore,
         };
       } catch (err: unknown) {
         const message = getAuthErrorMessage(err, 'Đặt vé thất bại. Vui lòng thử lại.');
         setError(message);
+        if (isUnverifiedEmailError(err) || isUnverifiedEmailError(message)) {
+          return { ok: false, emailVerifyRequired: true, message };
+        }
         return { ok: false, message };
       } finally {
         setSubmitting(false);
@@ -345,7 +405,10 @@ export function useCreateOrder() {
 }
 
 export function countPaidTickets(tickets: MyTicketDto[]): number {
-  return tickets.filter((t) => (t.status ?? '').toLowerCase() === 'paid').length;
+  return tickets.filter((t) => {
+    const s = (t.status ?? '').toLowerCase();
+    return s === 'paid' || s === 'used';
+  }).length;
 }
 
 /**
@@ -367,8 +430,23 @@ export async function resolveResumeCheckout(orderCode?: string): Promise<{
         return { orderCode, isPaid: false, isCancelled: true };
       }
     } catch {
-      // continue to pending-order
+      // continue
     }
+  }
+
+  const cached = getPaymentCheckoutSession(orderCode);
+  if (cached?.checkoutUrl || cached?.qrCode) {
+    return {
+      orderCode: cached.orderCode,
+      checkoutUrl: cached.checkoutUrl ?? undefined,
+      isPaid: false,
+      isCancelled: false,
+    };
+  }
+
+  // Avoid regenerating PayOS link while checkout UI is locked.
+  if (orderCode && isPaymentCheckoutLocked(orderCode)) {
+    return { orderCode, isPaid: false, isCancelled: false };
   }
 
   try {

@@ -10,18 +10,33 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
+  confirmOrderPayment,
   countPaidTickets,
-  openPayOsCheckout,
   resolveResumeCheckout,
   waitForPaidTickets,
 } from '../src/hooks/useTicketing';
+import { useLanguage } from '../src/i18n/LanguageContext';
 import { apiService, MyTicketDto } from '../src/services/apiService';
+import {
+  getPaymentCheckoutSession,
+  seedPaymentCheckoutFromPending,
+} from '../src/services/paymentCheckoutSession';
 import { C } from '../src/theme/colors';
 
 type UiStatus = 'checking' | 'paid' | 'pending' | 'cancel';
 
+type HintKey =
+  | 'payment.cancelHint'
+  | 'payment.pendingHint'
+  | 'payment.successHint'
+  | 'payment.expiredHint'
+  | 'payment.checkingHint'
+  | 'payment.notConfirmed'
+  | 'payment.cancelOrExpiredHint';
+
 export default function PaymentResultScreen() {
   const router = useRouter();
+  const { t } = useLanguage();
   const params = useLocalSearchParams<{
     status?: string | string[];
     orderCode?: string | string[];
@@ -58,39 +73,59 @@ export default function PaymentResultScreen() {
         : 'checking',
   );
   const [tickets, setTickets] = useState<MyTicketDto[]>([]);
-  const [hint, setHint] = useState('');
+  const [hintKey, setHintKey] = useState<HintKey>(
+    statusParam === 'cancel'
+      ? 'payment.cancelHint'
+      : statusParam === 'pending'
+        ? 'payment.pendingHint'
+        : 'payment.checkingHint',
+  );
   const [orderCode, setOrderCode] = useState(orderCodeParam);
   const [checkoutUrl, setCheckoutUrl] = useState(initialCheckout);
-  const [resuming, setResuming] = useState(false);
   const started = useRef(false);
 
   useEffect(() => {
     if (statusParam === 'cancel') {
       setUiStatus('cancel');
-      setHint('Bạn đã huỷ thanh toán. Vé được đánh dấu Cancelled.');
+      setHintKey('payment.cancelHint');
       return;
     }
 
     if (statusParam === 'pending') {
       setUiStatus('pending');
-      setHint(
-        'Bạn đã đóng PayOS chưa thanh toán. Đơn vẫn Pending (tối đa 15 phút) — mở lại PayOS hoặc xem Vé của tôi.',
-      );
-      void resolveResumeCheckout(orderCodeParam || undefined).then((res) => {
+      setHintKey('payment.pendingHint');
+      void (async () => {
+        if (orderCodeParam) {
+          const status = await confirmOrderPayment(orderCodeParam);
+          if (status.isPaid) {
+            const list = (await apiService.getMyTickets()).data ?? [];
+            setTickets(list);
+            setUiStatus('paid');
+            setHintKey('payment.successHint');
+            return;
+          }
+          if (status.isCancelled) {
+            setCheckoutUrl('');
+            setUiStatus('cancel');
+            setHintKey('payment.expiredHint');
+            return;
+          }
+        }
+        const res = await resolveResumeCheckout(orderCodeParam || undefined);
         if (res.isPaid) {
           setUiStatus('paid');
-          setHint('Thanh toán thành công — vé đã sẵn sàng.');
+          setHintKey('payment.successHint');
           return;
         }
         if (res.isCancelled) {
           setCheckoutUrl('');
           setUiStatus('cancel');
-          setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
+          setHintKey('payment.expiredHint');
           return;
         }
         if (res.orderCode) setOrderCode(res.orderCode);
         if (res.checkoutUrl) setCheckoutUrl(res.checkoutUrl);
-      });
+      })();
       return;
     }
 
@@ -100,63 +135,89 @@ export default function PaymentResultScreen() {
     let cancelled = false;
     (async () => {
       setUiStatus('checking');
-      setHint('Đang kiểm tra vé đã thanh toán…');
+      setHintKey('payment.checkingHint');
 
       if (orderCodeParam) {
-        try {
-          const check = await apiService.checkPayment(orderCodeParam);
-          if (check.data?.isPaid) {
+        // Quick first check — if still unpaid after a "success" deep-link, bail to My tickets.
+        const first = await confirmOrderPayment(orderCodeParam);
+        if (cancelled) return;
+        if (first.isPaid) {
+          const list = (await apiService.getMyTickets()).data ?? [];
+          if (cancelled) return;
+          setTickets(list);
+          setUiStatus('paid');
+          setHintKey('payment.successHint');
+          return;
+        }
+        if (first.isCancelled) {
+          setUiStatus('cancel');
+          setHintKey('payment.cancelOrExpiredHint');
+          return;
+        }
+        if (statusParam === 'success' || statusParam === 'paid') {
+          // Not actually paid — don't sit on Checking…; let user resume QR from My tickets.
+          router.replace('/my-tickets');
+          return;
+        }
+
+        // Unknown / return-URL verify: short poll for webhook lag.
+        for (let i = 0; i < 8; i += 1) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const status = await confirmOrderPayment(orderCodeParam);
+          if (cancelled) return;
+          if (status.isPaid) {
             const list = (await apiService.getMyTickets()).data ?? [];
             if (cancelled) return;
             setTickets(list);
             setUiStatus('paid');
-            setHint('Thanh toán thành công — vé đã sẵn sàng.');
+            setHintKey('payment.successHint');
             return;
           }
-          if (check.data?.isCancelled) {
-            if (cancelled) return;
+          if (status.isCancelled) {
             setUiStatus('cancel');
-            setHint('Thanh toán đã huỷ hoặc hết hạn.');
+            setHintKey('payment.cancelOrExpiredHint');
             return;
           }
-        } catch {
-          // fall through to poll my-tickets
+        }
+      } else {
+        // No order code — fall back to paid-count increase only.
+        const { tickets: list, confirmed } = await waitForPaidTickets({
+          attempts: 20,
+          intervalMs: 1500,
+          minCountBefore: paidBefore,
+        });
+        if (cancelled) return;
+        setTickets(list);
+        if (confirmed || countPaidTickets(list) > paidBefore) {
+          setUiStatus('paid');
+          setHintKey('payment.successHint');
+          return;
         }
       }
 
-      const { tickets: list, confirmed } = await waitForPaidTickets({
-        attempts: 20,
-        intervalMs: 1500,
-        minCountBefore: paidBefore,
-      });
-
       if (cancelled) return;
-      setTickets(list);
-
-      if (confirmed || countPaidTickets(list) > paidBefore) {
-        setUiStatus('paid');
-        setHint('Thanh toán thành công — vé đã sẵn sàng.');
+      // Still unpaid after "success" verify — don't trap user on Checking/Pending result.
+      if (statusParam === 'success' || statusParam === 'paid') {
+        router.replace('/my-tickets');
+        return;
+      }
+      setUiStatus('pending');
+      setHintKey('payment.notConfirmed');
+      const resume = await resolveResumeCheckout(orderCodeParam || undefined);
+      if (resume.isCancelled) {
+        setCheckoutUrl('');
+        setUiStatus('cancel');
+        setHintKey('payment.expiredHint');
       } else {
-        setUiStatus('pending');
-        setHint(
-          'Chưa xác nhận Paid. Bạn có thể mở lại PayOS hoặc kiểm tra Vé của tôi sau vài giây.',
-        );
-        const resume = await resolveResumeCheckout(orderCodeParam || undefined);
-        if (resume.isCancelled) {
-          setCheckoutUrl('');
-          setUiStatus('cancel');
-          setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
-        } else {
-          if (resume.orderCode) setOrderCode(resume.orderCode);
-          if (resume.checkoutUrl) setCheckoutUrl(resume.checkoutUrl);
-        }
+        if (resume.orderCode) setOrderCode(resume.orderCode);
+        if (resume.checkoutUrl) setCheckoutUrl(resume.checkoutUrl);
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [statusParam, paidBefore, orderCodeParam]);
+  }, [statusParam, paidBefore, orderCodeParam, router]);
 
   // Poll Payment/check-status while pending (matches WebBE 15-min window + webhook lag).
   useEffect(() => {
@@ -166,24 +227,20 @@ export default function PaymentResultScreen() {
 
     let cancelled = false;
     const tick = async () => {
-      try {
-        const check = await apiService.checkPayment(code);
+      const status = await confirmOrderPayment(code);
+      if (cancelled) return;
+      if (status.isPaid) {
+        const list = (await apiService.getMyTickets()).data ?? [];
         if (cancelled) return;
-        if (check.data?.isPaid) {
-          const list = (await apiService.getMyTickets()).data ?? [];
-          if (cancelled) return;
-          setTickets(list);
-          setUiStatus('paid');
-          setHint('Thanh toán thành công — vé đã sẵn sàng.');
-          return;
-        }
-        if (check.data?.isCancelled) {
-          setCheckoutUrl('');
-          setUiStatus('cancel');
-          setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
-        }
-      } catch {
-        // keep pending
+        setTickets(list);
+        setUiStatus('paid');
+        setHintKey('payment.successHint');
+        return;
+      }
+      if (status.isCancelled) {
+        setCheckoutUrl('');
+        setUiStatus('cancel');
+        setHintKey('payment.expiredHint');
       }
     };
 
@@ -198,62 +255,45 @@ export default function PaymentResultScreen() {
   }, [uiStatus, orderCode, orderCodeParam]);
 
   const handleResume = async () => {
-    setResuming(true);
-    try {
-      const resume = await resolveResumeCheckout(orderCode || undefined);
-      if (resume.isPaid) {
-        const list = (await apiService.getMyTickets()).data ?? [];
-        setTickets(list);
-        setUiStatus('paid');
-        setHint('Thanh toán thành công — vé đã sẵn sàng.');
-        return;
-      }
-      if (resume.isCancelled) {
-        setCheckoutUrl('');
-        setUiStatus('cancel');
-        setHint('Link PayOS đã hết hạn hoặc đơn đã huỷ.');
-        return;
-      }
+    const code = orderCode || orderCodeParam;
+    if (!code) return;
 
-      const url = resume.checkoutUrl || checkoutUrl;
-      if (resume.orderCode) setOrderCode(resume.orderCode);
-      if (resume.checkoutUrl) setCheckoutUrl(resume.checkoutUrl);
-      if (!url) return;
-
-      const before = countPaidTickets(tickets);
-      const outcome = await openPayOsCheckout(url);
-      if (outcome === 'success') {
-        const probe = await waitForPaidTickets({
-          attempts: 12,
-          intervalMs: 1500,
-          minCountBefore: before,
-        });
-        setTickets(probe.tickets);
-        setUiStatus(probe.confirmed ? 'paid' : 'pending');
-        setHint(
-          probe.confirmed
-            ? 'Thanh toán thành công — vé đã sẵn sàng.'
-            : 'Đang chờ xác nhận thanh toán…',
-        );
-      } else if (outcome === 'cancel') {
-        const code = resume.orderCode || orderCode;
-        if (code) {
-          try {
-            await apiService.cancelOrder(code);
-          } catch {
-            // ignore
-          }
+    // Prefer cached session; if missing, fetch pending once then open checkout.
+    let cached = getPaymentCheckoutSession(code);
+    if (!cached?.qrCode && !cached?.checkoutUrl) {
+      try {
+        const res = await apiService.getPendingOrder();
+        if (res.data?.orderCode) {
+          cached = seedPaymentCheckoutFromPending(res.data, paidBefore);
         }
-        setUiStatus('cancel');
-        setHint('Bạn đã huỷ thanh toán. Vé được đánh dấu Cancelled.');
-        setCheckoutUrl('');
-      } else {
-        setUiStatus('pending');
-        setHint('Vẫn chưa thanh toán. Bạn có thể mở lại PayOS hoặc vào Vé của tôi.');
+      } catch {
+        // open checkout anyway — screen will cold-fetch if needed
       }
-    } finally {
-      setResuming(false);
+    } else if (cached) {
+      seedPaymentCheckoutFromPending(
+        {
+          orderCode: cached.orderCode,
+          checkoutUrl: cached.checkoutUrl,
+          qrCode: cached.qrCode,
+          totalAmount: cached.amount,
+          ticketTypeName: cached.ticketTypeName,
+          quantity: cached.quantity,
+          expiresAt:
+            cached.expiresAtMs != null
+              ? new Date(cached.expiresAtMs).toISOString()
+              : undefined,
+        },
+        paidBefore,
+      );
     }
+
+    router.replace({
+      pathname: '/payment-checkout',
+      params: {
+        orderCode: code,
+        paidBefore: String(paidBefore),
+      },
+    });
   };
 
   const icon =
@@ -276,40 +316,48 @@ export default function PaymentResultScreen() {
 
   const title =
     uiStatus === 'paid'
-      ? 'Thanh toán thành công'
+      ? t('payment.success')
       : uiStatus === 'cancel'
-        ? 'Thanh toán đã huỷ'
+        ? t('payment.cancelled')
         : uiStatus === 'pending'
-          ? 'Chờ thanh toán'
-          : 'Đang kiểm tra…';
+          ? t('payment.pending')
+          : t('payment.checking');
 
-  const canResume = uiStatus === 'pending' && Boolean(checkoutUrl);
+  const canResume = uiStatus === 'pending' && Boolean(orderCode || orderCodeParam);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <View style={styles.body}>
-        {uiStatus === 'checking' || resuming ? (
+        {uiStatus === 'checking' ? (
           <ActivityIndicator size="large" color={C.accent} />
         ) : (
           <MaterialCommunityIcons name={icon as 'check-circle'} size={64} color={iconColor} />
         )}
 
         <Text style={styles.title}>{title}</Text>
-        {orderCode ? <Text style={styles.orderCode}>Mã đơn: {orderCode}</Text> : null}
-        <Text style={styles.hint}>{hint}</Text>
+        {orderCode ? (
+          <Text style={styles.orderCode}>
+            {t('payment.orderCodeLine').replace('{code}', orderCode)}
+          </Text>
+        ) : null}
+        <Text style={styles.hint}>{t(hintKey)}</Text>
 
         {uiStatus === 'paid' && tickets.length > 0 ? (
-          <Text style={styles.meta}>{countPaidTickets(tickets)} vé đã thanh toán</Text>
+          <Text style={styles.meta}>
+            {t('payment.paidCount').replace(
+              '{count}',
+              String(countPaidTickets(tickets)),
+            )}
+          </Text>
         ) : null}
 
         <View style={styles.actions}>
           {canResume ? (
             <TouchableOpacity
               style={styles.primaryBtn}
-              onPress={handleResume}
-              disabled={resuming}
+              onPress={() => void handleResume()}
             >
-              <Text style={styles.primaryText}>Tiếp tục thanh toán PayOS</Text>
+              <Text style={styles.primaryText}>{t('payment.resume')}</Text>
             </TouchableOpacity>
           ) : null}
 
@@ -318,7 +366,7 @@ export default function PaymentResultScreen() {
             onPress={() => router.replace('/my-tickets')}
           >
             <Text style={canResume ? styles.secondaryText : styles.primaryText}>
-              Vé của tôi
+              {t('payment.myTickets')}
             </Text>
           </TouchableOpacity>
 
@@ -326,7 +374,7 @@ export default function PaymentResultScreen() {
             style={styles.secondaryBtn}
             onPress={() => router.replace('/(tabs)/ticket')}
           >
-            <Text style={styles.secondaryText}>Về mua vé</Text>
+            <Text style={styles.secondaryText}>{t('payment.backToBuy')}</Text>
           </TouchableOpacity>
         </View>
       </View>

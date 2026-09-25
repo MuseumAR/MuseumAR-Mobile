@@ -14,20 +14,6 @@ import { museumLocationLabel } from '../../src/utils/museumLocation';
 import { formatExhibitionDates } from '../../src/utils/exhibitionDates';
 
 const TAXONOMY_COLORS = ['#C89B3C', '#A67C2D', '#0369A1', '#047857', '#9A6F1F', '#B45309'];
-const CATEGORY_ICONS = [
-  'view-grid-outline',
-  'home-city-outline',
-  'treasure-chest',
-  'palette-outline',
-  'book-open-page-variant',
-] as const;
-const THEME_ICONS = [
-  'tag-outline',
-  'lightning-bolt',
-  'shield-outline',
-  'crown',
-  'compass-outline',
-] as const;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -38,10 +24,10 @@ export default function HomeScreen() {
   const { featured: featuredExhibitions, exhibitions } = useExhibitions(
     museumId > 0 ? museumId : null,
   );
-  const { categories, themes } = useCategories();
+  const { categories, themes, categoryNameById } = useCategories();
 
   const quickActions = [
-    { label: t('home.quickScan'), icon: 'line-scan' as const, route: '/(tabs)/scan' as const },
+    { label: t('home.quickTicket'), icon: 'ticket-outline' as const, route: '/(tabs)/ticket' as const },
     { label: t('home.quickAudio'), icon: 'headphones' as const, route: '/(tabs)/explore' as const },
     { label: t('home.quickSaved'), icon: 'bookmark-outline' as const, route: '/bookmarks' as const },
   ];
@@ -55,7 +41,6 @@ export default function HomeScreen() {
           id: c.id,
           name: c.name as string,
           color: TAXONOMY_COLORS[i % TAXONOMY_COLORS.length],
-          icon: CATEGORY_ICONS[i % CATEGORY_ICONS.length],
         })),
     [categories],
   );
@@ -66,10 +51,15 @@ export default function HomeScreen() {
         id: theme.id,
         name: theme.name,
         color: TAXONOMY_COLORS[(i + 2) % TAXONOMY_COLORS.length],
-        icon: THEME_ICONS[i % THEME_ICONS.length],
       })),
     [themes],
   );
+
+  const themeNameById = useMemo(() => {
+    const map = new Map<number, string>();
+    themes.forEach((theme) => map.set(theme.id, theme.name));
+    return map;
+  }, [themes]);
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -213,6 +203,10 @@ export default function HomeScreen() {
           ) : (
             featuredExhibitions.map((item) => {
               const dates = formatExhibitionDates(item, lang);
+              const themeName =
+                item.themeId != null
+                  ? themeNameById.get(Number(item.themeId))
+                  : undefined;
               return (
                 <TouchableOpacity
                   key={item.id}
@@ -232,7 +226,9 @@ export default function HomeScreen() {
                     )}
                   </View>
                   <View style={styles.artifactInfo}>
-                    <Text style={styles.artifactCategory}>{t('content.exhibition')}</Text>
+                    <Text style={styles.artifactCategory}>
+                      {themeName || t('content.exhibition')}
+                    </Text>
                     <Text style={styles.artifactTitle} numberOfLines={1}>
                       {item.name || `Exhibition #${item.id}`}
                     </Text>
@@ -259,7 +255,12 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
 
-          {featuredExhibits.map((item) => (
+          {featuredExhibits.map((item) => {
+            const categoryName =
+              item.categoryId != null
+                ? categoryNameById.get(Number(item.categoryId))
+                : undefined;
+            return (
             <TouchableOpacity
               key={item.id}
               style={styles.artifactRow}
@@ -279,7 +280,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.artifactInfo}>
-                <Text style={styles.artifactCategory}>{item.category}</Text>
+                <Text style={styles.artifactCategory}>
+                  {categoryName || item.category}
+                </Text>
                 <Text style={styles.artifactTitle} numberOfLines={1}>{item.title}</Text>
                 <Text style={styles.artifactEra}>{item.era}</Text>
               </View>
@@ -293,7 +296,8 @@ export default function HomeScreen() {
                 <MaterialCommunityIcons name="chevron-right" size={18} color={C.textMuted} />
               </View>
             </TouchableOpacity>
-          ))}
+            );
+          })}
         </View>
 
         {/* ── Explore by Category ────────────────────────────────────────── */}
@@ -328,8 +332,12 @@ export default function HomeScreen() {
                     colors={[item.color + '18', item.color + '08']}
                     style={styles.eraGradient}
                   >
-                    <MaterialCommunityIcons name={item.icon} size={22} color={item.color} />
-                    <Text style={[styles.eraName, { color: item.color }]} numberOfLines={2}>
+                    <Text
+                      style={[styles.eraName, { color: item.color }]}
+                      numberOfLines={3}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.78}
+                    >
                       {item.name}
                     </Text>
                   </LinearGradient>
@@ -371,8 +379,12 @@ export default function HomeScreen() {
                     colors={[item.color + '18', item.color + '08']}
                     style={styles.eraGradient}
                   >
-                    <MaterialCommunityIcons name={item.icon} size={22} color={item.color} />
-                    <Text style={[styles.eraName, { color: item.color }]} numberOfLines={2}>
+                    <Text
+                      style={[styles.eraName, { color: item.color }]}
+                      numberOfLines={3}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.78}
+                    >
                       {item.name}
                     </Text>
                   </LinearGradient>
@@ -384,8 +396,8 @@ export default function HomeScreen() {
 
         {/* ── Quick Actions ──────────────────────────────────────────────── */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>{t('home.quickScan').toUpperCase()}</Text>
-          <Text style={[styles.sectionTitle, { marginBottom: 16 }]}>{t('home.heroCta')}</Text>
+          <Text style={styles.sectionLabel}>{t('home.shortcut').toUpperCase()}</Text>
+          <Text style={[styles.sectionTitle, { marginBottom: 16 }]}>{t('home.quickAccess')}</Text>
 
           <View style={styles.actionsGrid}>
             {quickActions.map((action) => (
@@ -623,20 +635,27 @@ const styles = StyleSheet.create({
 
   eraGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   eraCard: {
-    width: '30%',
-    flexGrow: 1,
+    width: '47%',
+    maxWidth: '47%',
+    flexGrow: 0,
     borderRadius: 14,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: C.border,
   },
   eraGradient: {
-    paddingVertical: 16,
-    paddingHorizontal: 12,
+    minHeight: 72,
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
   },
-  eraName: { fontSize: 11, fontWeight: '700', textAlign: 'center', letterSpacing: 0.2 },
+  eraName: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+    lineHeight: 16,
+  },
   taxonomyEmpty: { fontSize: 13, color: C.textMuted, paddingVertical: 8 },
 
   actionsGrid: { flexDirection: 'row', gap: 12 },

@@ -88,6 +88,10 @@ function RootStack() {
           options={{ headerShown: true, headerTitle: t('settings.title'), ...headerOpts }}
         />
         <Stack.Screen
+          name="payment-checkout"
+          options={{ headerShown: false, presentation: 'modal' }}
+        />
+        <Stack.Screen
           name="payment-result"
           options={{ headerShown: false, presentation: 'modal' }}
         />

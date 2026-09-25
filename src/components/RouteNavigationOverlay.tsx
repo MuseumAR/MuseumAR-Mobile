@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -10,9 +10,23 @@ import {
 } from 'react-native';
 import { useNavigationRoute } from '../hooks/useNavigationRoute';
 import { useLanguage } from '../i18n/LanguageContext';
-import type { RoomDto, TourRouteStopDto } from '../services/apiService';
+import type {
+  NavigationInstructionDto,
+  NavigationWaypointDto,
+  RoomDto,
+  TourRouteStopDto,
+} from '../services/apiService';
 import { C } from '../theme/colors';
-import { actionIconName } from '../utils/navigationGraph';
+import {
+  floorsAlongRoute,
+  originFloorFromRoute,
+  routeHasFloorChange,
+  sliceInstructionsForFloorIndex,
+  slicePathWaypointsForFloor,
+} from '../utils/floorNavPhase';
+import {
+  actionIconName,
+} from '../utils/navigationGraph';
 import {
   arrowIconName,
   buildTourHops,
@@ -74,42 +88,6 @@ function PulsingArrow({
         color={color}
       />
     </Animated.View>
-  );
-}
-
-function DirectionPads({
-  active,
-  accentColor,
-}: {
-  active: CardinalDirection[];
-  accentColor: string;
-}) {
-  const dirs: CardinalDirection[] = ['up', 'left', 'right', 'down'];
-  return (
-    <View style={s.padGrid}>
-      {dirs.map((d) => {
-        const on = active.includes(d);
-        return (
-          <View
-            key={d}
-            style={[
-              s.pad,
-              d === 'up' && s.padUp,
-              d === 'down' && s.padDown,
-              d === 'left' && s.padLeft,
-              d === 'right' && s.padRight,
-              on && { borderColor: accentColor, backgroundColor: accentColor + '22' },
-            ]}
-          >
-            <MaterialCommunityIcons
-              name={arrowIconName(d)}
-              size={18}
-              color={on ? accentColor : C.textMuted}
-            />
-          </View>
-        );
-      })}
-    </View>
   );
 }
 
@@ -262,19 +240,32 @@ type GuideRoom = {
   roomCode?: string | null;
 };
 
-/** Indoor path = graph only. from = scanned room, to = chosen room. */
+/** Indoor path = graph only.
+ * scan (default): QR locate → pick room; cross-floor uses Continue phases.
+ * tour: Next/Prev between itinerary rooms — always show the full room→room path.
+ */
 export function NavigationGuideCard({
   from,
   to,
   rooms,
   accentColor,
   destHint,
+  floorPhasesEnabled = true,
+  onViewFloorChange,
+  onPhaseInstructionsChange,
+  onPhasePathChange,
 }: {
   from: GuideRoom | null;
   to: GuideRoom | null;
   rooms: RoomDto[];
   accentColor: string;
   destHint?: string | null;
+  /** false = tour itinerary: full path, no stair Continue steps */
+  floorPhasesEnabled?: boolean;
+  /** Active floor map follows the current Continue floor step (FE-style). */
+  onViewFloorChange?: (floorNumber: number | null) => void;
+  onPhaseInstructionsChange?: (steps: NavigationInstructionDto[]) => void;
+  onPhasePathChange?: (waypoints: NavigationWaypointDto[]) => void;
 }) {
   const { t, lang } = useLanguage();
   const fromId = from?.roomId ?? null;
@@ -284,8 +275,6 @@ export function NavigationGuideCard({
   const {
     route,
     instructions,
-    primaryDirection,
-    padDirections,
     hasPath,
     sameRoom,
     missingRooms,
@@ -299,20 +288,147 @@ export function NavigationGuideCard({
       ? {
           roomCode: from.roomCode,
           roomName: from.roomName,
+          floorNumber: undefined as number | undefined,
         }
       : null);
   const toRoom =
     rooms.find((r) => r.id === toId) ??
-    (to ? { roomCode: to.roomCode, roomName: to.roomName } : null);
+    (to
+      ? {
+          roomCode: to.roomCode,
+          roomName: to.roomName,
+          floorNumber: undefined as number | undefined,
+        }
+      : null);
+
+  const pathWaypoints = route?.pathWaypoints ?? [];
+  const crossesFloors =
+    floorPhasesEnabled &&
+    hasPath &&
+    routeHasFloorChange(instructions, pathWaypoints);
+
+  const pathFloors = useMemo(
+    () => floorsAlongRoute(pathWaypoints, instructions),
+    [pathWaypoints, instructions],
+  );
+
+  const [floorIndex, setFloorIndex] = useState(0);
+
+  useEffect(() => {
+    setFloorIndex(0);
+  }, [fromId, toId]);
+
+  useEffect(() => {
+    if (pathFloors.length === 0) {
+      setFloorIndex(0);
+      return;
+    }
+    setFloorIndex((i) => Math.min(i, pathFloors.length - 1));
+  }, [pathFloors.length]);
+
+  const safeFloorIndex =
+    pathFloors.length > 0
+      ? Math.max(0, Math.min(floorIndex, pathFloors.length - 1))
+      : 0;
+
+  const phaseInstructions = useMemo(
+    () =>
+      crossesFloors
+        ? sliceInstructionsForFloorIndex(instructions, safeFloorIndex)
+        : instructions,
+    [crossesFloors, instructions, safeFloorIndex],
+  );
+
+  const currentFloor = pathFloors[safeFloorIndex] ?? null;
+
+  const phasePath = useMemo(
+    () =>
+      crossesFloors
+        ? slicePathWaypointsForFloor(pathWaypoints, currentFloor)
+        : pathWaypoints,
+    [crossesFloors, pathWaypoints, currentFloor],
+  );
+
+  const nextFloor =
+    crossesFloors && safeFloorIndex < pathFloors.length - 1
+      ? pathFloors[safeFloorIndex + 1] ?? null
+      : null;
+  const prevFloor =
+    crossesFloors && safeFloorIndex > 0
+      ? pathFloors[safeFloorIndex - 1] ?? null
+      : null;
+  const isLastFloor =
+    !crossesFloors || safeFloorIndex >= pathFloors.length - 1;
+
+  const originFloor = useMemo(
+    () =>
+      originFloorFromRoute(
+        pathWaypoints,
+        instructions,
+        fromRoom && 'floorNumber' in fromRoom
+          ? (fromRoom as RoomDto).floorNumber
+          : null,
+      ),
+    [pathWaypoints, instructions, fromRoom],
+  );
+
+  const destFloor = useMemo(() => {
+    if (pathFloors.length > 0) return pathFloors[pathFloors.length - 1];
+    return toRoom && 'floorNumber' in toRoom
+      ? (toRoom as RoomDto).floorNumber ?? null
+      : null;
+  }, [pathFloors, toRoom]);
+
+  const viewFloor = useMemo(() => {
+    if (!floorPhasesEnabled) {
+      // Tour: follow the destination room’s floor when the hop crosses floors.
+      return destFloor ?? originFloor;
+    }
+    if (crossesFloors && currentFloor != null) return currentFloor;
+    return originFloor ?? destFloor;
+  }, [
+    floorPhasesEnabled,
+    crossesFloors,
+    currentFloor,
+    originFloor,
+    destFloor,
+  ]);
+
+  const onViewFloorChangeRef = useRef(onViewFloorChange);
+  onViewFloorChangeRef.current = onViewFloorChange;
+  const onPhaseInstructionsChangeRef = useRef(onPhaseInstructionsChange);
+  onPhaseInstructionsChangeRef.current = onPhaseInstructionsChange;
+  const onPhasePathChangeRef = useRef(onPhasePathChange);
+  onPhasePathChangeRef.current = onPhasePathChange;
+
+  useEffect(() => {
+    onViewFloorChangeRef.current?.(viewFloor);
+  }, [viewFloor]);
+
+  useEffect(() => {
+    onPhaseInstructionsChangeRef.current?.(phaseInstructions);
+  }, [phaseInstructions]);
+
+  useEffect(() => {
+    onPhasePathChangeRef.current?.(phasePath);
+  }, [phasePath]);
 
   const distanceLabel =
     route && route.totalDistance > 0 ? `${route.totalDistance} m` : null;
 
   let body: ReactNode;
   if (!fromId) {
-    body = <Text style={s.instruction}>{t('nav.scanToLocate')}</Text>;
+    body = (
+      <Text style={s.instruction}>
+        {floorPhasesEnabled ? t('nav.scanToLocate') : t('route.noRoom')}
+      </Text>
+    );
   } else if (!toId) {
-    body = <Text style={s.instruction}>{t('nav.pickDestination')}</Text>;
+    body = (
+      <Text style={s.instruction}>
+        {floorPhasesEnabled ? t('nav.pickDestination') : t('route.finished')}
+      </Text>
+    );
   } else if (loading) {
     body = (
       <View style={s.loadingRow}>
@@ -326,12 +442,59 @@ export function NavigationGuideCard({
     body = <Text style={s.instruction}>{t('route.noRoom')}</Text>;
   } else if (error) {
     body = <Text style={s.instruction}>{error}</Text>;
-  } else if (hasPath && instructions.length > 0) {
+  } else if (hasPath && phaseInstructions.length > 0) {
     body = (
       <>
         {distanceLabel ? <Text style={s.distance}>{distanceLabel}</Text> : null}
-        {instructions.map((step, i) => (
-          <View key={`${step.waypointId}-${i}`} style={s.stepRow}>
+        {crossesFloors && pathFloors.length > 1 ? (
+          <View style={s.floorChipWrap}>
+            <Text style={s.phaseHint}>
+              {t('nav.floorsAlongPath')
+                .replace('{count}', String(pathFloors.length))
+                .replace(
+                  '{floors}',
+                  pathFloors.map((f) => `T${f}`).join(' → '),
+                )}
+            </Text>
+            <View style={s.floorChipRow}>
+              {pathFloors.map((floor, idx) => {
+                const active = idx === safeFloorIndex;
+                return (
+                  <TouchableOpacity
+                    key={`floor-${floor}-${idx}`}
+                    style={[
+                      s.floorChip,
+                      active && {
+                        backgroundColor: accentColor,
+                        borderColor: accentColor,
+                      },
+                    ]}
+                    onPress={() => setFloorIndex(idx)}
+                    activeOpacity={0.85}
+                  >
+                    <Text
+                      style={[
+                        s.floorChipText,
+                        active && { color: C.onAccent },
+                      ]}
+                    >
+                      {t('nav.floorChip').replace('{floor}', String(floor))}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
+        {crossesFloors ? (
+          <Text style={s.phaseHint}>
+            {isLastFloor
+              ? t('nav.phaseContinueHint')
+              : t('nav.phaseOriginHint')}
+          </Text>
+        ) : null}
+        {phaseInstructions.map((step, i) => (
+          <View key={`${step.waypointId}-${step.stepIndex}-${i}`} style={s.stepRow}>
             <MaterialCommunityIcons
               name={actionIconName(step.action)}
               size={18}
@@ -340,8 +503,29 @@ export function NavigationGuideCard({
             <Text style={s.stepText}>{step.instruction}</Text>
           </View>
         ))}
-        {padDirections.length > 0 ? (
-          <DirectionPads active={padDirections} accentColor={accentColor} />
+        {crossesFloors && nextFloor != null ? (
+          <TouchableOpacity
+            style={[s.continueBtn, { backgroundColor: accentColor }]}
+            onPress={() => setFloorIndex((i) => i + 1)}
+            activeOpacity={0.85}
+          >
+            <MaterialCommunityIcons name="stairs" size={18} color={C.onAccent} />
+            <Text style={s.continueBtnText}>
+              {t('nav.continueToFloor').replace('{floor}', String(nextFloor))}
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+        {crossesFloors && prevFloor != null ? (
+          <TouchableOpacity
+            style={s.backFloorBtn}
+            onPress={() => setFloorIndex((i) => Math.max(0, i - 1))}
+            activeOpacity={0.85}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={16} color={accentColor} />
+            <Text style={[s.backFloorText, { color: accentColor }]}>
+              {t('nav.backToOriginFloor').replace('{floor}', String(prevFloor))}
+            </Text>
+          </TouchableOpacity>
         ) : null}
       </>
     );
@@ -369,25 +553,21 @@ export function NavigationGuideCard({
       <View style={s.markers}>
         <View style={s.markerCol}>
           <Text style={s.markerEmoji}>📍</Text>
-          <Text style={s.markerLabel}>{t('route.youAreHere')}</Text>
+          <Text style={s.markerLabel}>
+            {floorPhasesEnabled ? t('route.youAreHere') : t('route.fromRoom')}
+          </Text>
           <Text style={[s.markerRoom, { color: C.success }]} numberOfLines={2}>
             {fromId ? formatRoomRef(fromRoom, lang) : t('nav.unknownHere')}
           </Text>
         </View>
         <View style={s.arrowMid}>
-          {primaryDirection ? (
-            <PulsingArrow direction={primaryDirection} color={accentColor} size={32} />
-          ) : (
-            <MaterialCommunityIcons
-              name="vector-polyline"
-              size={24}
-              color={accentColor}
-            />
-          )}
+          <PulsingArrow direction="arrow-right" color={accentColor} size={32} />
         </View>
         <View style={s.markerCol}>
           <Text style={s.markerEmoji}>🎯</Text>
-          <Text style={s.markerLabel}>{t('nav.destination')}</Text>
+          <Text style={s.markerLabel}>
+            {floorPhasesEnabled ? t('nav.destination') : t('route.toRoom')}
+          </Text>
           <Text style={[s.markerRoom, { color: accentColor }]} numberOfLines={2}>
             {toId ? formatRoomRef(toRoom, lang) : '—'}
           </Text>
@@ -466,6 +646,27 @@ const s = StyleSheet.create({
   },
   loadingRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   distance: { fontSize: 12, color: C.textMuted, fontWeight: '600' },
+  phaseHint: {
+    fontSize: 12,
+    color: C.textSecondary,
+    fontWeight: '600',
+    lineHeight: 18,
+  },
+  floorChipWrap: { gap: 8 },
+  floorChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  floorChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.bgElevated,
+  },
+  floorChipText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: C.textPrimary,
+  },
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   stepText: {
     flex: 1,
@@ -474,27 +675,25 @@ const s = StyleSheet.create({
     color: C.textPrimary,
     fontWeight: '600',
   },
-  padGrid: {
-    width: 120,
-    height: 120,
-    alignSelf: 'center',
-    position: 'relative',
-  },
-  pad: {
-    position: 'absolute',
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: C.border,
-    backgroundColor: C.bgElevated,
+  continueBtn: {
+    marginTop: 4,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
   },
-  padUp: { top: 0, left: 42 },
-  padDown: { bottom: 0, left: 42 },
-  padLeft: { top: 42, left: 0 },
-  padRight: { top: 42, right: 0 },
+  continueBtnText: { fontSize: 14, fontWeight: '800', color: C.onAccent },
+  backFloorBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+  },
+  backFloorText: { fontSize: 13, fontWeight: '700' },
   navRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   navBtn: {
     flexDirection: 'row',
